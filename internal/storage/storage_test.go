@@ -109,6 +109,22 @@ func TestStoreBasicCRUDPaths(t *testing.T) {
 		t.Fatalf("unexpected task events: %+v", events)
 	}
 
+	comment, err := store.AddTaskComment(ctx, task.ID, "Needs review.")
+	if err != nil {
+		t.Fatalf("AddTaskComment returned error: %v", err)
+	}
+	if comment.Type != "commented" || comment.Body != "Needs review." {
+		t.Fatalf("unexpected task comment event: %+v", comment)
+	}
+
+	events, err = store.ListTaskEvents(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListTaskEvents returned error after comment: %v", err)
+	}
+	if len(events) != 3 || events[2].Type != "commented" {
+		t.Fatalf("unexpected task events after comment: %+v", events)
+	}
+
 	source, err := store.UpsertContextSource(ctx, UpsertContextSourceInput{
 		ProjectID: project.ID,
 		Kind:      "filesystem",

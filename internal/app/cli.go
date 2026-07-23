@@ -87,6 +87,8 @@ func (c *CLI) Run(ctx context.Context, args []string) error {
 		return c.runConfig(ctx, opts)
 	case "project":
 		return c.runProject(ctx, opts)
+	case "task":
+		return c.runTask(ctx, opts)
 	default:
 		return &UsageError{
 			Message: fmt.Sprintf("unknown command %q\n\nRun '%s help' for usage.", opts.args[0], commandName),
@@ -238,5 +240,6 @@ Commands:
   init      Initialize local runtime storage
   config    Inspect runtime configuration
   project   Register and inspect local projects
+  task      Create and update project tasks
   help      Show this help
 `

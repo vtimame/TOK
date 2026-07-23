@@ -371,6 +371,48 @@ func (s *Store) ListTaskEvents(ctx context.Context, taskID int64) ([]TaskEvent, 
 	return events, nil
 }
 
+func (s *Store) AddTaskComment(ctx context.Context, taskID int64, body string) (TaskEvent, error) {
+	if taskID <= 0 {
+		return TaskEvent{}, errors.New("task id is required")
+	}
+	if strings.TrimSpace(body) == "" {
+		return TaskEvent{}, errors.New("task comment body is required")
+	}
+
+	if _, err := s.GetTask(ctx, taskID); err != nil {
+		return TaskEvent{}, err
+	}
+
+	res, err := s.db.ExecContext(ctx, `
+		INSERT INTO task_events (task_id, type, body)
+		VALUES (?, 'commented', ?)
+	`, taskID, body)
+	if err != nil {
+		return TaskEvent{}, fmt.Errorf("record task comment event: %w", err)
+	}
+
+	id, err := res.LastInsertId()
+	if err != nil {
+		return TaskEvent{}, fmt.Errorf("read task comment event id: %w", err)
+	}
+
+	return s.GetTaskEvent(ctx, id)
+}
+
+func (s *Store) GetTaskEvent(ctx context.Context, id int64) (TaskEvent, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, task_id, type, body, from_status, to_status, created_at
+		FROM task_events
+		WHERE id = ?
+	`, id)
+
+	var event TaskEvent
+	if err := row.Scan(&event.ID, &event.TaskID, &event.Type, &event.Body, &event.FromStatus, &event.ToStatus, &event.CreatedAt); err != nil {
+		return TaskEvent{}, err
+	}
+	return event, nil
+}
+
 func (s *Store) UpsertContextSource(ctx context.Context, input UpsertContextSourceInput) (ContextSource, error) {
 	if input.ProjectID <= 0 {
 		return ContextSource{}, errors.New("context source project id is required")

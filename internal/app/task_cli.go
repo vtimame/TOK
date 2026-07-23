@@ -1,0 +1,380 @@
+package app
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"io"
+	"strconv"
+	"strings"
+
+	"s26.sh/tok/internal/storage"
+)
+
+func (c *CLI) runTask(ctx context.Context, opts runtimeOptions) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if len(opts.args) < 2 {
+		return &UsageError{
+			Message: fmt.Sprintf("missing task command\n\nRun '%s help' for usage.", commandName),
+			Code:    2,
+		}
+	}
+
+	_, _, store, err := c.runtimeStore(ctx, opts)
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+
+	switch opts.args[1] {
+	case "create":
+		return c.runTaskCreate(ctx, store, opts.args[2:])
+	case "list":
+		return c.runTaskList(ctx, store, opts.args[2:])
+	case "show":
+		return c.runTaskShow(ctx, store, opts.args[2:])
+	case "status":
+		return c.runTaskStatus(ctx, store, opts.args[2:])
+	case "comment":
+		return c.runTaskComment(ctx, store, opts.args[2:])
+	default:
+		return &UsageError{
+			Message: fmt.Sprintf("unknown task command %q\n\nRun '%s help' for usage.", opts.args[1], commandName),
+			Code:    2,
+		}
+	}
+}
+
+type taskCreateOptions struct {
+	projectName        string
+	title              string
+	description        string
+	acceptanceCriteria string
+	notes              string
+}
+
+func (c *CLI) runTaskCreate(ctx context.Context, store *storage.Store, args []string) error {
+	createOpts, err := parseTaskCreateOptions(args)
+	if err != nil {
+		return err
+	}
+
+	project, err := getProjectForTask(ctx, store, createOpts.projectName)
+	if err != nil {
+		return err
+	}
+
+	task, err := store.CreateTask(ctx, storage.CreateTaskInput{
+		ProjectID:          project.ID,
+		Title:              createOpts.title,
+		Description:        createOpts.description,
+		AcceptanceCriteria: createOpts.acceptanceCriteria,
+		Notes:              createOpts.notes,
+	})
+	if err != nil {
+		return err
+	}
+
+	printTask(c.out, task)
+	return nil
+}
+
+func (c *CLI) runTaskList(ctx context.Context, store *storage.Store, args []string) error {
+	projectName, err := parseRequiredProjectOption(args, "task list")
+	if err != nil {
+		return err
+	}
+
+	project, err := getProjectForTask(ctx, store, projectName)
+	if err != nil {
+		return err
+	}
+
+	tasks, err := store.ListTasks(ctx, project.ID)
+	if err != nil {
+		return err
+	}
+	if len(tasks) == 0 {
+		fmt.Fprintln(c.out, "no tasks")
+		return nil
+	}
+
+	fmt.Fprintln(c.out, "id\tstatus\ttitle")
+	for _, task := range tasks {
+		fmt.Fprintf(c.out, "%d\t%s\t%s\n", task.ID, task.Status, task.Title)
+	}
+	return nil
+}
+
+func (c *CLI) runTaskShow(ctx context.Context, store *storage.Store, args []string) error {
+	if len(args) != 1 {
+		return &UsageError{Message: "task show requires a task id", Code: 2}
+	}
+
+	taskID, err := parseTaskID(args[0])
+	if err != nil {
+		return err
+	}
+
+	task, err := store.GetTask(ctx, taskID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("task not found: %d", taskID)
+		}
+		return err
+	}
+
+	events, err := store.ListTaskEvents(ctx, task.ID)
+	if err != nil {
+		return err
+	}
+
+	printTask(c.out, task)
+	printTaskEvents(c.out, events)
+	return nil
+}
+
+func (c *CLI) runTaskStatus(ctx context.Context, store *storage.Store, args []string) error {
+	if len(args) != 2 {
+		return &UsageError{Message: "task status requires a task id and status", Code: 2}
+	}
+
+	taskID, err := parseTaskID(args[0])
+	if err != nil {
+		return err
+	}
+
+	task, err := store.UpdateTaskStatus(ctx, taskID, args[1])
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("task not found: %d", taskID)
+		}
+		return err
+	}
+
+	printTask(c.out, task)
+	return nil
+}
+
+type taskCommentOptions struct {
+	taskID int64
+	body   string
+}
+
+func (c *CLI) runTaskComment(ctx context.Context, store *storage.Store, args []string) error {
+	commentOpts, err := parseTaskCommentOptions(args)
+	if err != nil {
+		return err
+	}
+
+	event, err := store.AddTaskComment(ctx, commentOpts.taskID, commentOpts.body)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("task not found: %d", commentOpts.taskID)
+		}
+		return err
+	}
+
+	printTaskEvent(c.out, event)
+	return nil
+}
+
+func parseTaskCreateOptions(args []string) (taskCreateOptions, error) {
+	var opts taskCreateOptions
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--project":
+			i++
+			if i >= len(args) {
+				return taskCreateOptions{}, &UsageError{Message: "--project requires a value", Code: 2}
+			}
+			opts.projectName = args[i]
+		case strings.HasPrefix(arg, "--project="):
+			opts.projectName = strings.TrimPrefix(arg, "--project=")
+			if opts.projectName == "" {
+				return taskCreateOptions{}, &UsageError{Message: "--project requires a value", Code: 2}
+			}
+		case arg == "--title":
+			i++
+			if i >= len(args) {
+				return taskCreateOptions{}, &UsageError{Message: "--title requires a value", Code: 2}
+			}
+			opts.title = args[i]
+		case strings.HasPrefix(arg, "--title="):
+			opts.title = strings.TrimPrefix(arg, "--title=")
+			if opts.title == "" {
+				return taskCreateOptions{}, &UsageError{Message: "--title requires a value", Code: 2}
+			}
+		case arg == "--description":
+			i++
+			if i >= len(args) {
+				return taskCreateOptions{}, &UsageError{Message: "--description requires a value", Code: 2}
+			}
+			opts.description = args[i]
+		case strings.HasPrefix(arg, "--description="):
+			opts.description = strings.TrimPrefix(arg, "--description=")
+		case arg == "--acceptance-criteria":
+			i++
+			if i >= len(args) {
+				return taskCreateOptions{}, &UsageError{Message: "--acceptance-criteria requires a value", Code: 2}
+			}
+			opts.acceptanceCriteria = args[i]
+		case strings.HasPrefix(arg, "--acceptance-criteria="):
+			opts.acceptanceCriteria = strings.TrimPrefix(arg, "--acceptance-criteria=")
+		case arg == "--notes":
+			i++
+			if i >= len(args) {
+				return taskCreateOptions{}, &UsageError{Message: "--notes requires a value", Code: 2}
+			}
+			opts.notes = args[i]
+		case strings.HasPrefix(arg, "--notes="):
+			opts.notes = strings.TrimPrefix(arg, "--notes=")
+		default:
+			return taskCreateOptions{}, &UsageError{Message: fmt.Sprintf("unknown task create option %q", arg), Code: 2}
+		}
+	}
+
+	opts.projectName = strings.TrimSpace(opts.projectName)
+	opts.title = strings.TrimSpace(opts.title)
+	if opts.projectName == "" {
+		return taskCreateOptions{}, &UsageError{Message: "task create requires --project", Code: 2}
+	}
+	if opts.title == "" {
+		return taskCreateOptions{}, &UsageError{Message: "task create requires --title", Code: 2}
+	}
+
+	return opts, nil
+}
+
+func parseRequiredProjectOption(args []string, command string) (string, error) {
+	var projectName string
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--project":
+			i++
+			if i >= len(args) {
+				return "", &UsageError{Message: "--project requires a value", Code: 2}
+			}
+			projectName = args[i]
+		case strings.HasPrefix(arg, "--project="):
+			projectName = strings.TrimPrefix(arg, "--project=")
+			if projectName == "" {
+				return "", &UsageError{Message: "--project requires a value", Code: 2}
+			}
+		default:
+			return "", &UsageError{Message: fmt.Sprintf("unknown %s option %q", command, arg), Code: 2}
+		}
+	}
+
+	projectName = strings.TrimSpace(projectName)
+	if projectName == "" {
+		return "", &UsageError{Message: command + " requires --project", Code: 2}
+	}
+
+	return projectName, nil
+}
+
+func parseTaskCommentOptions(args []string) (taskCommentOptions, error) {
+	if len(args) == 0 {
+		return taskCommentOptions{}, &UsageError{Message: "task comment requires a task id", Code: 2}
+	}
+
+	taskID, err := parseTaskID(args[0])
+	if err != nil {
+		return taskCommentOptions{}, err
+	}
+
+	var body string
+	for i := 1; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--body":
+			i++
+			if i >= len(args) {
+				return taskCommentOptions{}, &UsageError{Message: "--body requires a value", Code: 2}
+			}
+			body = args[i]
+		case strings.HasPrefix(arg, "--body="):
+			body = strings.TrimPrefix(arg, "--body=")
+			if body == "" {
+				return taskCommentOptions{}, &UsageError{Message: "--body requires a value", Code: 2}
+			}
+		default:
+			return taskCommentOptions{}, &UsageError{Message: fmt.Sprintf("unknown task comment option %q", arg), Code: 2}
+		}
+	}
+
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return taskCommentOptions{}, &UsageError{Message: "task comment requires --body", Code: 2}
+	}
+
+	return taskCommentOptions{taskID: taskID, body: body}, nil
+}
+
+func getProjectForTask(ctx context.Context, store *storage.Store, name string) (storage.Project, error) {
+	project, err := store.GetProject(ctx, name)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return storage.Project{}, fmt.Errorf("project not found: %s", name)
+		}
+		return storage.Project{}, err
+	}
+	return project, nil
+}
+
+func parseTaskID(value string) (int64, error) {
+	id, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || id <= 0 {
+		return 0, &UsageError{Message: fmt.Sprintf("invalid task id: %s", value), Code: 2}
+	}
+	return id, nil
+}
+
+func printTask(out io.Writer, task storage.Task) {
+	fmt.Fprintf(out, "id: %d\n", task.ID)
+	fmt.Fprintf(out, "project_id: %d\n", task.ProjectID)
+	fmt.Fprintf(out, "status: %s\n", task.Status)
+	fmt.Fprintf(out, "title: %s\n", task.Title)
+	fmt.Fprintf(out, "description: %s\n", task.Description)
+	fmt.Fprintf(out, "acceptance_criteria: %s\n", task.AcceptanceCriteria)
+	fmt.Fprintf(out, "notes: %s\n", task.Notes)
+	fmt.Fprintf(out, "created_at: %s\n", task.CreatedAt)
+	fmt.Fprintf(out, "updated_at: %s\n", task.UpdatedAt)
+}
+
+func printTaskEvents(out io.Writer, events []storage.TaskEvent) {
+	if len(events) == 0 {
+		fmt.Fprintln(out, "events: none")
+		return
+	}
+
+	fmt.Fprintln(out, "events:")
+	for _, event := range events {
+		fmt.Fprintf(out, "- id: %d type: %s", event.ID, event.Type)
+		if event.FromStatus != "" && event.ToStatus != "" {
+			fmt.Fprintf(out, " from: %s to: %s", event.FromStatus, event.ToStatus)
+		} else if event.ToStatus != "" {
+			fmt.Fprintf(out, " status: %s", event.ToStatus)
+		}
+		if event.Body != "" {
+			fmt.Fprintf(out, " body: %s", event.Body)
+		}
+		fmt.Fprintf(out, " created_at: %s\n", event.CreatedAt)
+	}
+}
+
+func printTaskEvent(out io.Writer, event storage.TaskEvent) {
+	fmt.Fprintf(out, "id: %d\n", event.ID)
+	fmt.Fprintf(out, "task_id: %d\n", event.TaskID)
+	fmt.Fprintf(out, "type: %s\n", event.Type)
+	fmt.Fprintf(out, "body: %s\n", event.Body)
+	fmt.Fprintf(out, "created_at: %s\n", event.CreatedAt)
+}
