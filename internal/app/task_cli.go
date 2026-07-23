@@ -39,6 +39,8 @@ func (c *CLI) runTask(ctx context.Context, opts runtimeOptions) error {
 		return c.runTaskShow(ctx, store, opts.args[2:])
 	case "status":
 		return c.runTaskStatus(ctx, store, opts.args[2:])
+	case "done":
+		return c.runTaskDone(ctx, store, opts.args[2:])
 	case "comment":
 		return c.runTaskComment(ctx, store, opts.args[2:])
 	case "dependency", "dep":
@@ -158,6 +160,32 @@ func (c *CLI) runTaskStatus(ctx context.Context, store *storage.Store, args []st
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("task not found: %d", taskID)
+		}
+		return err
+	}
+
+	printTask(c.out, task)
+	return nil
+}
+
+type taskDoneOptions struct {
+	taskID int64
+	note   string
+}
+
+func (c *CLI) runTaskDone(ctx context.Context, store *storage.Store, args []string) error {
+	doneOpts, err := parseTaskDoneOptions(args)
+	if err != nil {
+		return err
+	}
+
+	task, err := store.CompleteTask(ctx, doneOpts.taskID, doneOpts.note)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("task not found: %d", doneOpts.taskID)
+		}
+		if errors.Is(err, storage.ErrInvalidTaskTransition) {
+			return fmt.Errorf("task must be in_progress to complete")
 		}
 		return err
 	}
@@ -499,6 +527,44 @@ func parseTaskClaimOptions(args []string) (taskClaimOptions, error) {
 	}
 
 	return opts, nil
+}
+
+func parseTaskDoneOptions(args []string) (taskDoneOptions, error) {
+	if len(args) == 0 {
+		return taskDoneOptions{}, &UsageError{Message: "task done requires a task id", Code: 2}
+	}
+
+	taskID, err := parseTaskID(args[0])
+	if err != nil {
+		return taskDoneOptions{}, err
+	}
+
+	var note string
+	for i := 1; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--note":
+			i++
+			if i >= len(args) {
+				return taskDoneOptions{}, &UsageError{Message: "--note requires a value", Code: 2}
+			}
+			note = args[i]
+		case strings.HasPrefix(arg, "--note="):
+			note = strings.TrimPrefix(arg, "--note=")
+			if note == "" {
+				return taskDoneOptions{}, &UsageError{Message: "--note requires a value", Code: 2}
+			}
+		default:
+			return taskDoneOptions{}, &UsageError{Message: fmt.Sprintf("unknown task done option %q", arg), Code: 2}
+		}
+	}
+
+	note = strings.TrimSpace(note)
+	if note == "" {
+		return taskDoneOptions{}, &UsageError{Message: "task done requires --note", Code: 2}
+	}
+
+	return taskDoneOptions{taskID: taskID, note: note}, nil
 }
 
 func parseRequiredProjectOption(args []string, command string) (string, error) {

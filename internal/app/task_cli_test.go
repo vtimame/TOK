@@ -274,6 +274,71 @@ func TestCLITaskClaimRejectsBlockedTask(t *testing.T) {
 	}
 }
 
+func TestCLITaskDoneFlow(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	projectDir := t.TempDir()
+
+	projectCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	if err := projectCLI.Run(ctx, []string{"project", "add", projectDir, "--name", "tok"}); err != nil {
+		t.Fatalf("project add returned error: %v", err)
+	}
+
+	taskID := createTaskForTest(t, ctx, dataDir, "tok", "Finish workflow")
+
+	doneEarlyCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	err := doneEarlyCLI.Run(ctx, []string{"task", "done", strconv.FormatInt(taskID, 10), "--note", "too early"})
+	if err == nil || !strings.Contains(err.Error(), "task must be in_progress to complete") {
+		t.Fatalf("expected invalid transition error, got %v", err)
+	}
+
+	claimCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	if err := claimCLI.Run(ctx, []string{"task", "claim", "--project", "tok", strconv.FormatInt(taskID, 10)}); err != nil {
+		t.Fatalf("task claim returned error: %v", err)
+	}
+
+	var doneOut bytes.Buffer
+	doneCLI := newProjectTestCLI(dataDir, &doneOut)
+	if err := doneCLI.Run(ctx, []string{"task", "done", strconv.FormatInt(taskID, 10), "--note", "Implemented and tests pass."}); err != nil {
+		t.Fatalf("task done returned error: %v", err)
+	}
+	if !strings.Contains(doneOut.String(), "status: done") {
+		t.Fatalf("unexpected task done output:\n%s", doneOut.String())
+	}
+
+	var showOut bytes.Buffer
+	showCLI := newProjectTestCLI(dataDir, &showOut)
+	if err := showCLI.Run(ctx, []string{"task", "show", strconv.FormatInt(taskID, 10)}); err != nil {
+		t.Fatalf("task show returned error: %v", err)
+	}
+	for _, want := range []string{
+		"type: claimed from: open to: in_progress",
+		"type: completed from: in_progress to: done",
+		"body: Implemented and tests pass.",
+	} {
+		if !strings.Contains(showOut.String(), want) {
+			t.Fatalf("task show output missing %q:\n%s", want, showOut.String())
+		}
+	}
+}
+
+func TestCLITaskDoneRejectsMissingNote(t *testing.T) {
+	cli := newProjectTestCLI(t.TempDir(), &bytes.Buffer{})
+
+	err := cli.Run(context.Background(), []string{"task", "done", "1"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	var usageErr *UsageError
+	if !errors.As(err, &usageErr) {
+		t.Fatalf("expected UsageError, got %T: %v", err, err)
+	}
+	if usageErr.Code != 2 || !strings.Contains(usageErr.Message, "requires --note") {
+		t.Fatalf("unexpected usage error: %+v", usageErr)
+	}
+}
+
 func TestCLITaskCreateRejectsMissingTitle(t *testing.T) {
 	cli := newProjectTestCLI(t.TempDir(), &bytes.Buffer{})
 

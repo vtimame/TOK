@@ -20,8 +20,10 @@ import (
 const DatabaseFileName = "tok.db"
 
 var (
-	ErrNoReadyTask  = errors.New("no ready task")
-	ErrTaskNotReady = errors.New("task is not ready to claim")
+	ErrNoReadyTask             = errors.New("no ready task")
+	ErrTaskNotReady            = errors.New("task is not ready to claim")
+	ErrInvalidTaskTransition   = errors.New("invalid task status transition")
+	ErrTaskCompletionNoteEmpty = errors.New("task completion note is required")
 )
 
 //go:embed migrations/*.sql
@@ -366,6 +368,59 @@ func (s *Store) UpdateTaskStatus(ctx context.Context, id int64, status string) (
 
 	if err := tx.Commit(); err != nil {
 		return Task{}, fmt.Errorf("commit update task status transaction: %w", err)
+	}
+
+	return s.GetTask(ctx, id)
+}
+
+func (s *Store) CompleteTask(ctx context.Context, id int64, note string) (Task, error) {
+	note = strings.TrimSpace(note)
+	if id <= 0 {
+		return Task{}, errors.New("task id is required")
+	}
+	if note == "" {
+		return Task{}, ErrTaskCompletionNoteEmpty
+	}
+
+	current, err := s.GetTask(ctx, id)
+	if err != nil {
+		return Task{}, err
+	}
+	if current.Status != "in_progress" {
+		return Task{}, ErrInvalidTaskTransition
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Task{}, fmt.Errorf("begin complete task transaction: %w", err)
+	}
+	defer rollback(tx)
+
+	res, err := tx.ExecContext(ctx, `
+		UPDATE tasks
+		SET status = 'done', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+		WHERE id = ? AND status = 'in_progress'
+	`, id)
+	if err != nil {
+		return Task{}, fmt.Errorf("complete task: %w", err)
+	}
+	completed, err := res.RowsAffected()
+	if err != nil {
+		return Task{}, fmt.Errorf("read completed task count: %w", err)
+	}
+	if completed == 0 {
+		return Task{}, ErrInvalidTaskTransition
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO task_events (task_id, type, body, from_status, to_status)
+		VALUES (?, 'completed', ?, 'in_progress', 'done')
+	`, id, note); err != nil {
+		return Task{}, fmt.Errorf("record task completion event: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return Task{}, fmt.Errorf("commit complete task transaction: %w", err)
 	}
 
 	return s.GetTask(ctx, id)

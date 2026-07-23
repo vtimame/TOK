@@ -304,6 +304,64 @@ func TestClaimTasksAtomicallyMarksReadyTaskInProgress(t *testing.T) {
 	}
 }
 
+func TestCompleteTaskRequiresInProgressAndRecordsCompletionEvent(t *testing.T) {
+	ctx := context.Background()
+	store := openInitializedTestStore(t)
+
+	project, err := store.CreateProject(ctx, CreateProjectInput{
+		Name:        "tok",
+		DisplayName: "TOK",
+		Path:        "/tmp/tok",
+	})
+	if err != nil {
+		t.Fatalf("CreateProject returned error: %v", err)
+	}
+
+	task, err := store.CreateTask(ctx, CreateTaskInput{
+		ProjectID: project.ID,
+		Title:     "Complete me",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask returned error: %v", err)
+	}
+
+	if _, err := store.CompleteTask(ctx, task.ID, "too early"); !errors.Is(err, ErrInvalidTaskTransition) {
+		t.Fatalf("expected invalid transition for open task, got %v", err)
+	}
+
+	claimed, err := store.ClaimTask(ctx, project.ID, task.ID)
+	if err != nil {
+		t.Fatalf("ClaimTask returned error: %v", err)
+	}
+	if claimed.Status != "in_progress" {
+		t.Fatalf("expected claimed task to be in_progress, got %+v", claimed)
+	}
+
+	done, err := store.CompleteTask(ctx, task.ID, "Implemented and tests pass.")
+	if err != nil {
+		t.Fatalf("CompleteTask returned error: %v", err)
+	}
+	if done.Status != "done" {
+		t.Fatalf("expected done task, got %+v", done)
+	}
+
+	events, err := store.ListTaskEvents(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListTaskEvents returned error: %v", err)
+	}
+	last := events[len(events)-1]
+	if last.Type != "completed" || last.Body != "Implemented and tests pass." || last.FromStatus != "in_progress" || last.ToStatus != "done" {
+		t.Fatalf("unexpected completion event: %+v", last)
+	}
+
+	if _, err := store.CompleteTask(ctx, task.ID, "again"); !errors.Is(err, ErrInvalidTaskTransition) {
+		t.Fatalf("expected invalid transition for done task, got %v", err)
+	}
+	if _, err := store.CompleteTask(ctx, task.ID, " "); !errors.Is(err, ErrTaskCompletionNoteEmpty) {
+		t.Fatalf("expected empty completion note error, got %v", err)
+	}
+}
+
 func TestReplaceIndexedDocumentsRebuildsProjectIndex(t *testing.T) {
 	ctx := context.Background()
 	store := openInitializedTestStore(t)
