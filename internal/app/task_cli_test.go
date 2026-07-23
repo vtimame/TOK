@@ -190,13 +190,87 @@ func TestCLITaskDependencyReadyAndClaimFlow(t *testing.T) {
 		t.Fatalf("unexpected dependency remove output:\n%s", removeOut.String())
 	}
 
-	var claimOut bytes.Buffer
-	claimCLI := newProjectTestCLI(dataDir, &claimOut)
-	if err := claimCLI.Run(ctx, []string{"task", "claim"}); err != nil {
-		t.Fatalf("task claim returned error: %v", err)
+}
+
+func TestCLITaskClaimFlow(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	projectDir := t.TempDir()
+
+	projectCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	if err := projectCLI.Run(ctx, []string{"project", "add", projectDir, "--name", "tok"}); err != nil {
+		t.Fatalf("project add returned error: %v", err)
 	}
-	if !strings.Contains(claimOut.String(), "future `tok task claim --project <name> [<task-id>]`") {
-		t.Fatalf("unexpected claim flow output:\n%s", claimOut.String())
+
+	firstID := createTaskForTest(t, ctx, dataDir, "tok", "First")
+	secondID := createTaskForTest(t, ctx, dataDir, "tok", "Second")
+
+	var claimJSONOut bytes.Buffer
+	claimJSONCLI := newProjectTestCLI(dataDir, &claimJSONOut)
+	if err := claimJSONCLI.Run(ctx, []string{"task", "claim", "--project", "tok", "--json"}); err != nil {
+		t.Fatalf("task claim --json returned error: %v", err)
+	}
+	var claimed readyTaskOutput
+	if err := json.Unmarshal(claimJSONOut.Bytes(), &claimed); err != nil {
+		t.Fatalf("parse claimed JSON: %v\n%s", err, claimJSONOut.String())
+	}
+	if claimed.ID != firstID || claimed.Status != "in_progress" || claimed.Title != "First" {
+		t.Fatalf("unexpected claimed JSON: %+v", claimed)
+	}
+
+	var showOut bytes.Buffer
+	showCLI := newProjectTestCLI(dataDir, &showOut)
+	if err := showCLI.Run(ctx, []string{"task", "show", strconv.FormatInt(firstID, 10)}); err != nil {
+		t.Fatalf("task show returned error: %v", err)
+	}
+	if !strings.Contains(showOut.String(), "type: claimed from: open to: in_progress") {
+		t.Fatalf("expected claimed event:\n%s", showOut.String())
+	}
+
+	claimAgainCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	err := claimAgainCLI.Run(ctx, []string{"task", "claim", "--project", "tok", strconv.FormatInt(firstID, 10)})
+	if err == nil || !strings.Contains(err.Error(), "task is not ready to claim") {
+		t.Fatalf("expected already claimed task error, got %v", err)
+	}
+
+	var claimSpecificOut bytes.Buffer
+	claimSpecificCLI := newProjectTestCLI(dataDir, &claimSpecificOut)
+	if err := claimSpecificCLI.Run(ctx, []string{"task", "claim", "--project", "tok", strconv.FormatInt(secondID, 10)}); err != nil {
+		t.Fatalf("task claim specific returned error: %v", err)
+	}
+	if !strings.Contains(claimSpecificOut.String(), "status: in_progress") || !strings.Contains(claimSpecificOut.String(), "title: Second") {
+		t.Fatalf("unexpected specific claim output:\n%s", claimSpecificOut.String())
+	}
+
+	emptyCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	err = emptyCLI.Run(ctx, []string{"task", "claim", "--project", "tok"})
+	if err == nil || !strings.Contains(err.Error(), "no ready tasks for project: tok") {
+		t.Fatalf("expected empty ready queue error, got %v", err)
+	}
+}
+
+func TestCLITaskClaimRejectsBlockedTask(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	projectDir := t.TempDir()
+
+	projectCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	if err := projectCLI.Run(ctx, []string{"project", "add", projectDir, "--name", "tok"}); err != nil {
+		t.Fatalf("project add returned error: %v", err)
+	}
+
+	blockerID := createTaskForTest(t, ctx, dataDir, "tok", "Blocker")
+	blockedID := createTaskForTest(t, ctx, dataDir, "tok", "Blocked")
+
+	depCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	if err := depCLI.Run(ctx, []string{"task", "dependency", "add", strconv.FormatInt(blockerID, 10), strconv.FormatInt(blockedID, 10)}); err != nil {
+		t.Fatalf("task dependency add returned error: %v", err)
+	}
+
+	claimCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	err := claimCLI.Run(ctx, []string{"task", "claim", "--project", "tok", strconv.FormatInt(blockedID, 10)})
+	if err == nil || !strings.Contains(err.Error(), "task is not ready to claim") {
+		t.Fatalf("expected blocked claim error, got %v", err)
 	}
 }
 

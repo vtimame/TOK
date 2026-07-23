@@ -46,7 +46,7 @@ func (c *CLI) runTask(ctx context.Context, opts runtimeOptions) error {
 	case "ready":
 		return c.runTaskReady(ctx, store, opts.args[2:])
 	case "claim":
-		return c.runTaskClaim(opts.args[2:])
+		return c.runTaskClaim(ctx, store, opts.args[2:])
 	default:
 		return &UsageError{
 			Message: fmt.Sprintf("unknown task command %q\n\nRun '%s help' for usage.", opts.args[1], commandName),
@@ -258,12 +258,47 @@ func (c *CLI) runTaskReady(ctx context.Context, store *storage.Store, args []str
 	return nil
 }
 
-func (c *CLI) runTaskClaim(args []string) error {
-	if len(args) > 0 {
-		return &UsageError{Message: "task claim is reserved for V0 claim flow and does not accept arguments yet", Code: 2}
+type taskClaimOptions struct {
+	projectName string
+	taskID      int64
+	json        bool
+}
+
+func (c *CLI) runTaskClaim(ctx context.Context, store *storage.Store, args []string) error {
+	claimOpts, err := parseTaskClaimOptions(args)
+	if err != nil {
+		return err
 	}
 
-	fmt.Fprintln(c.out, "task claim flow: future `tok task claim --project <name> [<task-id>]` will atomically claim ready work by moving it to in_progress.")
+	project, err := getProjectForTask(ctx, store, claimOpts.projectName)
+	if err != nil {
+		return err
+	}
+
+	var task storage.Task
+	if claimOpts.taskID > 0 {
+		task, err = store.ClaimTask(ctx, project.ID, claimOpts.taskID)
+	} else {
+		task, err = store.ClaimNextReadyTask(ctx, project.ID)
+	}
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("task not found: %d", claimOpts.taskID)
+		}
+		if errors.Is(err, storage.ErrNoReadyTask) {
+			return fmt.Errorf("no ready tasks for project: %s", project.Name)
+		}
+		if errors.Is(err, storage.ErrTaskNotReady) {
+			return fmt.Errorf("task is not ready to claim")
+		}
+		return err
+	}
+
+	if claimOpts.json {
+		return printClaimedTaskJSON(c.out, task)
+	}
+
+	printTask(c.out, task)
 	return nil
 }
 
@@ -420,6 +455,47 @@ func parseTaskReadyOptions(args []string) (taskReadyOptions, error) {
 	opts.projectName = strings.TrimSpace(opts.projectName)
 	if opts.projectName == "" {
 		return taskReadyOptions{}, &UsageError{Message: "task ready requires --project", Code: 2}
+	}
+
+	return opts, nil
+}
+
+func parseTaskClaimOptions(args []string) (taskClaimOptions, error) {
+	var opts taskClaimOptions
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--project":
+			i++
+			if i >= len(args) {
+				return taskClaimOptions{}, &UsageError{Message: "--project requires a value", Code: 2}
+			}
+			opts.projectName = args[i]
+		case strings.HasPrefix(arg, "--project="):
+			opts.projectName = strings.TrimPrefix(arg, "--project=")
+			if opts.projectName == "" {
+				return taskClaimOptions{}, &UsageError{Message: "--project requires a value", Code: 2}
+			}
+		case arg == "--json":
+			opts.json = true
+		case strings.HasPrefix(arg, "-"):
+			return taskClaimOptions{}, &UsageError{Message: fmt.Sprintf("unknown task claim option %q", arg), Code: 2}
+		default:
+			if opts.taskID != 0 {
+				return taskClaimOptions{}, &UsageError{Message: "task claim accepts at most one task id", Code: 2}
+			}
+			taskID, err := parseTaskID(arg)
+			if err != nil {
+				return taskClaimOptions{}, err
+			}
+			opts.taskID = taskID
+		}
+	}
+
+	opts.projectName = strings.TrimSpace(opts.projectName)
+	if opts.projectName == "" {
+		return taskClaimOptions{}, &UsageError{Message: "task claim requires --project", Code: 2}
 	}
 
 	return opts, nil
@@ -592,4 +668,20 @@ func printReadyTasksJSON(out io.Writer, tasks []storage.Task) error {
 	encoder := json.NewEncoder(out)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(readyTasks)
+}
+
+func printClaimedTaskJSON(out io.Writer, task storage.Task) error {
+	encoder := json.NewEncoder(out)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(readyTaskOutput{
+		ID:                 task.ID,
+		ProjectID:          task.ProjectID,
+		Status:             task.Status,
+		Title:              task.Title,
+		Description:        task.Description,
+		AcceptanceCriteria: task.AcceptanceCriteria,
+		Notes:              task.Notes,
+		CreatedAt:          task.CreatedAt,
+		UpdatedAt:          task.UpdatedAt,
+	})
 }

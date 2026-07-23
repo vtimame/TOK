@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"testing"
 )
@@ -230,6 +231,76 @@ func TestListReadyTasksExcludesActiveBlockedAndNonOpenTasks(t *testing.T) {
 
 	if err := store.RemoveTaskDependency(ctx, "blocks", blocker.ID, blocked.ID); err != nil {
 		t.Fatalf("RemoveTaskDependency returned error: %v", err)
+	}
+}
+
+func TestClaimTasksAtomicallyMarksReadyTaskInProgress(t *testing.T) {
+	ctx := context.Background()
+	store := openInitializedTestStore(t)
+
+	project, err := store.CreateProject(ctx, CreateProjectInput{
+		Name:        "tok",
+		DisplayName: "TOK",
+		Path:        "/tmp/tok",
+	})
+	if err != nil {
+		t.Fatalf("CreateProject returned error: %v", err)
+	}
+
+	blocker, err := store.CreateTask(ctx, CreateTaskInput{
+		ProjectID: project.ID,
+		Title:     "Blocker",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask blocker returned error: %v", err)
+	}
+	blocked, err := store.CreateTask(ctx, CreateTaskInput{
+		ProjectID: project.ID,
+		Title:     "Blocked",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask blocked returned error: %v", err)
+	}
+	if _, err := store.AddTaskDependency(ctx, "blocks", blocker.ID, blocked.ID); err != nil {
+		t.Fatalf("AddTaskDependency returned error: %v", err)
+	}
+
+	claimed, err := store.ClaimNextReadyTask(ctx, project.ID)
+	if err != nil {
+		t.Fatalf("ClaimNextReadyTask returned error: %v", err)
+	}
+	if claimed.ID != blocker.ID || claimed.Status != "in_progress" {
+		t.Fatalf("expected blocker to be claimed, got %+v", claimed)
+	}
+
+	events, err := store.ListTaskEvents(ctx, claimed.ID)
+	if err != nil {
+		t.Fatalf("ListTaskEvents returned error: %v", err)
+	}
+	if len(events) != 2 || events[1].Type != "claimed" || events[1].FromStatus != "open" || events[1].ToStatus != "in_progress" {
+		t.Fatalf("unexpected claimed events: %+v", events)
+	}
+
+	if _, err := store.ClaimTask(ctx, project.ID, blocker.ID); !errors.Is(err, ErrTaskNotReady) {
+		t.Fatalf("expected already claimed task to be not ready, got %v", err)
+	}
+	if _, err := store.ClaimTask(ctx, project.ID, blocked.ID); !errors.Is(err, ErrTaskNotReady) {
+		t.Fatalf("expected blocked task to be not ready, got %v", err)
+	}
+
+	if _, err := store.UpdateTaskStatus(ctx, blocker.ID, "done"); err != nil {
+		t.Fatalf("UpdateTaskStatus done returned error: %v", err)
+	}
+	claimedBlocked, err := store.ClaimTask(ctx, project.ID, blocked.ID)
+	if err != nil {
+		t.Fatalf("ClaimTask blocked after blocker done returned error: %v", err)
+	}
+	if claimedBlocked.ID != blocked.ID || claimedBlocked.Status != "in_progress" {
+		t.Fatalf("expected blocked task to be claimed after blocker done, got %+v", claimedBlocked)
+	}
+
+	if _, err := store.ClaimNextReadyTask(ctx, project.ID); !errors.Is(err, ErrNoReadyTask) {
+		t.Fatalf("expected no ready task, got %v", err)
 	}
 }
 

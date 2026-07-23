@@ -19,6 +19,11 @@ import (
 
 const DatabaseFileName = "tok.db"
 
+var (
+	ErrNoReadyTask  = errors.New("no ready task")
+	ErrTaskNotReady = errors.New("task is not ready to claim")
+)
+
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
@@ -495,6 +500,77 @@ func (s *Store) ListReadyTasks(ctx context.Context, projectID int64) ([]Task, er
 	return tasks, nil
 }
 
+func (s *Store) ClaimNextReadyTask(ctx context.Context, projectID int64) (Task, error) {
+	if projectID <= 0 {
+		return Task{}, errors.New("claim project id is required")
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Task{}, fmt.Errorf("begin claim next task transaction: %w", err)
+	}
+	defer rollback(tx)
+
+	var taskID int64
+	err = tx.QueryRowContext(ctx, `
+		SELECT t.id
+		FROM tasks t
+		WHERE t.project_id = ?
+		  AND t.status = 'open'
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM task_dependencies d
+			JOIN tasks blocker ON blocker.id = d.blocker_task_id
+			WHERE d.blocked_task_id = t.id
+			  AND d.edge_type = 'blocks'
+			  AND blocker.status <> 'done'
+		  )
+		ORDER BY t.id
+		LIMIT 1
+	`, projectID).Scan(&taskID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Task{}, ErrNoReadyTask
+	}
+	if err != nil {
+		return Task{}, fmt.Errorf("select next ready task: %w", err)
+	}
+
+	task, err := claimTaskInTx(ctx, tx, projectID, taskID)
+	if err != nil {
+		return Task{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Task{}, fmt.Errorf("commit claim next task transaction: %w", err)
+	}
+
+	return task, nil
+}
+
+func (s *Store) ClaimTask(ctx context.Context, projectID, taskID int64) (Task, error) {
+	if projectID <= 0 {
+		return Task{}, errors.New("claim project id is required")
+	}
+	if taskID <= 0 {
+		return Task{}, errors.New("claim task id is required")
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Task{}, fmt.Errorf("begin claim task transaction: %w", err)
+	}
+	defer rollback(tx)
+
+	task, err := claimTaskInTx(ctx, tx, projectID, taskID)
+	if err != nil {
+		return Task{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Task{}, fmt.Errorf("commit claim task transaction: %w", err)
+	}
+
+	return task, nil
+}
+
 func (s *Store) AddTaskComment(ctx context.Context, taskID int64, body string) (TaskEvent, error) {
 	if taskID <= 0 {
 		return TaskEvent{}, errors.New("task id is required")
@@ -521,6 +597,78 @@ func (s *Store) AddTaskComment(ctx context.Context, taskID int64, body string) (
 	}
 
 	return s.GetTaskEvent(ctx, id)
+}
+
+func claimTaskInTx(ctx context.Context, tx *sql.Tx, projectID, taskID int64) (Task, error) {
+	current, err := getTaskInTx(ctx, tx, taskID)
+	if err != nil {
+		return Task{}, err
+	}
+	if current.ProjectID != projectID {
+		return Task{}, sql.ErrNoRows
+	}
+	if current.Status != "open" {
+		return Task{}, ErrTaskNotReady
+	}
+
+	var activeBlockers int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM task_dependencies d
+		JOIN tasks blocker ON blocker.id = d.blocker_task_id
+		WHERE d.blocked_task_id = ?
+		  AND d.edge_type = 'blocks'
+		  AND blocker.status <> 'done'
+	`, taskID).Scan(&activeBlockers); err != nil {
+		return Task{}, fmt.Errorf("count active task blockers: %w", err)
+	}
+	if activeBlockers > 0 {
+		return Task{}, ErrTaskNotReady
+	}
+
+	res, err := tx.ExecContext(ctx, `
+		UPDATE tasks
+		SET status = 'in_progress', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+		WHERE id = ?
+		  AND project_id = ?
+		  AND status = 'open'
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM task_dependencies d
+			JOIN tasks blocker ON blocker.id = d.blocker_task_id
+			WHERE d.blocked_task_id = tasks.id
+			  AND d.edge_type = 'blocks'
+			  AND blocker.status <> 'done'
+		  )
+	`, taskID, projectID)
+	if err != nil {
+		return Task{}, fmt.Errorf("claim task: %w", err)
+	}
+	claimed, err := res.RowsAffected()
+	if err != nil {
+		return Task{}, fmt.Errorf("read claimed task count: %w", err)
+	}
+	if claimed == 0 {
+		return Task{}, ErrTaskNotReady
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO task_events (task_id, type, from_status, to_status)
+		VALUES (?, 'claimed', 'open', 'in_progress')
+	`, taskID); err != nil {
+		return Task{}, fmt.Errorf("record task claim event: %w", err)
+	}
+
+	return getTaskInTx(ctx, tx, taskID)
+}
+
+func getTaskInTx(ctx context.Context, tx *sql.Tx, id int64) (Task, error) {
+	row := tx.QueryRowContext(ctx, `
+		SELECT id, project_id, status, title, description, acceptance_criteria, notes, created_at, updated_at
+		FROM tasks
+		WHERE id = ?
+	`, id)
+	return scanTask(row)
 }
 
 func (s *Store) GetTaskEvent(ctx context.Context, id int64) (TaskEvent, error) {
