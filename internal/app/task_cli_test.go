@@ -355,6 +355,99 @@ func TestCLITaskDoneRejectsMissingNote(t *testing.T) {
 	}
 }
 
+func TestCLITaskProgressBlockUnblock(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	projectDir := t.TempDir()
+
+	projectCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	if err := projectCLI.Run(ctx, []string{"project", "add", projectDir, "--name", "tok"}); err != nil {
+		t.Fatalf("project add returned error: %v", err)
+	}
+
+	taskID := createTaskForTest(t, ctx, dataDir, "tok", "Investigate handoff")
+
+	var progressOut bytes.Buffer
+	progressCLI := newProjectTestCLI(dataDir, &progressOut)
+	if err := progressCLI.Run(ctx, []string{"task", "progress", strconv.FormatInt(taskID, 10), "--body", "Checked current handoff shape."}); err != nil {
+		t.Fatalf("task progress returned error: %v", err)
+	}
+	if !strings.Contains(progressOut.String(), "type: progress") || !strings.Contains(progressOut.String(), "Checked current handoff shape.") {
+		t.Fatalf("unexpected task progress output:\n%s", progressOut.String())
+	}
+
+	var blockOut bytes.Buffer
+	blockCLI := newProjectTestCLI(dataDir, &blockOut)
+	if err := blockCLI.Run(ctx, []string{"task", "block", strconv.FormatInt(taskID, 10), "--reason", "Waiting for contract decision."}); err != nil {
+		t.Fatalf("task block returned error: %v", err)
+	}
+	if !strings.Contains(blockOut.String(), "status: blocked") {
+		t.Fatalf("unexpected task block output:\n%s", blockOut.String())
+	}
+
+	var readyOut bytes.Buffer
+	readyCLI := newProjectTestCLI(dataDir, &readyOut)
+	if err := readyCLI.Run(ctx, []string{"task", "ready", "--project", "tok", "--json"}); err != nil {
+		t.Fatalf("task ready returned error: %v", err)
+	}
+	var readyTasks []readyTaskOutput
+	if err := json.Unmarshal(readyOut.Bytes(), &readyTasks); err != nil {
+		t.Fatalf("parse ready JSON: %v\n%s", err, readyOut.String())
+	}
+	if len(readyTasks) != 0 {
+		t.Fatalf("blocked task should not be ready, got %+v", readyTasks)
+	}
+
+	claimCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	err := claimCLI.Run(ctx, []string{"task", "claim", "--project", "tok", strconv.FormatInt(taskID, 10)})
+	if err == nil || !strings.Contains(err.Error(), "task is not ready to claim") {
+		t.Fatalf("expected blocked claim error, got %v", err)
+	}
+
+	var unblockOut bytes.Buffer
+	unblockCLI := newProjectTestCLI(dataDir, &unblockOut)
+	if err := unblockCLI.Run(ctx, []string{"task", "unblock", strconv.FormatInt(taskID, 10), "--note", "Decision made."}); err != nil {
+		t.Fatalf("task unblock returned error: %v", err)
+	}
+	if !strings.Contains(unblockOut.String(), "status: open") {
+		t.Fatalf("unexpected task unblock output:\n%s", unblockOut.String())
+	}
+
+	readyOut.Reset()
+	readyCLI = newProjectTestCLI(dataDir, &readyOut)
+	if err := readyCLI.Run(ctx, []string{"task", "ready", "--project", "tok", "--json"}); err != nil {
+		t.Fatalf("task ready after unblock returned error: %v", err)
+	}
+	if err := json.Unmarshal(readyOut.Bytes(), &readyTasks); err != nil {
+		t.Fatalf("parse ready JSON after unblock: %v\n%s", err, readyOut.String())
+	}
+	if len(readyTasks) != 1 || readyTasks[0].ID != taskID {
+		t.Fatalf("unblocked task should be ready, got %+v", readyTasks)
+	}
+
+	var showOut bytes.Buffer
+	showCLI := newProjectTestCLI(dataDir, &showOut)
+	if err := showCLI.Run(ctx, []string{"task", "show", strconv.FormatInt(taskID, 10), "--json"}); err != nil {
+		t.Fatalf("task show --json returned error: %v", err)
+	}
+	var shown taskShowOutput
+	if err := json.Unmarshal(showOut.Bytes(), &shown); err != nil {
+		t.Fatalf("parse task show JSON: %v\n%s", err, showOut.String())
+	}
+	if shown.Task.Status != "open" {
+		t.Fatalf("expected unblocked task status open, got %+v", shown.Task)
+	}
+	wantEvents := []string{"created", "progress", "blocked", "unblocked"}
+	if len(shown.Events) != len(wantEvents) {
+		t.Fatalf("unexpected task events: %+v", shown.Events)
+	}
+	for idx, want := range wantEvents {
+		if shown.Events[idx].Type != want {
+			t.Fatalf("unexpected event %d: got %+v want %s", idx, shown.Events[idx], want)
+		}
+	}
+}
+
 func TestCLITaskCreateRejectsMissingTitle(t *testing.T) {
 	cli := newProjectTestCLI(t.TempDir(), &bytes.Buffer{})
 

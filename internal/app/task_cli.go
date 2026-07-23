@@ -43,6 +43,12 @@ func (c *CLI) runTask(ctx context.Context, opts runtimeOptions) error {
 		return c.runTaskDone(ctx, store, opts.args[2:])
 	case "comment":
 		return c.runTaskComment(ctx, store, opts.args[2:])
+	case "progress":
+		return c.runTaskProgress(ctx, store, opts.args[2:])
+	case "block":
+		return c.runTaskBlock(ctx, store, opts.args[2:])
+	case "unblock":
+		return c.runTaskUnblock(ctx, store, opts.args[2:])
 	case "dependency", "dep":
 		return c.runTaskDependency(ctx, store, opts.args[2:])
 	case "ready":
@@ -219,6 +225,66 @@ func (c *CLI) runTaskComment(ctx context.Context, store *storage.Store, args []s
 	}
 
 	printTaskEvent(c.out, event)
+	return nil
+}
+
+func (c *CLI) runTaskProgress(ctx context.Context, store *storage.Store, args []string) error {
+	progressOpts, err := parseTaskNoteOptions(args, "task progress", "--body")
+	if err != nil {
+		return err
+	}
+
+	event, err := store.AddTaskProgress(ctx, progressOpts.taskID, progressOpts.body)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("task not found: %d", progressOpts.taskID)
+		}
+		return err
+	}
+
+	printTaskEvent(c.out, event)
+	return nil
+}
+
+func (c *CLI) runTaskBlock(ctx context.Context, store *storage.Store, args []string) error {
+	blockOpts, err := parseTaskNoteOptions(args, "task block", "--reason")
+	if err != nil {
+		return err
+	}
+
+	task, err := store.BlockTask(ctx, blockOpts.taskID, blockOpts.body)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("task not found: %d", blockOpts.taskID)
+		}
+		if errors.Is(err, storage.ErrInvalidTaskTransition) {
+			return fmt.Errorf("task cannot be blocked from current status")
+		}
+		return err
+	}
+
+	printTask(c.out, task)
+	return nil
+}
+
+func (c *CLI) runTaskUnblock(ctx context.Context, store *storage.Store, args []string) error {
+	unblockOpts, err := parseTaskNoteOptions(args, "task unblock", "--note")
+	if err != nil {
+		return err
+	}
+
+	task, err := store.UnblockTask(ctx, unblockOpts.taskID, unblockOpts.body)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("task not found: %d", unblockOpts.taskID)
+		}
+		if errors.Is(err, storage.ErrInvalidTaskTransition) {
+			return fmt.Errorf("task must be blocked to unblock")
+		}
+		return err
+	}
+
+	printTask(c.out, task)
 	return nil
 }
 
@@ -632,8 +698,12 @@ func parseRequiredProjectOption(args []string, command string) (string, error) {
 }
 
 func parseTaskCommentOptions(args []string) (taskCommentOptions, error) {
+	return parseTaskNoteOptions(args, "task comment", "--body")
+}
+
+func parseTaskNoteOptions(args []string, command, flag string) (taskCommentOptions, error) {
 	if len(args) == 0 {
-		return taskCommentOptions{}, &UsageError{Message: "task comment requires a task id", Code: 2}
+		return taskCommentOptions{}, &UsageError{Message: command + " requires a task id", Code: 2}
 	}
 
 	taskID, err := parseTaskID(args[0])
@@ -645,25 +715,25 @@ func parseTaskCommentOptions(args []string) (taskCommentOptions, error) {
 	for i := 1; i < len(args); i++ {
 		arg := args[i]
 		switch {
-		case arg == "--body":
+		case arg == flag:
 			i++
 			if i >= len(args) {
-				return taskCommentOptions{}, &UsageError{Message: "--body requires a value", Code: 2}
+				return taskCommentOptions{}, &UsageError{Message: flag + " requires a value", Code: 2}
 			}
 			body = args[i]
-		case strings.HasPrefix(arg, "--body="):
-			body = strings.TrimPrefix(arg, "--body=")
+		case strings.HasPrefix(arg, flag+"="):
+			body = strings.TrimPrefix(arg, flag+"=")
 			if body == "" {
-				return taskCommentOptions{}, &UsageError{Message: "--body requires a value", Code: 2}
+				return taskCommentOptions{}, &UsageError{Message: flag + " requires a value", Code: 2}
 			}
 		default:
-			return taskCommentOptions{}, &UsageError{Message: fmt.Sprintf("unknown task comment option %q", arg), Code: 2}
+			return taskCommentOptions{}, &UsageError{Message: fmt.Sprintf("unknown %s option %q", command, arg), Code: 2}
 		}
 	}
 
 	body = strings.TrimSpace(body)
 	if body == "" {
-		return taskCommentOptions{}, &UsageError{Message: "task comment requires --body", Code: 2}
+		return taskCommentOptions{}, &UsageError{Message: command + " requires " + flag, Code: 2}
 	}
 
 	return taskCommentOptions{taskID: taskID, body: body}, nil

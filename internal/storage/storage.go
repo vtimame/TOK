@@ -24,6 +24,7 @@ var (
 	ErrTaskNotReady            = errors.New("task is not ready to claim")
 	ErrInvalidTaskTransition   = errors.New("invalid task status transition")
 	ErrTaskCompletionNoteEmpty = errors.New("task completion note is required")
+	ErrTaskNoteEmpty           = errors.New("task note is required")
 )
 
 //go:embed migrations/*.sql
@@ -426,6 +427,34 @@ func (s *Store) CompleteTask(ctx context.Context, id int64, note string) (Task, 
 	return s.GetTask(ctx, id)
 }
 
+func (s *Store) AddTaskProgress(ctx context.Context, taskID int64, body string) (TaskEvent, error) {
+	return s.addTaskNoteEvent(ctx, taskID, "progress", body)
+}
+
+func (s *Store) BlockTask(ctx context.Context, id int64, reason string) (Task, error) {
+	return s.transitionTaskWithNote(ctx, id, "blocked", "blocked", reason)
+}
+
+func (s *Store) UnblockTask(ctx context.Context, id int64, note string) (Task, error) {
+	note = strings.TrimSpace(note)
+	if id <= 0 {
+		return Task{}, errors.New("task id is required")
+	}
+	if note == "" {
+		return Task{}, ErrTaskNoteEmpty
+	}
+
+	current, err := s.GetTask(ctx, id)
+	if err != nil {
+		return Task{}, err
+	}
+	if current.Status != "blocked" {
+		return Task{}, ErrInvalidTaskTransition
+	}
+
+	return s.transitionTaskWithNote(ctx, id, "open", "unblocked", note)
+}
+
 func (s *Store) ListTaskEvents(ctx context.Context, taskID int64) ([]TaskEvent, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, task_id, type, body, from_status, to_status, created_at
@@ -665,11 +694,16 @@ func (s *Store) ClaimTask(ctx context.Context, projectID, taskID int64) (Task, e
 }
 
 func (s *Store) AddTaskComment(ctx context.Context, taskID int64, body string) (TaskEvent, error) {
+	return s.addTaskNoteEvent(ctx, taskID, "commented", body)
+}
+
+func (s *Store) addTaskNoteEvent(ctx context.Context, taskID int64, eventType, body string) (TaskEvent, error) {
 	if taskID <= 0 {
 		return TaskEvent{}, errors.New("task id is required")
 	}
-	if strings.TrimSpace(body) == "" {
-		return TaskEvent{}, errors.New("task comment body is required")
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return TaskEvent{}, ErrTaskNoteEmpty
 	}
 
 	if _, err := s.GetTask(ctx, taskID); err != nil {
@@ -678,18 +712,63 @@ func (s *Store) AddTaskComment(ctx context.Context, taskID int64, body string) (
 
 	res, err := s.db.ExecContext(ctx, `
 		INSERT INTO task_events (task_id, type, body)
-		VALUES (?, 'commented', ?)
-	`, taskID, body)
+		VALUES (?, ?, ?)
+	`, taskID, eventType, body)
 	if err != nil {
-		return TaskEvent{}, fmt.Errorf("record task comment event: %w", err)
+		return TaskEvent{}, fmt.Errorf("record task %s event: %w", eventType, err)
 	}
 
 	id, err := res.LastInsertId()
 	if err != nil {
-		return TaskEvent{}, fmt.Errorf("read task comment event id: %w", err)
+		return TaskEvent{}, fmt.Errorf("read task %s event id: %w", eventType, err)
 	}
 
 	return s.GetTaskEvent(ctx, id)
+}
+
+func (s *Store) transitionTaskWithNote(ctx context.Context, id int64, status, eventType, body string) (Task, error) {
+	body = strings.TrimSpace(body)
+	if id <= 0 {
+		return Task{}, errors.New("task id is required")
+	}
+	if body == "" {
+		return Task{}, ErrTaskNoteEmpty
+	}
+
+	current, err := s.GetTask(ctx, id)
+	if err != nil {
+		return Task{}, err
+	}
+	if current.Status == "done" {
+		return Task{}, ErrInvalidTaskTransition
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Task{}, fmt.Errorf("begin task %s transaction: %w", eventType, err)
+	}
+	defer rollback(tx)
+
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE tasks
+		SET status = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+		WHERE id = ?
+	`, status, id); err != nil {
+		return Task{}, fmt.Errorf("update task %s status: %w", eventType, err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO task_events (task_id, type, body, from_status, to_status)
+		VALUES (?, ?, ?, ?, ?)
+	`, id, eventType, body, current.Status, status); err != nil {
+		return Task{}, fmt.Errorf("record task %s event: %w", eventType, err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return Task{}, fmt.Errorf("commit task %s transaction: %w", eventType, err)
+	}
+
+	return s.GetTask(ctx, id)
 }
 
 func claimTaskInTx(ctx context.Context, tx *sql.Tx, projectID, taskID int64) (Task, error) {
