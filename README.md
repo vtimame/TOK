@@ -38,6 +38,10 @@ tok context build \
   --task <task-id> \
   --output context.md
 
+tok context build --project tok --task <task-id> --json
+tok task progress <task-id> --body "Implemented the first slice."
+tok task block <task-id> --reason "Waiting for a decision."
+tok task unblock <task-id> --note "Decision recorded."
 tok task done <task-id> --note "Implemented and tests pass."
 tok task show <task-id> --json
 ```
@@ -48,5 +52,9 @@ The core invariants are:
 - `claim` atomically moves ready work from `open` to `in_progress`.
 - `context build` produces a reproducible handoff package from task state,
   project metadata, lexical retrieval results and git repository state.
+- Handoff packages expose `tok.handoff.v0`, dependencies/blockers, suggested
+  commands and V1 text sections for agent use.
+- `progress`, `block` and `unblock` record typed task events; blocked tasks are
+  excluded from `ready` and cannot be claimed.
 - `done` records a completion event and moves an `in_progress` task to `done`.
 - JSON output is available for machine-driven workflow steps.
