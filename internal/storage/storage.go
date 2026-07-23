@@ -71,6 +71,14 @@ type TaskEvent struct {
 	CreatedAt  string
 }
 
+type TaskDependency struct {
+	ID            int64
+	EdgeType      string
+	BlockerTaskID int64
+	BlockedTaskID int64
+	CreatedAt     string
+}
+
 type ContextSource struct {
 	ID        int64
 	ProjectID int64
@@ -371,6 +379,108 @@ func (s *Store) ListTaskEvents(ctx context.Context, taskID int64) ([]TaskEvent, 
 	return events, nil
 }
 
+func (s *Store) AddTaskDependency(ctx context.Context, edgeType string, blockerTaskID, blockedTaskID int64) (TaskDependency, error) {
+	if err := validateTaskDependency(edgeType, blockerTaskID, blockedTaskID); err != nil {
+		return TaskDependency{}, err
+	}
+
+	blocker, err := s.GetTask(ctx, blockerTaskID)
+	if err != nil {
+		return TaskDependency{}, fmt.Errorf("get blocker task: %w", err)
+	}
+	blocked, err := s.GetTask(ctx, blockedTaskID)
+	if err != nil {
+		return TaskDependency{}, fmt.Errorf("get blocked task: %w", err)
+	}
+	if blocker.ProjectID != blocked.ProjectID {
+		return TaskDependency{}, errors.New("task dependency must stay within one project")
+	}
+
+	res, err := s.db.ExecContext(ctx, `
+		INSERT INTO task_dependencies (edge_type, blocker_task_id, blocked_task_id)
+		VALUES (?, ?, ?)
+	`, edgeType, blockerTaskID, blockedTaskID)
+	if err != nil {
+		return TaskDependency{}, fmt.Errorf("add task dependency: %w", err)
+	}
+
+	id, err := res.LastInsertId()
+	if err != nil {
+		return TaskDependency{}, fmt.Errorf("read task dependency id: %w", err)
+	}
+
+	return s.GetTaskDependency(ctx, id)
+}
+
+func (s *Store) RemoveTaskDependency(ctx context.Context, edgeType string, blockerTaskID, blockedTaskID int64) error {
+	if err := validateTaskDependency(edgeType, blockerTaskID, blockedTaskID); err != nil {
+		return err
+	}
+
+	res, err := s.db.ExecContext(ctx, `
+		DELETE FROM task_dependencies
+		WHERE edge_type = ? AND blocker_task_id = ? AND blocked_task_id = ?
+	`, edgeType, blockerTaskID, blockedTaskID)
+	if err != nil {
+		return fmt.Errorf("remove task dependency: %w", err)
+	}
+
+	removed, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read removed task dependency count: %w", err)
+	}
+	if removed == 0 {
+		return sql.ErrNoRows
+	}
+
+	return nil
+}
+
+func (s *Store) GetTaskDependency(ctx context.Context, id int64) (TaskDependency, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, edge_type, blocker_task_id, blocked_task_id, created_at
+		FROM task_dependencies
+		WHERE id = ?
+	`, id)
+	return scanTaskDependency(row)
+}
+
+func (s *Store) ListReadyTasks(ctx context.Context, projectID int64) ([]Task, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT t.id, t.project_id, t.status, t.title, t.description, t.acceptance_criteria, t.notes, t.created_at, t.updated_at
+		FROM tasks t
+		WHERE t.project_id = ?
+		  AND t.status = 'open'
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM task_dependencies d
+			JOIN tasks blocker ON blocker.id = d.blocker_task_id
+			WHERE d.blocked_task_id = t.id
+			  AND d.edge_type = 'blocks'
+			  AND blocker.status <> 'done'
+		  )
+		ORDER BY t.id
+	`, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("list ready tasks: %w", err)
+	}
+	defer rows.Close()
+
+	var tasks []Task
+	for rows.Next() {
+		var task Task
+		if err := rows.Scan(&task.ID, &task.ProjectID, &task.Status, &task.Title, &task.Description, &task.AcceptanceCriteria, &task.Notes, &task.CreatedAt, &task.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan ready task: %w", err)
+		}
+		tasks = append(tasks, task)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate ready tasks: %w", err)
+	}
+
+	return tasks, nil
+}
+
 func (s *Store) AddTaskComment(ctx context.Context, taskID int64, body string) (TaskEvent, error) {
 	if taskID <= 0 {
 		return TaskEvent{}, errors.New("task id is required")
@@ -588,6 +698,14 @@ func scanTask(row scanner) (Task, error) {
 	return task, nil
 }
 
+func scanTaskDependency(row scanner) (TaskDependency, error) {
+	var dependency TaskDependency
+	if err := row.Scan(&dependency.ID, &dependency.EdgeType, &dependency.BlockerTaskID, &dependency.BlockedTaskID, &dependency.CreatedAt); err != nil {
+		return TaskDependency{}, err
+	}
+	return dependency, nil
+}
+
 func scanContextSource(row scanner) (ContextSource, error) {
 	var source ContextSource
 	if err := row.Scan(&source.ID, &source.ProjectID, &source.Kind, &source.URI, &source.Metadata, &source.CreatedAt, &source.UpdatedAt); err != nil {
@@ -624,6 +742,22 @@ func validTaskStatus(status string) bool {
 	default:
 		return false
 	}
+}
+
+func validateTaskDependency(edgeType string, blockerTaskID, blockedTaskID int64) error {
+	if edgeType != "blocks" {
+		return fmt.Errorf("invalid task dependency edge type %q", edgeType)
+	}
+	if blockerTaskID <= 0 {
+		return errors.New("blocker task id is required")
+	}
+	if blockedTaskID <= 0 {
+		return errors.New("blocked task id is required")
+	}
+	if blockerTaskID == blockedTaskID {
+		return errors.New("task cannot block itself")
+	}
+	return nil
 }
 
 func sqliteDSN(path string) string {

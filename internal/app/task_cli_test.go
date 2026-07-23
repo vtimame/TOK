@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"strconv"
 	"strings"
@@ -104,6 +105,101 @@ func TestCLITaskCreateListShowStatusAndComment(t *testing.T) {
 	}
 }
 
+func TestCLITaskDependencyReadyAndClaimFlow(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	projectDir := t.TempDir()
+
+	projectCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	if err := projectCLI.Run(ctx, []string{"project", "add", projectDir, "--name", "tok"}); err != nil {
+		t.Fatalf("project add returned error: %v", err)
+	}
+
+	blockerID := createTaskForTest(t, ctx, dataDir, "tok", "Blocker")
+	blockedID := createTaskForTest(t, ctx, dataDir, "tok", "Blocked")
+	claimedID := createTaskForTest(t, ctx, dataDir, "tok", "Claimed")
+
+	statusCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	if err := statusCLI.Run(ctx, []string{"task", "status", strconv.FormatInt(claimedID, 10), "in_progress"}); err != nil {
+		t.Fatalf("task status returned error: %v", err)
+	}
+
+	var depOut bytes.Buffer
+	depCLI := newProjectTestCLI(dataDir, &depOut)
+	if err := depCLI.Run(ctx, []string{"task", "dependency", "add", strconv.FormatInt(blockerID, 10), strconv.FormatInt(blockedID, 10), "--type", "blocks"}); err != nil {
+		t.Fatalf("task dependency add returned error: %v", err)
+	}
+	for _, want := range []string{
+		"edge_type: blocks",
+		"blocker_task_id: " + strconv.FormatInt(blockerID, 10),
+		"blocked_task_id: " + strconv.FormatInt(blockedID, 10),
+	} {
+		if !strings.Contains(depOut.String(), want) {
+			t.Fatalf("dependency add output missing %q:\n%s", want, depOut.String())
+		}
+	}
+
+	var readyOut bytes.Buffer
+	readyCLI := newProjectTestCLI(dataDir, &readyOut)
+	if err := readyCLI.Run(ctx, []string{"task", "ready", "--project", "tok"}); err != nil {
+		t.Fatalf("task ready returned error: %v", err)
+	}
+	if !strings.Contains(readyOut.String(), strconv.FormatInt(blockerID, 10)+"\topen\tBlocker") {
+		t.Fatalf("expected blocker to be ready:\n%s", readyOut.String())
+	}
+	if strings.Contains(readyOut.String(), "Blocked") || strings.Contains(readyOut.String(), "Claimed") {
+		t.Fatalf("blocked or in-progress task should not be ready:\n%s", readyOut.String())
+	}
+
+	var readyJSONOut bytes.Buffer
+	readyJSONCLI := newProjectTestCLI(dataDir, &readyJSONOut)
+	if err := readyJSONCLI.Run(ctx, []string{"task", "ready", "--project", "tok", "--json"}); err != nil {
+		t.Fatalf("task ready --json returned error: %v", err)
+	}
+	var readyTasks []readyTaskOutput
+	if err := json.Unmarshal(readyJSONOut.Bytes(), &readyTasks); err != nil {
+		t.Fatalf("parse ready JSON: %v\n%s", err, readyJSONOut.String())
+	}
+	if len(readyTasks) != 1 || readyTasks[0].ID != blockerID || readyTasks[0].Title != "Blocker" {
+		t.Fatalf("unexpected ready JSON: %+v", readyTasks)
+	}
+
+	statusCLI = newProjectTestCLI(dataDir, &bytes.Buffer{})
+	if err := statusCLI.Run(ctx, []string{"task", "status", strconv.FormatInt(blockerID, 10), "done"}); err != nil {
+		t.Fatalf("task status done returned error: %v", err)
+	}
+
+	readyOut.Reset()
+	readyCLI = newProjectTestCLI(dataDir, &readyOut)
+	if err := readyCLI.Run(ctx, []string{"task", "ready", "--project", "tok"}); err != nil {
+		t.Fatalf("task ready after done returned error: %v", err)
+	}
+	if !strings.Contains(readyOut.String(), strconv.FormatInt(blockedID, 10)+"\topen\tBlocked") {
+		t.Fatalf("expected blocked task to become ready:\n%s", readyOut.String())
+	}
+	if strings.Contains(readyOut.String(), "Blocker") || strings.Contains(readyOut.String(), "Claimed") {
+		t.Fatalf("done or in-progress task should not be ready:\n%s", readyOut.String())
+	}
+
+	var removeOut bytes.Buffer
+	removeCLI := newProjectTestCLI(dataDir, &removeOut)
+	if err := removeCLI.Run(ctx, []string{"task", "dep", "remove", strconv.FormatInt(blockerID, 10), strconv.FormatInt(blockedID, 10)}); err != nil {
+		t.Fatalf("task dependency remove returned error: %v", err)
+	}
+	if !strings.Contains(removeOut.String(), "removed dependency") {
+		t.Fatalf("unexpected dependency remove output:\n%s", removeOut.String())
+	}
+
+	var claimOut bytes.Buffer
+	claimCLI := newProjectTestCLI(dataDir, &claimOut)
+	if err := claimCLI.Run(ctx, []string{"task", "claim"}); err != nil {
+		t.Fatalf("task claim returned error: %v", err)
+	}
+	if !strings.Contains(claimOut.String(), "future `tok task claim --project <name> [<task-id>]`") {
+		t.Fatalf("unexpected claim flow output:\n%s", claimOut.String())
+	}
+}
+
 func TestCLITaskCreateRejectsMissingTitle(t *testing.T) {
 	cli := newProjectTestCLI(t.TempDir(), &bytes.Buffer{})
 
@@ -161,4 +257,15 @@ func mustExtractNumericField(t *testing.T, output, field string) int64 {
 
 	t.Fatalf("missing field %q in output:\n%s", field, output)
 	return 0
+}
+
+func createTaskForTest(t *testing.T, ctx context.Context, dataDir, projectName, title string) int64 {
+	t.Helper()
+
+	var out bytes.Buffer
+	cli := newProjectTestCLI(dataDir, &out)
+	if err := cli.Run(ctx, []string{"task", "create", "--project", projectName, "--title", title}); err != nil {
+		t.Fatalf("task create %q returned error: %v", title, err)
+	}
+	return mustExtractNumericField(t, out.String(), "id")
 }

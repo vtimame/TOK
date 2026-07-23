@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -40,6 +41,12 @@ func (c *CLI) runTask(ctx context.Context, opts runtimeOptions) error {
 		return c.runTaskStatus(ctx, store, opts.args[2:])
 	case "comment":
 		return c.runTaskComment(ctx, store, opts.args[2:])
+	case "dependency", "dep":
+		return c.runTaskDependency(ctx, store, opts.args[2:])
+	case "ready":
+		return c.runTaskReady(ctx, store, opts.args[2:])
+	case "claim":
+		return c.runTaskClaim(opts.args[2:])
 	default:
 		return &UsageError{
 			Message: fmt.Sprintf("unknown task command %q\n\nRun '%s help' for usage.", opts.args[1], commandName),
@@ -182,6 +189,84 @@ func (c *CLI) runTaskComment(ctx context.Context, store *storage.Store, args []s
 	return nil
 }
 
+func (c *CLI) runTaskDependency(ctx context.Context, store *storage.Store, args []string) error {
+	if len(args) < 1 {
+		return &UsageError{Message: "task dependency requires add or remove", Code: 2}
+	}
+
+	dependencyOpts, err := parseTaskDependencyOptions(args[1:])
+	if err != nil {
+		return err
+	}
+
+	switch args[0] {
+	case "add":
+		dependency, err := store.AddTaskDependency(ctx, dependencyOpts.edgeType, dependencyOpts.blockerTaskID, dependencyOpts.blockedTaskID)
+		if err != nil {
+			return err
+		}
+		printTaskDependency(c.out, dependency)
+		return nil
+	case "remove":
+		if err := store.RemoveTaskDependency(ctx, dependencyOpts.edgeType, dependencyOpts.blockerTaskID, dependencyOpts.blockedTaskID); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("task dependency not found: %d blocks %d", dependencyOpts.blockerTaskID, dependencyOpts.blockedTaskID)
+			}
+			return err
+		}
+		fmt.Fprintf(c.out, "removed dependency: %d blocks %d\n", dependencyOpts.blockerTaskID, dependencyOpts.blockedTaskID)
+		return nil
+	default:
+		return &UsageError{Message: fmt.Sprintf("unknown task dependency command %q", args[0]), Code: 2}
+	}
+}
+
+type taskReadyOptions struct {
+	projectName string
+	json        bool
+}
+
+func (c *CLI) runTaskReady(ctx context.Context, store *storage.Store, args []string) error {
+	readyOpts, err := parseTaskReadyOptions(args)
+	if err != nil {
+		return err
+	}
+
+	project, err := getProjectForTask(ctx, store, readyOpts.projectName)
+	if err != nil {
+		return err
+	}
+
+	tasks, err := store.ListReadyTasks(ctx, project.ID)
+	if err != nil {
+		return err
+	}
+
+	if readyOpts.json {
+		return printReadyTasksJSON(c.out, tasks)
+	}
+
+	if len(tasks) == 0 {
+		fmt.Fprintln(c.out, "no ready tasks")
+		return nil
+	}
+
+	fmt.Fprintln(c.out, "id\tstatus\ttitle")
+	for _, task := range tasks {
+		fmt.Fprintf(c.out, "%d\t%s\t%s\n", task.ID, task.Status, task.Title)
+	}
+	return nil
+}
+
+func (c *CLI) runTaskClaim(args []string) error {
+	if len(args) > 0 {
+		return &UsageError{Message: "task claim is reserved for V0 claim flow and does not accept arguments yet", Code: 2}
+	}
+
+	fmt.Fprintln(c.out, "task claim flow: future `tok task claim --project <name> [<task-id>]` will atomically claim ready work by moving it to in_progress.")
+	return nil
+}
+
 func parseTaskCreateOptions(args []string) (taskCreateOptions, error) {
 	var opts taskCreateOptions
 
@@ -246,6 +331,95 @@ func parseTaskCreateOptions(args []string) (taskCreateOptions, error) {
 	}
 	if opts.title == "" {
 		return taskCreateOptions{}, &UsageError{Message: "task create requires --title", Code: 2}
+	}
+
+	return opts, nil
+}
+
+type taskDependencyOptions struct {
+	edgeType      string
+	blockerTaskID int64
+	blockedTaskID int64
+}
+
+func parseTaskDependencyOptions(args []string) (taskDependencyOptions, error) {
+	var opts taskDependencyOptions
+	opts.edgeType = "blocks"
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--type":
+			i++
+			if i >= len(args) {
+				return taskDependencyOptions{}, &UsageError{Message: "--type requires a value", Code: 2}
+			}
+			opts.edgeType = args[i]
+		case strings.HasPrefix(arg, "--type="):
+			opts.edgeType = strings.TrimPrefix(arg, "--type=")
+			if opts.edgeType == "" {
+				return taskDependencyOptions{}, &UsageError{Message: "--type requires a value", Code: 2}
+			}
+		case strings.HasPrefix(arg, "-"):
+			return taskDependencyOptions{}, &UsageError{Message: fmt.Sprintf("unknown task dependency option %q", arg), Code: 2}
+		default:
+			if opts.blockerTaskID == 0 {
+				id, err := parseTaskID(arg)
+				if err != nil {
+					return taskDependencyOptions{}, err
+				}
+				opts.blockerTaskID = id
+				continue
+			}
+			if opts.blockedTaskID == 0 {
+				id, err := parseTaskID(arg)
+				if err != nil {
+					return taskDependencyOptions{}, err
+				}
+				opts.blockedTaskID = id
+				continue
+			}
+			return taskDependencyOptions{}, &UsageError{Message: "task dependency accepts exactly blocker and blocked task ids", Code: 2}
+		}
+	}
+
+	if opts.blockerTaskID == 0 || opts.blockedTaskID == 0 {
+		return taskDependencyOptions{}, &UsageError{Message: "task dependency requires blocker and blocked task ids", Code: 2}
+	}
+	if opts.edgeType != "blocks" {
+		return taskDependencyOptions{}, &UsageError{Message: fmt.Sprintf("invalid task dependency edge type %q", opts.edgeType), Code: 2}
+	}
+
+	return opts, nil
+}
+
+func parseTaskReadyOptions(args []string) (taskReadyOptions, error) {
+	var opts taskReadyOptions
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--project":
+			i++
+			if i >= len(args) {
+				return taskReadyOptions{}, &UsageError{Message: "--project requires a value", Code: 2}
+			}
+			opts.projectName = args[i]
+		case strings.HasPrefix(arg, "--project="):
+			opts.projectName = strings.TrimPrefix(arg, "--project=")
+			if opts.projectName == "" {
+				return taskReadyOptions{}, &UsageError{Message: "--project requires a value", Code: 2}
+			}
+		case arg == "--json":
+			opts.json = true
+		default:
+			return taskReadyOptions{}, &UsageError{Message: fmt.Sprintf("unknown task ready option %q", arg), Code: 2}
+		}
+	}
+
+	opts.projectName = strings.TrimSpace(opts.projectName)
+	if opts.projectName == "" {
+		return taskReadyOptions{}, &UsageError{Message: "task ready requires --project", Code: 2}
 	}
 
 	return opts, nil
@@ -377,4 +551,45 @@ func printTaskEvent(out io.Writer, event storage.TaskEvent) {
 	fmt.Fprintf(out, "type: %s\n", event.Type)
 	fmt.Fprintf(out, "body: %s\n", event.Body)
 	fmt.Fprintf(out, "created_at: %s\n", event.CreatedAt)
+}
+
+func printTaskDependency(out io.Writer, dependency storage.TaskDependency) {
+	fmt.Fprintf(out, "id: %d\n", dependency.ID)
+	fmt.Fprintf(out, "edge_type: %s\n", dependency.EdgeType)
+	fmt.Fprintf(out, "blocker_task_id: %d\n", dependency.BlockerTaskID)
+	fmt.Fprintf(out, "blocked_task_id: %d\n", dependency.BlockedTaskID)
+	fmt.Fprintf(out, "created_at: %s\n", dependency.CreatedAt)
+}
+
+type readyTaskOutput struct {
+	ID                 int64  `json:"id"`
+	ProjectID          int64  `json:"project_id"`
+	Status             string `json:"status"`
+	Title              string `json:"title"`
+	Description        string `json:"description"`
+	AcceptanceCriteria string `json:"acceptance_criteria"`
+	Notes              string `json:"notes"`
+	CreatedAt          string `json:"created_at"`
+	UpdatedAt          string `json:"updated_at"`
+}
+
+func printReadyTasksJSON(out io.Writer, tasks []storage.Task) error {
+	readyTasks := make([]readyTaskOutput, 0, len(tasks))
+	for _, task := range tasks {
+		readyTasks = append(readyTasks, readyTaskOutput{
+			ID:                 task.ID,
+			ProjectID:          task.ProjectID,
+			Status:             task.Status,
+			Title:              task.Title,
+			Description:        task.Description,
+			AcceptanceCriteria: task.AcceptanceCriteria,
+			Notes:              task.Notes,
+			CreatedAt:          task.CreatedAt,
+			UpdatedAt:          task.UpdatedAt,
+		})
+	}
+
+	encoder := json.NewEncoder(out)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(readyTasks)
 }

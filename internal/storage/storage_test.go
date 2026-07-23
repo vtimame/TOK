@@ -34,8 +34,8 @@ func TestInitAppliesEmbeddedMigrations(t *testing.T) {
 	if err := store.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM schema_migrations").Scan(&applied); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if applied != 1 {
-		t.Fatalf("expected 1 applied migration, got %d", applied)
+	if applied != 2 {
+		t.Fatalf("expected 2 applied migrations, got %d", applied)
 	}
 }
 
@@ -159,6 +159,77 @@ func TestOpenCreatesDatabaseDirectory(t *testing.T) {
 
 	if err := store.Init(ctx); err != nil {
 		t.Fatalf("Init returned error: %v", err)
+	}
+}
+
+func TestListReadyTasksExcludesActiveBlockedAndNonOpenTasks(t *testing.T) {
+	ctx := context.Background()
+	store := openInitializedTestStore(t)
+
+	project, err := store.CreateProject(ctx, CreateProjectInput{
+		Name:        "tok",
+		DisplayName: "TOK",
+		Path:        "/tmp/tok",
+	})
+	if err != nil {
+		t.Fatalf("CreateProject returned error: %v", err)
+	}
+
+	blocker, err := store.CreateTask(ctx, CreateTaskInput{
+		ProjectID: project.ID,
+		Title:     "Blocker",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask blocker returned error: %v", err)
+	}
+	blocked, err := store.CreateTask(ctx, CreateTaskInput{
+		ProjectID: project.ID,
+		Title:     "Blocked",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask blocked returned error: %v", err)
+	}
+	inProgress, err := store.CreateTask(ctx, CreateTaskInput{
+		ProjectID: project.ID,
+		Title:     "Already claimed",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask in progress returned error: %v", err)
+	}
+	if _, err := store.UpdateTaskStatus(ctx, inProgress.ID, "in_progress"); err != nil {
+		t.Fatalf("UpdateTaskStatus returned error: %v", err)
+	}
+
+	dependency, err := store.AddTaskDependency(ctx, "blocks", blocker.ID, blocked.ID)
+	if err != nil {
+		t.Fatalf("AddTaskDependency returned error: %v", err)
+	}
+	if dependency.EdgeType != "blocks" || dependency.BlockerTaskID != blocker.ID || dependency.BlockedTaskID != blocked.ID {
+		t.Fatalf("unexpected dependency: %+v", dependency)
+	}
+
+	ready, err := store.ListReadyTasks(ctx, project.ID)
+	if err != nil {
+		t.Fatalf("ListReadyTasks returned error: %v", err)
+	}
+	if len(ready) != 1 || ready[0].ID != blocker.ID {
+		t.Fatalf("expected only blocker to be ready, got %+v", ready)
+	}
+
+	if _, err := store.UpdateTaskStatus(ctx, blocker.ID, "done"); err != nil {
+		t.Fatalf("UpdateTaskStatus done returned error: %v", err)
+	}
+
+	ready, err = store.ListReadyTasks(ctx, project.ID)
+	if err != nil {
+		t.Fatalf("ListReadyTasks after closing blocker returned error: %v", err)
+	}
+	if len(ready) != 1 || ready[0].ID != blocked.ID {
+		t.Fatalf("expected blocked task to become ready, got %+v", ready)
+	}
+
+	if err := store.RemoveTaskDependency(ctx, "blocks", blocker.ID, blocked.ID); err != nil {
+		t.Fatalf("RemoveTaskDependency returned error: %v", err)
 	}
 }
 
