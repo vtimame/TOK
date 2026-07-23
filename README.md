@@ -1,18 +1,14 @@
-# KRUG
+# TOK
 
-KRUG is the local codename for a new agent loops system.
+TOK - Task Operations Kernel is a local agent loops system by
+KONSTRUKTORSKI BIRO Sitematika-26.
 
-The product direction is close to `snarktank/ralph`, but the implementation
-should fit the local workflow around Forgejo, QMD, Codex and durable context
-repositories.
+Public repository target:
+`https://github.com/SISTEMIKA-26/Task-Operations-Kernel`.
 
-## Source Of Truth
-
-- Product code in this repository.
-- External agent context in `/home/vtima/project-contexts/context-krug`.
-- Active tracked work in Forgejo repository `vtima/context-krug`.
+Public Go module path:
+`s26.sh/tok`.
 
 ## Current Status
 
-This repository is an empty product starting point. Architecture, commands and
-validation rules should be added as implementation decisions become stable.
+This repository contains the TOK product source code.
