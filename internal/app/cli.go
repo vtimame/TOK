@@ -93,6 +93,8 @@ func (c *CLI) Run(ctx context.Context, args []string) error {
 		return c.runIndex(ctx, opts)
 	case "search":
 		return c.runSearch(ctx, opts)
+	case "context":
+		return c.runContext(ctx, opts)
 	default:
 		return &UsageError{
 			Message: fmt.Sprintf("unknown command %q\n\nRun '%s help' for usage.", opts.args[0], commandName),
@@ -247,5 +249,6 @@ Commands:
   task      Create and update project tasks
   index     Update local retrieval indexes
   search    Search indexed project files
+  context   Build compact task context packages
   help      Show this help
 `

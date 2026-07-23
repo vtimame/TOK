@@ -405,13 +405,23 @@ func splitIdentifier(raw string) []string {
 
 func matchingLine(content string, tokens []string) (int, string) {
 	lines := strings.Split(content, "\n")
+	bestLine := 0
+	bestScore := 0
 	for idx, line := range lines {
 		lower := strings.ToLower(line)
+		score := 0
 		for _, token := range tokens {
 			if strings.Contains(lower, token) {
-				return idx + 1, trimSnippet(line)
+				score++
 			}
 		}
+		if score > bestScore {
+			bestLine = idx + 1
+			bestScore = score
+		}
+	}
+	if bestScore > 0 {
+		return bestLine, trimSnippet(lines[bestLine-1])
 	}
 	if len(lines) == 0 {
 		return 0, ""
