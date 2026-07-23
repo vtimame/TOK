@@ -56,9 +56,21 @@ func TestCLICoreWorkflowEndToEnd(t *testing.T) {
 		t.Fatalf("unexpected claimed task: %+v", claimed)
 	}
 
+	indexCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	if err := indexCLI.Run(ctx, []string{"index", "update", "--project", "tok"}); err != nil {
+		t.Fatalf("index update returned error: %v", err)
+	}
+
+	handoffPath := filepath.Join(t.TempDir(), "run-handoff.md")
 	var runStartOut bytes.Buffer
 	runStartCLI := newProjectTestCLI(dataDir, &runStartOut)
-	if err := runStartCLI.Run(ctx, []string{"run", "start", "--task", strconv.FormatInt(blockerID, 10), "--limit", "3", "--json"}); err != nil {
+	if err := runStartCLI.Run(ctx, []string{
+		"run", "start",
+		"--task", strconv.FormatInt(blockerID, 10),
+		"--limit", "3",
+		"--handoff-output", handoffPath,
+		"--json",
+	}); err != nil {
 		t.Fatalf("run start --json returned error: %v", err)
 	}
 	var startedRun runOutput
@@ -71,6 +83,15 @@ func TestCLICoreWorkflowEndToEnd(t *testing.T) {
 	if startedRun.RetrievalLimit != 3 {
 		t.Fatalf("unexpected run retrieval limit: %+v", startedRun)
 	}
+	handoffContent, err := os.ReadFile(handoffPath)
+	if err != nil {
+		t.Fatalf("ReadFile run handoff path returned error: %v", err)
+	}
+	if !strings.Contains(string(handoffContent), "workflow.go") || !strings.Contains(string(handoffContent), "buildContextPackage") {
+		t.Fatalf("run handoff artifact missing workflow retrieval result:\n%s", string(handoffContent))
+	}
+	handoffHash := sha256ContentHash(string(handoffContent))
+	assertHandoffArtifactOutput(t, startedRun.Artifacts, startedRun.ID, handoffPath, handoffHash)
 
 	var runShowOut bytes.Buffer
 	runShowCLI := newProjectTestCLI(dataDir, &runShowOut)
@@ -84,11 +105,7 @@ func TestCLICoreWorkflowEndToEnd(t *testing.T) {
 	if shownRun.ID != startedRun.ID || shownRun.TaskID != blockerID || shownRun.RetrievalLimit != startedRun.RetrievalLimit {
 		t.Fatalf("unexpected shown run: %+v", shownRun)
 	}
-
-	indexCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
-	if err := indexCLI.Run(ctx, []string{"index", "update", "--project", "tok"}); err != nil {
-		t.Fatalf("index update returned error: %v", err)
-	}
+	assertHandoffArtifactOutput(t, shownRun.Artifacts, startedRun.ID, handoffPath, handoffHash)
 
 	contextPath := filepath.Join(t.TempDir(), "context.md")
 	var contextOut bytes.Buffer
@@ -148,6 +165,37 @@ func TestCLICoreWorkflowEndToEnd(t *testing.T) {
 		t.Fatalf("task progress returned error: %v", err)
 	}
 
+	var validationOut bytes.Buffer
+	validationCLI := newProjectTestCLI(dataDir, &validationOut)
+	if err := validationCLI.Run(ctx, []string{
+		"run", "record-validation",
+		strconv.FormatInt(startedRun.ID, 10),
+		"--command", "go test ./...",
+		"--status", "passed",
+		"--summary", "Smoke tests pass.",
+		"--json",
+	}); err != nil {
+		t.Fatalf("run record-validation --json returned error: %v", err)
+	}
+	var validationArtifact runArtifactOutput
+	if err := json.Unmarshal(validationOut.Bytes(), &validationArtifact); err != nil {
+		t.Fatalf("parse validation artifact JSON: %v\n%s", err, validationOut.String())
+	}
+	if validationArtifact.Kind != "validation" || validationArtifact.RunID != startedRun.ID {
+		t.Fatalf("unexpected validation artifact: %+v", validationArtifact)
+	}
+	var validationMetadata struct {
+		Command string `json:"command"`
+		Status  string `json:"status"`
+		Summary string `json:"summary"`
+	}
+	if err := json.Unmarshal([]byte(validationArtifact.Metadata), &validationMetadata); err != nil {
+		t.Fatalf("parse validation artifact metadata: %v\n%s", err, validationArtifact.Metadata)
+	}
+	if validationMetadata.Command != "go test ./..." || validationMetadata.Status != "passed" || validationMetadata.Summary != "Smoke tests pass." {
+		t.Fatalf("unexpected validation artifact metadata: %+v", validationMetadata)
+	}
+
 	var runFinishOut bytes.Buffer
 	runFinishCLI := newProjectTestCLI(dataDir, &runFinishOut)
 	if err := runFinishCLI.Run(ctx, []string{
@@ -165,6 +213,13 @@ func TestCLICoreWorkflowEndToEnd(t *testing.T) {
 	}
 	if finishedRun.Status != "succeeded" || finishedRun.FinishedAt == "" || finishedRun.ResultSummary != "Handoff package prepared." {
 		t.Fatalf("unexpected finished run: %+v", finishedRun)
+	}
+	if len(finishedRun.Artifacts) != 2 {
+		t.Fatalf("expected handoff and validation artifacts on finished run, got %+v", finishedRun.Artifacts)
+	}
+	assertHandoffArtifactOutput(t, finishedRun.Artifacts[:1], startedRun.ID, handoffPath, handoffHash)
+	if finishedRun.Artifacts[1] != validationArtifact {
+		t.Fatalf("finished run validation artifact mismatch: %+v", finishedRun.Artifacts[1])
 	}
 
 	doneCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
