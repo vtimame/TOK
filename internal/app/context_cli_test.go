@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -103,6 +104,34 @@ func TestCLIContextBuild(t *testing.T) {
 		if !strings.Contains(fileText, want) {
 			t.Fatalf("context package file missing %q:\n%s", want, fileText)
 		}
+	}
+
+	var jsonOut bytes.Buffer
+	jsonCLI := newProjectTestCLI(dataDir, &jsonOut)
+	if err := jsonCLI.Run(ctx, []string{
+		"context", "build",
+		"--project", "tok",
+		"--task", strconv.FormatInt(taskID, 10),
+		"--query", "custom marker",
+		"--json",
+	}); err != nil {
+		t.Fatalf("context build --json returned error: %v", err)
+	}
+	var packageJSON contextPackageOutput
+	if err := json.Unmarshal(jsonOut.Bytes(), &packageJSON); err != nil {
+		t.Fatalf("parse context package JSON: %v\n%s", err, jsonOut.String())
+	}
+	if packageJSON.Project.Name != "tok" || packageJSON.Task.ID != taskID || packageJSON.Task.Title != "Refresh token package" {
+		t.Fatalf("unexpected context package JSON metadata: %+v", packageJSON)
+	}
+	if len(packageJSON.Events) != 1 || packageJSON.Events[0].Type != "created" {
+		t.Fatalf("unexpected context package JSON events: %+v", packageJSON.Events)
+	}
+	if len(packageJSON.RetrievalResults) == 0 || packageJSON.RetrievalResults[0].Path != "custom.md" || packageJSON.RetrievalResults[0].Excerpt == "" {
+		t.Fatalf("unexpected context package JSON retrieval results: %+v", packageJSON.RetrievalResults)
+	}
+	if packageJSON.RepositoryState.Available {
+		t.Fatalf("expected fixture project to have unavailable repository state: %+v", packageJSON.RepositoryState)
 	}
 }
 

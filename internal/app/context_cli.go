@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -49,6 +50,7 @@ type contextBuildOptions struct {
 	retrievalLimit int
 	outputPath     string
 	query          string
+	json           bool
 }
 
 func (c *CLI) runContextBuild(ctx context.Context, store *storage.Store, args []string) error {
@@ -78,6 +80,23 @@ func (c *CLI) runContextBuild(ctx context.Context, store *storage.Store, args []
 		Query:          buildOpts.query,
 	})
 	if err != nil {
+		return err
+	}
+
+	if buildOpts.json {
+		data, err := json.MarshalIndent(contextPackageOutputFromPackage(pkg), "", "  ")
+		if err != nil {
+			return fmt.Errorf("encode context package JSON: %w", err)
+		}
+		data = append(data, '\n')
+		if buildOpts.outputPath != "" {
+			if err := writeContextPackage(buildOpts.outputPath, string(data)); err != nil {
+				return err
+			}
+			fmt.Fprintf(c.out, "wrote context package: %s\n", buildOpts.outputPath)
+			return nil
+		}
+		_, err = c.out.Write(data)
 		return err
 	}
 
@@ -165,6 +184,8 @@ func parseContextBuildOptions(args []string) (contextBuildOptions, error) {
 			if opts.query == "" {
 				return contextBuildOptions{}, &UsageError{Message: "--query requires a value", Code: 2}
 			}
+		case arg == "--json":
+			opts.json = true
 		default:
 			return contextBuildOptions{}, &UsageError{Message: fmt.Sprintf("unknown context build option %q", arg), Code: 2}
 		}
@@ -209,4 +230,86 @@ func writeContextPackage(path, text string) error {
 		return fmt.Errorf("write context package %q: %w", path, err)
 	}
 	return nil
+}
+
+type contextPackageOutput struct {
+	Project          projectOutput           `json:"project"`
+	Task             readyTaskOutput         `json:"task"`
+	Events           []taskEventOutput       `json:"events"`
+	RetrievalResults []retrievalResultOutput `json:"retrieval_results"`
+	RepositoryState  repositoryStateOutput   `json:"repository_state"`
+}
+
+type projectOutput struct {
+	ID          int64  `json:"id"`
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name"`
+	Path        string `json:"path"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
+}
+
+type retrievalResultOutput struct {
+	Path       string  `json:"path"`
+	Score      float64 `json:"score"`
+	Line       int     `json:"line"`
+	Snippet    string  `json:"snippet"`
+	Excerpt    string  `json:"excerpt"`
+	Provenance string  `json:"provenance"`
+}
+
+type repositoryStateOutput struct {
+	Available bool     `json:"available"`
+	Branch    string   `json:"branch"`
+	Head      string   `json:"head"`
+	Status    []string `json:"status"`
+	Error     string   `json:"error"`
+}
+
+func contextPackageOutputFromPackage(pkg contextpkg.Package) contextPackageOutput {
+	events := make([]taskEventOutput, 0, len(pkg.Events))
+	for _, event := range pkg.Events {
+		events = append(events, taskEventOutput{
+			ID:         event.ID,
+			TaskID:     event.TaskID,
+			Type:       event.Type,
+			Body:       event.Body,
+			FromStatus: event.FromStatus,
+			ToStatus:   event.ToStatus,
+			CreatedAt:  event.CreatedAt,
+		})
+	}
+
+	results := make([]retrievalResultOutput, 0, len(pkg.Results))
+	for _, result := range pkg.Results {
+		results = append(results, retrievalResultOutput{
+			Path:       result.Path,
+			Score:      result.Score,
+			Line:       result.Line,
+			Snippet:    result.Snippet,
+			Excerpt:    result.Excerpt,
+			Provenance: result.Provenance,
+		})
+	}
+
+	return contextPackageOutput{
+		Project: projectOutput{
+			ID:          pkg.Project.ID,
+			Name:        pkg.Project.Name,
+			DisplayName: pkg.Project.DisplayName,
+			Path:        pkg.Project.Path,
+			CreatedAt:   pkg.Project.CreatedAt,
+			UpdatedAt:   pkg.Project.UpdatedAt,
+		},
+		Task:             taskOutputFromStorage(pkg.Task),
+		Events:           events,
+		RetrievalResults: results,
+		RepositoryState: repositoryStateOutput{
+			Available: pkg.Git.Available,
+			Branch:    pkg.Git.Branch,
+			Head:      pkg.Git.Head,
+			Status:    pkg.Git.Status,
+			Error:     pkg.Git.Error,
+		},
+	}
 }

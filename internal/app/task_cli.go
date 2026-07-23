@@ -119,19 +119,15 @@ func (c *CLI) runTaskList(ctx context.Context, store *storage.Store, args []stri
 }
 
 func (c *CLI) runTaskShow(ctx context.Context, store *storage.Store, args []string) error {
-	if len(args) != 1 {
-		return &UsageError{Message: "task show requires a task id", Code: 2}
-	}
-
-	taskID, err := parseTaskID(args[0])
+	showOpts, err := parseTaskShowOptions(args)
 	if err != nil {
 		return err
 	}
 
-	task, err := store.GetTask(ctx, taskID)
+	task, err := store.GetTask(ctx, showOpts.taskID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("task not found: %d", taskID)
+			return fmt.Errorf("task not found: %d", showOpts.taskID)
 		}
 		return err
 	}
@@ -139,6 +135,10 @@ func (c *CLI) runTaskShow(ctx context.Context, store *storage.Store, args []stri
 	events, err := store.ListTaskEvents(ctx, task.ID)
 	if err != nil {
 		return err
+	}
+
+	if showOpts.json {
+		return printTaskShowJSON(c.out, task, events)
 	}
 
 	printTask(c.out, task)
@@ -171,6 +171,11 @@ func (c *CLI) runTaskStatus(ctx context.Context, store *storage.Store, args []st
 type taskDoneOptions struct {
 	taskID int64
 	note   string
+}
+
+type taskShowOptions struct {
+	taskID int64
+	json   bool
 }
 
 func (c *CLI) runTaskDone(ctx context.Context, store *storage.Store, args []string) error {
@@ -529,6 +534,35 @@ func parseTaskClaimOptions(args []string) (taskClaimOptions, error) {
 	return opts, nil
 }
 
+func parseTaskShowOptions(args []string) (taskShowOptions, error) {
+	var opts taskShowOptions
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--json":
+			opts.json = true
+		case strings.HasPrefix(arg, "-"):
+			return taskShowOptions{}, &UsageError{Message: fmt.Sprintf("unknown task show option %q", arg), Code: 2}
+		default:
+			if opts.taskID != 0 {
+				return taskShowOptions{}, &UsageError{Message: "task show accepts exactly one task id", Code: 2}
+			}
+			taskID, err := parseTaskID(arg)
+			if err != nil {
+				return taskShowOptions{}, err
+			}
+			opts.taskID = taskID
+		}
+	}
+
+	if opts.taskID == 0 {
+		return taskShowOptions{}, &UsageError{Message: "task show requires a task id", Code: 2}
+	}
+
+	return opts, nil
+}
+
 func parseTaskDoneOptions(args []string) (taskDoneOptions, error) {
 	if len(args) == 0 {
 		return taskDoneOptions{}, &UsageError{Message: "task done requires a task id", Code: 2}
@@ -715,20 +749,25 @@ type readyTaskOutput struct {
 	UpdatedAt          string `json:"updated_at"`
 }
 
+type taskEventOutput struct {
+	ID         int64  `json:"id"`
+	TaskID     int64  `json:"task_id"`
+	Type       string `json:"type"`
+	Body       string `json:"body"`
+	FromStatus string `json:"from_status"`
+	ToStatus   string `json:"to_status"`
+	CreatedAt  string `json:"created_at"`
+}
+
+type taskShowOutput struct {
+	Task   readyTaskOutput   `json:"task"`
+	Events []taskEventOutput `json:"events"`
+}
+
 func printReadyTasksJSON(out io.Writer, tasks []storage.Task) error {
 	readyTasks := make([]readyTaskOutput, 0, len(tasks))
 	for _, task := range tasks {
-		readyTasks = append(readyTasks, readyTaskOutput{
-			ID:                 task.ID,
-			ProjectID:          task.ProjectID,
-			Status:             task.Status,
-			Title:              task.Title,
-			Description:        task.Description,
-			AcceptanceCriteria: task.AcceptanceCriteria,
-			Notes:              task.Notes,
-			CreatedAt:          task.CreatedAt,
-			UpdatedAt:          task.UpdatedAt,
-		})
+		readyTasks = append(readyTasks, taskOutputFromStorage(task))
 	}
 
 	encoder := json.NewEncoder(out)
@@ -739,7 +778,33 @@ func printReadyTasksJSON(out io.Writer, tasks []storage.Task) error {
 func printClaimedTaskJSON(out io.Writer, task storage.Task) error {
 	encoder := json.NewEncoder(out)
 	encoder.SetIndent("", "  ")
-	return encoder.Encode(readyTaskOutput{
+	return encoder.Encode(taskOutputFromStorage(task))
+}
+
+func printTaskShowJSON(out io.Writer, task storage.Task, events []storage.TaskEvent) error {
+	eventOutputs := make([]taskEventOutput, 0, len(events))
+	for _, event := range events {
+		eventOutputs = append(eventOutputs, taskEventOutput{
+			ID:         event.ID,
+			TaskID:     event.TaskID,
+			Type:       event.Type,
+			Body:       event.Body,
+			FromStatus: event.FromStatus,
+			ToStatus:   event.ToStatus,
+			CreatedAt:  event.CreatedAt,
+		})
+	}
+
+	encoder := json.NewEncoder(out)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(taskShowOutput{
+		Task:   taskOutputFromStorage(task),
+		Events: eventOutputs,
+	})
+}
+
+func taskOutputFromStorage(task storage.Task) readyTaskOutput {
+	return readyTaskOutput{
 		ID:                 task.ID,
 		ProjectID:          task.ProjectID,
 		Status:             task.Status,
@@ -749,5 +814,5 @@ func printClaimedTaskJSON(out io.Writer, task storage.Task) error {
 		Notes:              task.Notes,
 		CreatedAt:          task.CreatedAt,
 		UpdatedAt:          task.UpdatedAt,
-	})
+	}
 }

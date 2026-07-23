@@ -103,6 +103,22 @@ func TestCLITaskCreateListShowStatusAndComment(t *testing.T) {
 			t.Fatalf("task show output missing %q:\n%s", want, showOut.String())
 		}
 	}
+
+	var showJSONOut bytes.Buffer
+	showJSONCLI := newProjectTestCLI(dataDir, &showJSONOut)
+	if err := showJSONCLI.Run(ctx, []string{"task", "show", strconv.FormatInt(taskID, 10), "--json"}); err != nil {
+		t.Fatalf("task show --json returned error: %v", err)
+	}
+	var showJSON taskShowOutput
+	if err := json.Unmarshal(showJSONOut.Bytes(), &showJSON); err != nil {
+		t.Fatalf("parse task show JSON: %v\n%s", err, showJSONOut.String())
+	}
+	if showJSON.Task.ID != taskID || showJSON.Task.Status != "blocked" || showJSON.Task.Title != "Implement task store" {
+		t.Fatalf("unexpected task show JSON task: %+v", showJSON.Task)
+	}
+	if len(showJSON.Events) != 3 || showJSON.Events[0].Type != "created" || showJSON.Events[1].Type != "status_changed" || showJSON.Events[2].Type != "commented" {
+		t.Fatalf("unexpected task show JSON events: %+v", showJSON.Events)
+	}
 }
 
 func TestCLITaskDependencyReadyAndClaimFlow(t *testing.T) {
