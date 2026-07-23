@@ -36,8 +36,8 @@ func TestInitAppliesEmbeddedMigrations(t *testing.T) {
 	if err := store.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM schema_migrations").Scan(&applied); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if applied != 4 {
-		t.Fatalf("expected 4 applied migrations, got %d", applied)
+	if applied != 5 {
+		t.Fatalf("expected 5 applied migrations, got %d", applied)
 	}
 }
 
@@ -329,6 +329,7 @@ func TestRunLifecycle(t *testing.T) {
 		TaskID:                 task.ID,
 		Status:                 "in_progress",
 		HandoffContractVersion: "tok.handoff.v0",
+		RetrievalLimit:         3,
 		BaseBranch:             "main",
 		BaseHead:               "abc1234",
 	})
@@ -338,7 +339,7 @@ func TestRunLifecycle(t *testing.T) {
 	if run.ID == 0 || run.TaskID != task.ID || run.Status != "in_progress" || run.StartedAt == "" {
 		t.Fatalf("unexpected created run: %+v", run)
 	}
-	if run.HandoffContractVersion != "tok.handoff.v0" || run.BaseBranch != "main" || run.BaseHead != "abc1234" {
+	if run.HandoffContractVersion != "tok.handoff.v0" || run.RetrievalLimit != 3 || run.BaseBranch != "main" || run.BaseHead != "abc1234" {
 		t.Fatalf("unexpected run snapshot fields: %+v", run)
 	}
 	if run.FinishedAt != "" || run.ResultSummary != "" {
@@ -404,6 +405,9 @@ func TestRunLifecycleValidation(t *testing.T) {
 	}
 	if created.Status != "created" {
 		t.Fatalf("expected default created status, got %+v", created)
+	}
+	if created.RetrievalLimit != 5 {
+		t.Fatalf("expected default retrieval limit, got %+v", created)
 	}
 
 	_, err = store.CreateRun(ctx, CreateRunInput{

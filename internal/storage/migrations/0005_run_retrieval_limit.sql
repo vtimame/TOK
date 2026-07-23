@@ -1,0 +1,2 @@
+ALTER TABLE runs
+ADD COLUMN retrieval_limit INTEGER NOT NULL DEFAULT 5;

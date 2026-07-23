@@ -47,8 +47,9 @@ func (c *CLI) runRun(ctx context.Context, opts runtimeOptions) error {
 }
 
 type runStartOptions struct {
-	taskID int64
-	json   bool
+	taskID         int64
+	retrievalLimit int
+	json           bool
 }
 
 type runShowOptions struct {
@@ -69,10 +70,26 @@ func (c *CLI) runRunStart(ctx context.Context, store *storage.Store, args []stri
 		return err
 	}
 
+	task, err := store.GetTask(ctx, startOpts.taskID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("task not found: %d", startOpts.taskID)
+		}
+		return err
+	}
+	project, err := store.GetProjectByID(ctx, task.ProjectID)
+	if err != nil {
+		return err
+	}
+	gitState := contextpkg.CommandGitInspector{}.Inspect(ctx, project.Path)
+
 	run, err := store.CreateRun(ctx, storage.CreateRunInput{
 		TaskID:                 startOpts.taskID,
 		Status:                 "in_progress",
 		HandoffContractVersion: contextpkg.HandoffContractV0,
+		RetrievalLimit:         startOpts.retrievalLimit,
+		BaseBranch:             gitState.Branch,
+		BaseHead:               gitState.Head,
 	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -162,6 +179,22 @@ func parseRunStartOptions(args []string) (runStartOptions, error) {
 				return runStartOptions{}, err
 			}
 			opts.taskID = taskID
+		case arg == "--limit":
+			i++
+			if i >= len(args) {
+				return runStartOptions{}, &UsageError{Message: "--limit requires a value", Code: 2}
+			}
+			limit, err := parseContextLimit(args[i])
+			if err != nil {
+				return runStartOptions{}, err
+			}
+			opts.retrievalLimit = limit
+		case strings.HasPrefix(arg, "--limit="):
+			limit, err := parseContextLimit(strings.TrimPrefix(arg, "--limit="))
+			if err != nil {
+				return runStartOptions{}, err
+			}
+			opts.retrievalLimit = limit
 		case arg == "--json":
 			opts.json = true
 		default:
@@ -171,6 +204,9 @@ func parseRunStartOptions(args []string) (runStartOptions, error) {
 
 	if opts.taskID == 0 {
 		return runStartOptions{}, &UsageError{Message: "run start requires --task", Code: 2}
+	}
+	if opts.retrievalLimit == 0 {
+		opts.retrievalLimit = contextpkg.DefaultRetrievalLimit
 	}
 	return opts, nil
 }
@@ -259,6 +295,7 @@ type runOutput struct {
 	TaskID                 int64  `json:"task_id"`
 	Status                 string `json:"status"`
 	HandoffContractVersion string `json:"handoff_contract_version"`
+	RetrievalLimit         int    `json:"retrieval_limit"`
 	StartedAt              string `json:"started_at"`
 	FinishedAt             string `json:"finished_at"`
 	BaseBranch             string `json:"base_branch"`
@@ -271,6 +308,7 @@ func printRun(out io.Writer, run storage.Run) {
 	fmt.Fprintf(out, "task_id: %d\n", run.TaskID)
 	fmt.Fprintf(out, "status: %s\n", run.Status)
 	fmt.Fprintf(out, "handoff_contract_version: %s\n", run.HandoffContractVersion)
+	fmt.Fprintf(out, "retrieval_limit: %d\n", run.RetrievalLimit)
 	fmt.Fprintf(out, "started_at: %s\n", run.StartedAt)
 	fmt.Fprintf(out, "finished_at: %s\n", run.FinishedAt)
 	fmt.Fprintf(out, "base_branch: %s\n", run.BaseBranch)
@@ -290,6 +328,7 @@ func runOutputFromStorage(run storage.Run) runOutput {
 		TaskID:                 run.TaskID,
 		Status:                 run.Status,
 		HandoffContractVersion: run.HandoffContractVersion,
+		RetrievalLimit:         run.RetrievalLimit,
 		StartedAt:              run.StartedAt,
 		FinishedAt:             run.FinishedAt,
 		BaseBranch:             run.BaseBranch,

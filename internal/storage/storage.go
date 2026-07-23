@@ -94,6 +94,7 @@ type Run struct {
 	TaskID                 int64
 	Status                 string
 	HandoffContractVersion string
+	RetrievalLimit         int
 	StartedAt              string
 	FinishedAt             string
 	BaseBranch             string
@@ -105,6 +106,7 @@ type CreateRunInput struct {
 	TaskID                 int64
 	Status                 string
 	HandoffContractVersion string
+	RetrievalLimit         int
 	BaseBranch             string
 	BaseHead               string
 }
@@ -635,11 +637,14 @@ func (s *Store) CreateRun(ctx context.Context, input CreateRunInput) (Run, error
 	if input.HandoffContractVersion == "" {
 		return Run{}, errors.New("run handoff contract version is required")
 	}
+	if input.RetrievalLimit <= 0 {
+		input.RetrievalLimit = 5
+	}
 
 	res, err := s.db.ExecContext(ctx, `
-		INSERT INTO runs (task_id, status, handoff_contract_version, base_branch, base_head)
-		VALUES (?, ?, ?, ?, ?)
-	`, input.TaskID, status, input.HandoffContractVersion, input.BaseBranch, input.BaseHead)
+		INSERT INTO runs (task_id, status, handoff_contract_version, retrieval_limit, base_branch, base_head)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, input.TaskID, status, input.HandoffContractVersion, input.RetrievalLimit, input.BaseBranch, input.BaseHead)
 	if err != nil {
 		return Run{}, fmt.Errorf("create run: %w", err)
 	}
@@ -654,7 +659,7 @@ func (s *Store) CreateRun(ctx context.Context, input CreateRunInput) (Run, error
 
 func (s *Store) GetRun(ctx context.Context, id int64) (Run, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, task_id, status, handoff_contract_version, started_at, finished_at, base_branch, base_head, result_summary
+		SELECT id, task_id, status, handoff_contract_version, retrieval_limit, started_at, finished_at, base_branch, base_head, result_summary
 		FROM runs
 		WHERE id = ?
 	`, id)
@@ -1256,6 +1261,7 @@ func scanRun(row scanner) (Run, error) {
 		&run.TaskID,
 		&run.Status,
 		&run.HandoffContractVersion,
+		&run.RetrievalLimit,
 		&run.StartedAt,
 		&run.FinishedAt,
 		&run.BaseBranch,
