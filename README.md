@@ -31,6 +31,7 @@ tok task create \
 
 tok task ready --project tok --json
 tok task claim --project tok --json
+tok run start --task <task-id> --limit 5 --json
 
 tok index update --project tok
 tok context build \
@@ -40,6 +41,8 @@ tok context build \
 
 tok context build --project tok --task <task-id> --json
 tok task progress <task-id> --body "Implemented the first slice."
+tok run show <run-id> --json
+tok run finish <run-id> --status succeeded --summary "Run completed."
 tok task block <task-id> --reason "Waiting for a decision."
 tok task unblock <task-id> --note "Decision recorded."
 tok task done <task-id> --note "Implemented and tests pass."
@@ -54,6 +57,9 @@ The core invariants are:
   project metadata, lexical retrieval results and git repository state.
 - Handoff packages expose `tok.handoff.v0`, dependencies/blockers, suggested
   commands and V1 text sections for agent use.
+- `run start` records an agent run attempt with the handoff contract version,
+  retrieval limit and git start snapshot. `run finish` records the attempt
+  outcome without closing the task automatically.
 - `progress`, `block` and `unblock` record typed task events; blocked tasks are
   excluded from `ready` and cannot be claimed.
 - `done` records a completion event and moves an `in_progress` task to `done`.

@@ -56,6 +56,35 @@ func TestCLICoreWorkflowEndToEnd(t *testing.T) {
 		t.Fatalf("unexpected claimed task: %+v", claimed)
 	}
 
+	var runStartOut bytes.Buffer
+	runStartCLI := newProjectTestCLI(dataDir, &runStartOut)
+	if err := runStartCLI.Run(ctx, []string{"run", "start", "--task", strconv.FormatInt(blockerID, 10), "--limit", "3", "--json"}); err != nil {
+		t.Fatalf("run start --json returned error: %v", err)
+	}
+	var startedRun runOutput
+	if err := json.Unmarshal(runStartOut.Bytes(), &startedRun); err != nil {
+		t.Fatalf("parse run start JSON: %v\n%s", err, runStartOut.String())
+	}
+	if startedRun.ID == 0 || startedRun.TaskID != blockerID || startedRun.Status != "in_progress" || startedRun.HandoffContractVersion != "tok.handoff.v0" {
+		t.Fatalf("unexpected started run: %+v", startedRun)
+	}
+	if startedRun.RetrievalLimit != 3 {
+		t.Fatalf("unexpected run retrieval limit: %+v", startedRun)
+	}
+
+	var runShowOut bytes.Buffer
+	runShowCLI := newProjectTestCLI(dataDir, &runShowOut)
+	if err := runShowCLI.Run(ctx, []string{"run", "show", strconv.FormatInt(startedRun.ID, 10), "--json"}); err != nil {
+		t.Fatalf("run show --json returned error: %v", err)
+	}
+	var shownRun runOutput
+	if err := json.Unmarshal(runShowOut.Bytes(), &shownRun); err != nil {
+		t.Fatalf("parse run show JSON: %v\n%s", err, runShowOut.String())
+	}
+	if shownRun.ID != startedRun.ID || shownRun.TaskID != blockerID || shownRun.RetrievalLimit != startedRun.RetrievalLimit {
+		t.Fatalf("unexpected shown run: %+v", shownRun)
+	}
+
 	indexCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
 	if err := indexCLI.Run(ctx, []string{"index", "update", "--project", "tok"}); err != nil {
 		t.Fatalf("index update returned error: %v", err)
@@ -117,6 +146,25 @@ func TestCLICoreWorkflowEndToEnd(t *testing.T) {
 	progressCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
 	if err := progressCLI.Run(ctx, []string{"task", "progress", strconv.FormatInt(blockerID, 10), "--body", "Handoff package reviewed."}); err != nil {
 		t.Fatalf("task progress returned error: %v", err)
+	}
+
+	var runFinishOut bytes.Buffer
+	runFinishCLI := newProjectTestCLI(dataDir, &runFinishOut)
+	if err := runFinishCLI.Run(ctx, []string{
+		"run", "finish",
+		strconv.FormatInt(startedRun.ID, 10),
+		"--status", "succeeded",
+		"--summary", "Handoff package prepared.",
+		"--json",
+	}); err != nil {
+		t.Fatalf("run finish --json returned error: %v", err)
+	}
+	var finishedRun runOutput
+	if err := json.Unmarshal(runFinishOut.Bytes(), &finishedRun); err != nil {
+		t.Fatalf("parse run finish JSON: %v\n%s", err, runFinishOut.String())
+	}
+	if finishedRun.Status != "succeeded" || finishedRun.FinishedAt == "" || finishedRun.ResultSummary != "Handoff package prepared." {
+		t.Fatalf("unexpected finished run: %+v", finishedRun)
 	}
 
 	doneCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
