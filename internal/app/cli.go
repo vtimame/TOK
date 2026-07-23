@@ -95,6 +95,8 @@ func (c *CLI) Run(ctx context.Context, args []string) error {
 		return c.runSearch(ctx, opts)
 	case "context":
 		return c.runContext(ctx, opts)
+	case "run":
+		return c.runRun(ctx, opts)
 	default:
 		return &UsageError{
 			Message: fmt.Sprintf("unknown command %q\n\nRun '%s help' for usage.", opts.args[0], commandName),
@@ -250,5 +252,6 @@ Commands:
   index     Update local retrieval indexes
   search    Search indexed project files
   context   Build compact task context packages
+  run       Record agent run attempts
   help      Show this help
 `
