@@ -10,6 +10,7 @@ import (
 
 	"s26.sh/tok/internal/config"
 	"s26.sh/tok/internal/logging"
+	"s26.sh/tok/internal/storage"
 )
 
 const commandName = "tok"
@@ -80,6 +81,8 @@ func (c *CLI) Run(ctx context.Context, args []string) error {
 	case "version", "-v", "--version":
 		c.printVersion()
 		return nil
+	case "init":
+		return c.runInit(ctx, opts)
 	case "config":
 		return c.runConfig(ctx, opts)
 	default:
@@ -150,6 +153,32 @@ func (c *CLI) runtime(opts runtimeOptions) (config.Config, zerolog.Logger, error
 	return cfg, logger, nil
 }
 
+func (c *CLI) runInit(ctx context.Context, opts runtimeOptions) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	cfg, logger, err := c.runtime(opts)
+	if err != nil {
+		return err
+	}
+
+	dbPath := storage.DatabasePath(cfg.DataDir)
+	store, err := storage.Open(ctx, dbPath)
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+
+	if err := store.Init(ctx); err != nil {
+		return err
+	}
+
+	logger.Debug().Str("database", dbPath).Msg("initialized runtime database")
+	fmt.Fprintf(c.out, "initialized database: %s\n", dbPath)
+	return nil
+}
+
 func (c *CLI) runConfig(ctx context.Context, opts runtimeOptions) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -195,6 +224,7 @@ Usage:
 
 Commands:
   version   Print build version information
+  init      Initialize local runtime storage
   config    Inspect runtime configuration
   help      Show this help
 `

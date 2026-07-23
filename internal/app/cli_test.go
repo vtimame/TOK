@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"s26.sh/tok/internal/config"
+	"s26.sh/tok/internal/storage"
 )
 
 func TestCLIRootPrintsHelp(t *testing.T) {
@@ -109,5 +112,34 @@ func TestCLIConfigPathsAppliesLogLevelFlag(t *testing.T) {
 	got := errOut.String()
 	if !strings.Contains(got, `"level":"debug"`) {
 		t.Fatalf("expected debug log output:\n%s", got)
+	}
+}
+
+func TestCLIInitInitializesRuntimeDatabase(t *testing.T) {
+	dataDir := t.TempDir()
+	var out bytes.Buffer
+	cli := NewCLI(&out, &bytes.Buffer{}, VersionInfo{})
+	cli.loadCfg = func(string) (config.Config, error) {
+		return config.Config{
+			DataDir: dataDir,
+			Log: config.LogConfig{
+				Level:  "info",
+				Format: "json",
+			},
+		}, nil
+	}
+
+	if err := cli.Run(context.Background(), []string{"init"}); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	dbPath := filepath.Join(dataDir, storage.DatabaseFileName)
+	if _, err := os.Stat(dbPath); err != nil {
+		t.Fatalf("expected initialized database at %s: %v", dbPath, err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "initialized database: "+dbPath) {
+		t.Fatalf("unexpected init output:\n%s", got)
 	}
 }

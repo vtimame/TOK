@@ -3,6 +3,7 @@ module s26.sh/tok
 go 1.26
 
 require (
+	github.com/mattn/go-sqlite3 v1.14.48
 	github.com/rs/zerolog v1.35.1
 	gopkg.in/yaml.v3 v3.0.1
 )
