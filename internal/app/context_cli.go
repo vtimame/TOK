@@ -233,11 +233,15 @@ func writeContextPackage(path, text string) error {
 }
 
 type contextPackageOutput struct {
-	Project          projectOutput           `json:"project"`
-	Task             readyTaskOutput         `json:"task"`
-	Events           []taskEventOutput       `json:"events"`
-	RetrievalResults []retrievalResultOutput `json:"retrieval_results"`
-	RepositoryState  repositoryStateOutput   `json:"repository_state"`
+	ContractVersion   string                  `json:"contract_version"`
+	Project           projectOutput           `json:"project"`
+	Task              readyTaskOutput         `json:"task"`
+	Dependencies      []taskDependencyOutput  `json:"dependencies"`
+	Blockers          []taskDependencyOutput  `json:"blockers"`
+	Events            []taskEventOutput       `json:"events"`
+	RetrievalResults  []retrievalResultOutput `json:"retrieval_results"`
+	RepositoryState   repositoryStateOutput   `json:"repository_state"`
+	SuggestedCommands []string                `json:"suggested_commands"`
 }
 
 type projectOutput struct {
@@ -266,7 +270,25 @@ type repositoryStateOutput struct {
 	Error     string   `json:"error"`
 }
 
+type taskDependencyOutput struct {
+	ID            int64  `json:"id"`
+	EdgeType      string `json:"edge_type"`
+	BlockerTaskID int64  `json:"blocker_task_id"`
+	BlockedTaskID int64  `json:"blocked_task_id"`
+	CreatedAt     string `json:"created_at"`
+}
+
 func contextPackageOutputFromPackage(pkg contextpkg.Package) contextPackageOutput {
+	dependencies := make([]taskDependencyOutput, 0, len(pkg.Dependencies))
+	for _, dependency := range pkg.Dependencies {
+		dependencies = append(dependencies, taskDependencyOutputFromStorage(dependency))
+	}
+
+	blockers := make([]taskDependencyOutput, 0, len(pkg.Blockers))
+	for _, blocker := range pkg.Blockers {
+		blockers = append(blockers, taskDependencyOutputFromStorage(blocker))
+	}
+
 	events := make([]taskEventOutput, 0, len(pkg.Events))
 	for _, event := range pkg.Events {
 		events = append(events, taskEventOutput{
@@ -293,6 +315,7 @@ func contextPackageOutputFromPackage(pkg contextpkg.Package) contextPackageOutpu
 	}
 
 	return contextPackageOutput{
+		ContractVersion: pkg.ContractVersion,
 		Project: projectOutput{
 			ID:          pkg.Project.ID,
 			Name:        pkg.Project.Name,
@@ -302,6 +325,8 @@ func contextPackageOutputFromPackage(pkg contextpkg.Package) contextPackageOutpu
 			UpdatedAt:   pkg.Project.UpdatedAt,
 		},
 		Task:             taskOutputFromStorage(pkg.Task),
+		Dependencies:     dependencies,
+		Blockers:         blockers,
 		Events:           events,
 		RetrievalResults: results,
 		RepositoryState: repositoryStateOutput{
@@ -311,5 +336,16 @@ func contextPackageOutputFromPackage(pkg contextpkg.Package) contextPackageOutpu
 			Status:    pkg.Git.Status,
 			Error:     pkg.Git.Error,
 		},
+		SuggestedCommands: pkg.SuggestedCommands,
+	}
+}
+
+func taskDependencyOutputFromStorage(dependency storage.TaskDependency) taskDependencyOutput {
+	return taskDependencyOutput{
+		ID:            dependency.ID,
+		EdgeType:      dependency.EdgeType,
+		BlockerTaskID: dependency.BlockerTaskID,
+		BlockedTaskID: dependency.BlockedTaskID,
+		CreatedAt:     dependency.CreatedAt,
 	}
 }

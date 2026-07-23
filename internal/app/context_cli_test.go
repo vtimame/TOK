@@ -35,6 +35,12 @@ func TestCLIContextBuild(t *testing.T) {
 		t.Fatalf("task create returned error: %v", err)
 	}
 	taskID := mustExtractNumericField(t, taskOut.String(), "id")
+	blockerID := createTaskForTest(t, ctx, dataDir, "tok", "Prepare source index")
+
+	depCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	if err := depCLI.Run(ctx, []string{"task", "dependency", "add", strconv.FormatInt(blockerID, 10), strconv.FormatInt(taskID, 10)}); err != nil {
+		t.Fatalf("task dependency add returned error: %v", err)
+	}
 
 	indexCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
 	if err := indexCLI.Run(ctx, []string{"index", "update", "--project", "tok"}); err != nil {
@@ -50,6 +56,9 @@ func TestCLIContextBuild(t *testing.T) {
 	output := contextOut.String()
 	for _, want := range []string{
 		"# TOK Context Package",
+		"## Handoff Contract",
+		"contract_version: tok.handoff.v0",
+		"tok task show " + strconv.FormatInt(taskID, 10) + " --json",
 		"## Project",
 		"name: tok",
 		"display_name: TOK",
@@ -57,6 +66,8 @@ func TestCLIContextBuild(t *testing.T) {
 		"title: Refresh token package",
 		"acceptance_criteria:",
 		"  - include retrieval results",
+		"## Task Dependencies",
+		"blocker_task_id: " + strconv.FormatInt(blockerID, 10) + " blocked_task_id: " + strconv.FormatInt(taskID, 10),
 		"## Task Events",
 		"type: created",
 		"## Retrieval Results",
@@ -123,6 +134,18 @@ func TestCLIContextBuild(t *testing.T) {
 	}
 	if packageJSON.Project.Name != "tok" || packageJSON.Task.ID != taskID || packageJSON.Task.Title != "Refresh token package" {
 		t.Fatalf("unexpected context package JSON metadata: %+v", packageJSON)
+	}
+	if packageJSON.ContractVersion != "tok.handoff.v0" {
+		t.Fatalf("unexpected context package contract version: %+v", packageJSON)
+	}
+	if len(packageJSON.Dependencies) != 1 || packageJSON.Dependencies[0].BlockerTaskID != blockerID || packageJSON.Dependencies[0].BlockedTaskID != taskID {
+		t.Fatalf("unexpected context package JSON dependencies: %+v", packageJSON.Dependencies)
+	}
+	if len(packageJSON.Blockers) != 1 || packageJSON.Blockers[0].BlockerTaskID != blockerID {
+		t.Fatalf("unexpected context package JSON blockers: %+v", packageJSON.Blockers)
+	}
+	if len(packageJSON.SuggestedCommands) == 0 || !strings.Contains(packageJSON.SuggestedCommands[0], strconv.FormatInt(taskID, 10)) {
+		t.Fatalf("unexpected context package JSON suggested commands: %+v", packageJSON.SuggestedCommands)
 	}
 	if len(packageJSON.Events) != 1 || packageJSON.Events[0].Type != "created" {
 		t.Fatalf("unexpected context package JSON events: %+v", packageJSON.Events)

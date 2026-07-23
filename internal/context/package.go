@@ -13,10 +13,14 @@ import (
 	"s26.sh/tok/internal/storage"
 )
 
-const DefaultRetrievalLimit = 5
+const (
+	DefaultRetrievalLimit = 5
+	HandoffContractV0     = "tok.handoff.v0"
+)
 
 type Store interface {
 	ListTaskEvents(ctx stdctx.Context, taskID int64) ([]storage.TaskEvent, error)
+	ListTaskDependencies(ctx stdctx.Context, projectID, taskID int64) ([]storage.TaskDependency, error)
 }
 
 type Builder struct {
@@ -33,11 +37,15 @@ type BuildInput struct {
 }
 
 type Package struct {
-	Project storage.Project
-	Task    storage.Task
-	Events  []storage.TaskEvent
-	Results []retrieval.SearchResult
-	Git     GitState
+	ContractVersion   string
+	Project           storage.Project
+	Task              storage.Task
+	Dependencies      []storage.TaskDependency
+	Blockers          []storage.TaskDependency
+	Events            []storage.TaskEvent
+	Results           []retrieval.SearchResult
+	Git               GitState
+	SuggestedCommands []string
 }
 
 type GitInspector interface {
@@ -81,6 +89,10 @@ func (b *Builder) Build(ctx stdctx.Context, input BuildInput) (Package, error) {
 	if err != nil {
 		return Package{}, err
 	}
+	dependencies, err := b.store.ListTaskDependencies(ctx, input.Project.ID, input.Task.ID)
+	if err != nil {
+		return Package{}, err
+	}
 
 	query := strings.TrimSpace(input.Query)
 	if query == "" {
@@ -93,11 +105,15 @@ func (b *Builder) Build(ctx stdctx.Context, input BuildInput) (Package, error) {
 	}
 
 	return Package{
-		Project: input.Project,
-		Task:    input.Task,
-		Events:  events,
-		Results: results,
-		Git:     b.git.Inspect(ctx, input.Project.Path),
+		ContractVersion:   HandoffContractV0,
+		Project:           input.Project,
+		Task:              input.Task,
+		Dependencies:      dependencies,
+		Blockers:          blockersForTask(input.Task.ID, dependencies),
+		Events:            events,
+		Results:           results,
+		Git:               b.git.Inspect(ctx, input.Project.Path),
+		SuggestedCommands: suggestedCommands(input.Project, input.Task),
 	}, nil
 }
 
@@ -105,6 +121,18 @@ func (p Package) RenderText() string {
 	var out strings.Builder
 
 	out.WriteString("# TOK Context Package\n\n")
+
+	out.WriteString("## Handoff Contract\n")
+	fmt.Fprintf(&out, "contract_version: %s\n", p.ContractVersion)
+	out.WriteString("suggested_commands:\n")
+	if len(p.SuggestedCommands) == 0 {
+		out.WriteString("- none\n")
+	} else {
+		for _, command := range p.SuggestedCommands {
+			fmt.Fprintf(&out, "- %s\n", command)
+		}
+	}
+	out.WriteString("\n")
 
 	out.WriteString("## Project\n")
 	fmt.Fprintf(&out, "id: %d\n", p.Project.ID)
@@ -124,6 +152,28 @@ func (p Package) RenderText() string {
 	writeBlock(&out, "notes", p.Task.Notes)
 	fmt.Fprintf(&out, "created_at: %s\n", p.Task.CreatedAt)
 	fmt.Fprintf(&out, "updated_at: %s\n\n", p.Task.UpdatedAt)
+
+	out.WriteString("## Task Dependencies\n")
+	if len(p.Dependencies) == 0 {
+		out.WriteString("none\n\n")
+	} else {
+		for _, dependency := range p.Dependencies {
+			fmt.Fprintf(&out, "- id: %d edge_type: %s blocker_task_id: %d blocked_task_id: %d",
+				dependency.ID,
+				dependency.EdgeType,
+				dependency.BlockerTaskID,
+				dependency.BlockedTaskID,
+			)
+			if dependency.BlockedTaskID == p.Task.ID {
+				out.WriteString(" role: blocker")
+			}
+			if dependency.BlockerTaskID == p.Task.ID {
+				out.WriteString(" role: blocks")
+			}
+			fmt.Fprintf(&out, " created_at: %s\n", dependency.CreatedAt)
+		}
+		out.WriteString("\n")
+	}
 
 	out.WriteString("## Task Events\n")
 	if len(p.Events) == 0 {
@@ -246,6 +296,26 @@ func taskRetrievalQuery(task storage.Task) string {
 		task.AcceptanceCriteria,
 		task.Notes,
 	}, " "))
+}
+
+func blockersForTask(taskID int64, dependencies []storage.TaskDependency) []storage.TaskDependency {
+	blockers := make([]storage.TaskDependency, 0)
+	for _, dependency := range dependencies {
+		if dependency.EdgeType == "blocks" && dependency.BlockedTaskID == taskID {
+			blockers = append(blockers, dependency)
+		}
+	}
+	return blockers
+}
+
+func suggestedCommands(project storage.Project, task storage.Task) []string {
+	taskID := fmt.Sprintf("%d", task.ID)
+	return []string{
+		"tok task show " + taskID + " --json",
+		"tok context build --project " + project.Name + " --task " + taskID + " --output context.md",
+		"tok task comment " + taskID + " --body \"Progress update.\"",
+		"tok task done " + taskID + " --note \"Done, tests pass.\"",
+	}
 }
 
 func writeBlock(out *strings.Builder, label, value string) {

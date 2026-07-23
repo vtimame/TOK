@@ -519,6 +519,44 @@ func (s *Store) GetTaskDependency(ctx context.Context, id int64) (TaskDependency
 	return scanTaskDependency(row)
 }
 
+func (s *Store) ListTaskDependencies(ctx context.Context, projectID, taskID int64) ([]TaskDependency, error) {
+	if projectID <= 0 {
+		return nil, errors.New("dependency project id is required")
+	}
+	if taskID <= 0 {
+		return nil, errors.New("dependency task id is required")
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT d.id, d.edge_type, d.blocker_task_id, d.blocked_task_id, d.created_at
+		FROM task_dependencies d
+		JOIN tasks blocker ON blocker.id = d.blocker_task_id
+		JOIN tasks blocked ON blocked.id = d.blocked_task_id
+		WHERE (d.blocker_task_id = ? OR d.blocked_task_id = ?)
+		  AND blocker.project_id = ?
+		  AND blocked.project_id = ?
+		ORDER BY d.id
+	`, taskID, taskID, projectID, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("list task dependencies: %w", err)
+	}
+	defer rows.Close()
+
+	var dependencies []TaskDependency
+	for rows.Next() {
+		dependency, err := scanTaskDependency(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan task dependency: %w", err)
+		}
+		dependencies = append(dependencies, dependency)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate task dependencies: %w", err)
+	}
+
+	return dependencies, nil
+}
+
 func (s *Store) ListReadyTasks(ctx context.Context, projectID int64) ([]Task, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT t.id, t.project_id, t.status, t.title, t.description, t.acceptance_criteria, t.notes, t.created_at, t.updated_at

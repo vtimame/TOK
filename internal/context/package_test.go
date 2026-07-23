@@ -2,6 +2,7 @@ package context
 
 import (
 	stdctx "context"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -32,6 +33,17 @@ func TestBuilderBuildsDeterministicTextPackage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTask returned error: %v", err)
 	}
+	blocker, err := store.CreateTask(ctx, storage.CreateTaskInput{
+		ProjectID: project.ID,
+		Title:     "Prepare source index",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask blocker returned error: %v", err)
+	}
+	dependency, err := store.AddTaskDependency(ctx, "blocks", blocker.ID, task.ID)
+	if err != nil {
+		t.Fatalf("AddTaskDependency returned error: %v", err)
+	}
 	if _, err := store.ReplaceIndexedDocuments(ctx, project.ID, []storage.IndexedDocumentInput{
 		{
 			ProjectID:  project.ID,
@@ -60,10 +72,25 @@ func TestBuilderBuildsDeterministicTextPackage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build returned error: %v", err)
 	}
+	if pkg.ContractVersion != HandoffContractV0 {
+		t.Fatalf("unexpected contract version: %s", pkg.ContractVersion)
+	}
+	if len(pkg.Dependencies) != 1 || pkg.Dependencies[0].ID != dependency.ID {
+		t.Fatalf("unexpected dependencies: %+v", pkg.Dependencies)
+	}
+	if len(pkg.Blockers) != 1 || pkg.Blockers[0].BlockerTaskID != blocker.ID {
+		t.Fatalf("unexpected blockers: %+v", pkg.Blockers)
+	}
+	if len(pkg.SuggestedCommands) != 4 {
+		t.Fatalf("unexpected suggested commands: %+v", pkg.SuggestedCommands)
+	}
 
 	text := pkg.RenderText()
 	for _, want := range []string{
 		"# TOK Context Package",
+		"## Handoff Contract",
+		"contract_version: tok.handoff.v0",
+		fmt.Sprintf("tok task show %d --json", task.ID),
 		"## Project",
 		"name: tok",
 		"## Task",
@@ -71,6 +98,8 @@ func TestBuilderBuildsDeterministicTextPackage(t *testing.T) {
 		"title: Refresh token retrieval",
 		"acceptance_criteria:",
 		"  - package includes retrieval results",
+		"## Task Dependencies",
+		fmt.Sprintf("blocker_task_id: %d blocked_task_id: %d role: blocker", blocker.ID, task.ID),
 		"## Task Events",
 		"type: created",
 		"## Retrieval Results",
