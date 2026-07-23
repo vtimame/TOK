@@ -5,15 +5,22 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/rs/zerolog"
+
+	"s26.sh/tok/internal/config"
+	"s26.sh/tok/internal/logging"
 )
 
 const commandName = "tok"
 
 // CLI owns the root command surface shared by process entrypoints and tests.
 type CLI struct {
-	out     io.Writer
-	err     io.Writer
-	version VersionInfo
+	out       io.Writer
+	err       io.Writer
+	version   VersionInfo
+	loadCfg   func(string) (config.Config, error)
+	newLogger func(io.Writer, config.LogConfig) (zerolog.Logger, error)
 }
 
 type VersionInfo struct {
@@ -43,9 +50,11 @@ func NewCLI(out, err io.Writer, version VersionInfo) *CLI {
 	}
 
 	return &CLI{
-		out:     out,
-		err:     err,
-		version: version,
+		out:       out,
+		err:       err,
+		version:   version,
+		loadCfg:   config.LoadFromOS,
+		newLogger: logging.NewLogger,
 	}
 }
 
@@ -54,21 +63,117 @@ func (c *CLI) Run(ctx context.Context, args []string) error {
 		return err
 	}
 
-	if len(args) == 0 {
+	opts, err := parseRuntimeOptions(args)
+	if err != nil {
+		return err
+	}
+
+	if len(opts.args) == 0 {
 		c.printHelp()
 		return nil
 	}
 
-	switch args[0] {
+	switch opts.args[0] {
 	case "help", "-h", "--help":
 		c.printHelp()
 		return nil
 	case "version", "-v", "--version":
 		c.printVersion()
 		return nil
+	case "config":
+		return c.runConfig(ctx, opts)
 	default:
 		return &UsageError{
-			Message: fmt.Sprintf("unknown command %q\n\nRun '%s help' for usage.", args[0], commandName),
+			Message: fmt.Sprintf("unknown command %q\n\nRun '%s help' for usage.", opts.args[0], commandName),
+			Code:    2,
+		}
+	}
+}
+
+type runtimeOptions struct {
+	configPath string
+	logLevel   string
+	args       []string
+}
+
+func parseRuntimeOptions(args []string) (runtimeOptions, error) {
+	var opts runtimeOptions
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--config":
+			i++
+			if i >= len(args) {
+				return runtimeOptions{}, &UsageError{Message: "--config requires a path", Code: 2}
+			}
+			opts.configPath = args[i]
+		case strings.HasPrefix(arg, "--config="):
+			opts.configPath = strings.TrimPrefix(arg, "--config=")
+			if opts.configPath == "" {
+				return runtimeOptions{}, &UsageError{Message: "--config requires a path", Code: 2}
+			}
+		case arg == "--log-level":
+			i++
+			if i >= len(args) {
+				return runtimeOptions{}, &UsageError{Message: "--log-level requires a value", Code: 2}
+			}
+			opts.logLevel = args[i]
+		case strings.HasPrefix(arg, "--log-level="):
+			opts.logLevel = strings.TrimPrefix(arg, "--log-level=")
+			if opts.logLevel == "" {
+				return runtimeOptions{}, &UsageError{Message: "--log-level requires a value", Code: 2}
+			}
+		default:
+			opts.args = args[i:]
+			return opts, nil
+		}
+	}
+
+	return opts, nil
+}
+
+func (c *CLI) runtime(opts runtimeOptions) (config.Config, zerolog.Logger, error) {
+	cfg, err := c.loadCfg(opts.configPath)
+	if err != nil {
+		return config.Config{}, zerolog.Logger{}, err
+	}
+	if opts.logLevel != "" {
+		cfg.Log.Level = opts.logLevel
+	}
+
+	logger, err := c.newLogger(c.err, cfg.Log)
+	if err != nil {
+		return config.Config{}, zerolog.Logger{}, err
+	}
+
+	return cfg, logger, nil
+}
+
+func (c *CLI) runConfig(ctx context.Context, opts runtimeOptions) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	if len(opts.args) < 2 {
+		return &UsageError{
+			Message: fmt.Sprintf("missing config command\n\nRun '%s help' for usage.", commandName),
+			Code:    2,
+		}
+	}
+
+	switch opts.args[1] {
+	case "paths":
+		cfg, logger, err := c.runtime(opts)
+		if err != nil {
+			return err
+		}
+		logger.Debug().Str("data_dir", cfg.DataDir).Msg("resolved runtime paths")
+		fmt.Fprintf(c.out, "data_dir: %s\n", cfg.DataDir)
+		return nil
+	default:
+		return &UsageError{
+			Message: fmt.Sprintf("unknown config command %q\n\nRun '%s help' for usage.", opts.args[1], commandName),
 			Code:    2,
 		}
 	}
@@ -86,9 +191,10 @@ const helpText = `
 TOK - Task Operations Kernel
 
 Usage:
-  tok <command>
+  tok [--config <path>] [--log-level <level>] <command>
 
 Commands:
   version   Print build version information
+  config    Inspect runtime configuration
   help      Show this help
 `

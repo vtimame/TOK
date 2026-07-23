@@ -6,6 +6,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"s26.sh/tok/internal/config"
 )
 
 func TestCLIRootPrintsHelp(t *testing.T) {
@@ -58,5 +60,54 @@ func TestCLIUnknownCommandReturnsUsageError(t *testing.T) {
 	}
 	if usageErr.Code != 2 {
 		t.Fatalf("expected code 2, got %d", usageErr.Code)
+	}
+}
+
+func TestCLIConfigPathsPrintsResolvedDataDir(t *testing.T) {
+	var out bytes.Buffer
+	cli := NewCLI(&out, &bytes.Buffer{}, VersionInfo{})
+	cli.loadCfg = func(path string) (config.Config, error) {
+		if path != "/tmp/tok.yaml" {
+			t.Fatalf("unexpected config path: %s", path)
+		}
+		return config.Config{
+			DataDir: "/tmp/tok-data",
+			Log: config.LogConfig{
+				Level:  "info",
+				Format: "json",
+			},
+		}, nil
+	}
+
+	if err := cli.Run(context.Background(), []string{"--config", "/tmp/tok.yaml", "config", "paths"}); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "data_dir: /tmp/tok-data") {
+		t.Fatalf("unexpected config paths output:\n%s", got)
+	}
+}
+
+func TestCLIConfigPathsAppliesLogLevelFlag(t *testing.T) {
+	var errOut bytes.Buffer
+	cli := NewCLI(&bytes.Buffer{}, &errOut, VersionInfo{})
+	cli.loadCfg = func(string) (config.Config, error) {
+		return config.Config{
+			DataDir: "/tmp/tok-data",
+			Log: config.LogConfig{
+				Level:  "info",
+				Format: "json",
+			},
+		}, nil
+	}
+
+	if err := cli.Run(context.Background(), []string{"--log-level", "debug", "config", "paths"}); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	got := errOut.String()
+	if !strings.Contains(got, `"level":"debug"`) {
+		t.Fatalf("expected debug log output:\n%s", got)
 	}
 }
