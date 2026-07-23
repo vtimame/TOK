@@ -85,6 +85,8 @@ func (c *CLI) Run(ctx context.Context, args []string) error {
 		return c.runInit(ctx, opts)
 	case "config":
 		return c.runConfig(ctx, opts)
+	case "project":
+		return c.runProject(ctx, opts)
 	default:
 		return &UsageError{
 			Message: fmt.Sprintf("unknown command %q\n\nRun '%s help' for usage.", opts.args[0], commandName),
@@ -158,25 +160,34 @@ func (c *CLI) runInit(ctx context.Context, opts runtimeOptions) error {
 		return err
 	}
 
-	cfg, logger, err := c.runtime(opts)
-	if err != nil {
-		return err
-	}
-
-	dbPath := storage.DatabasePath(cfg.DataDir)
-	store, err := storage.Open(ctx, dbPath)
+	cfg, logger, store, err := c.runtimeStore(ctx, opts)
 	if err != nil {
 		return err
 	}
 	defer store.Close()
 
-	if err := store.Init(ctx); err != nil {
-		return err
-	}
-
+	dbPath := storage.DatabasePath(cfg.DataDir)
 	logger.Debug().Str("database", dbPath).Msg("initialized runtime database")
 	fmt.Fprintf(c.out, "initialized database: %s\n", dbPath)
 	return nil
+}
+
+func (c *CLI) runtimeStore(ctx context.Context, opts runtimeOptions) (config.Config, zerolog.Logger, *storage.Store, error) {
+	cfg, logger, err := c.runtime(opts)
+	if err != nil {
+		return config.Config{}, zerolog.Logger{}, nil, err
+	}
+
+	store, err := storage.Open(ctx, storage.DatabasePath(cfg.DataDir))
+	if err != nil {
+		return config.Config{}, zerolog.Logger{}, nil, err
+	}
+	if err := store.Init(ctx); err != nil {
+		_ = store.Close()
+		return config.Config{}, zerolog.Logger{}, nil, err
+	}
+
+	return cfg, logger, store, nil
 }
 
 func (c *CLI) runConfig(ctx context.Context, opts runtimeOptions) error {
@@ -226,5 +237,6 @@ Commands:
   version   Print build version information
   init      Initialize local runtime storage
   config    Inspect runtime configuration
+  project   Register and inspect local projects
   help      Show this help
 `
