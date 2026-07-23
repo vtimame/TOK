@@ -105,6 +105,20 @@ type IndexMetadata struct {
 	UpdatedAt string
 }
 
+type IndexedDocumentInput struct {
+	ProjectID  int64
+	Path       string
+	Provenance string
+	SizeBytes  int64
+	Content    string
+}
+
+type IndexedDocument struct {
+	Path       string
+	Provenance string
+	Content    string
+}
+
 func DatabasePath(dataDir string) string {
 	return filepath.Join(dataDir, DatabaseFileName)
 }
@@ -581,6 +595,97 @@ func (s *Store) UpsertIndexMetadata(ctx context.Context, projectID int64, source
 		WHERE project_id = ? AND source_id IS ? AND key = ?
 	`, projectID, sourceID, key)
 	return scanIndexMetadata(row)
+}
+
+func (s *Store) ReplaceIndexedDocuments(ctx context.Context, projectID int64, docs []IndexedDocumentInput) (int, error) {
+	if projectID <= 0 {
+		return 0, errors.New("indexed document project id is required")
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("begin replace indexed documents transaction: %w", err)
+	}
+	defer rollback(tx)
+
+	if _, err := tx.ExecContext(ctx, "DELETE FROM retrieval_documents WHERE project_id = ?", projectID); err != nil {
+		return 0, fmt.Errorf("delete indexed documents: %w", err)
+	}
+
+	stmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO retrieval_documents (project_id, path, provenance, size_bytes, content)
+		VALUES (?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		return 0, fmt.Errorf("prepare indexed document insert: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, doc := range docs {
+		if doc.ProjectID != projectID {
+			return 0, errors.New("indexed document project id mismatch")
+		}
+		if strings.TrimSpace(doc.Path) == "" {
+			return 0, errors.New("indexed document path is required")
+		}
+		if doc.Provenance == "" {
+			doc.Provenance = "project_file"
+		}
+		if _, err := stmt.ExecContext(ctx, doc.ProjectID, doc.Path, doc.Provenance, doc.SizeBytes, doc.Content); err != nil {
+			return 0, fmt.Errorf("insert indexed document %q: %w", doc.Path, err)
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM index_metadata
+		WHERE project_id = ? AND source_id IS NULL AND key = 'retrieval_documents'
+	`, projectID); err != nil {
+		return 0, fmt.Errorf("delete indexed document count metadata: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO index_metadata (project_id, source_id, key, value)
+		VALUES (?, NULL, 'retrieval_documents', ?)
+	`, projectID, strconv.Itoa(len(docs))); err != nil {
+		return 0, fmt.Errorf("record indexed document count: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit replace indexed documents transaction: %w", err)
+	}
+
+	return len(docs), nil
+}
+
+func (s *Store) ListIndexedDocuments(ctx context.Context, projectID int64) ([]IndexedDocument, error) {
+	if projectID <= 0 {
+		return nil, errors.New("indexed document project id is required")
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT path, provenance, content
+		FROM retrieval_documents
+		WHERE project_id = ?
+		ORDER BY path
+	`, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("list indexed documents: %w", err)
+	}
+	defer rows.Close()
+
+	var docs []IndexedDocument
+	for rows.Next() {
+		var doc IndexedDocument
+		if err := rows.Scan(&doc.Path, &doc.Provenance, &doc.Content); err != nil {
+			return nil, fmt.Errorf("scan indexed document: %w", err)
+		}
+		docs = append(docs, doc)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate indexed documents: %w", err)
+	}
+
+	return docs, nil
 }
 
 func ensureMigrationsTable(ctx context.Context, db *sql.DB) error {

@@ -18,7 +18,7 @@ func TestInitAppliesEmbeddedMigrations(t *testing.T) {
 		t.Fatalf("second Init returned error: %v", err)
 	}
 
-	for _, table := range []string{"projects", "tasks", "task_events", "context_sources", "index_metadata"} {
+	for _, table := range []string{"projects", "tasks", "task_events", "context_sources", "index_metadata", "retrieval_documents"} {
 		var name string
 		err := store.db.QueryRowContext(ctx, `
 			SELECT name
@@ -34,8 +34,8 @@ func TestInitAppliesEmbeddedMigrations(t *testing.T) {
 	if err := store.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM schema_migrations").Scan(&applied); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if applied != 2 {
-		t.Fatalf("expected 2 applied migrations, got %d", applied)
+	if applied != 3 {
+		t.Fatalf("expected 3 applied migrations, got %d", applied)
 	}
 }
 
@@ -230,6 +230,72 @@ func TestListReadyTasksExcludesActiveBlockedAndNonOpenTasks(t *testing.T) {
 
 	if err := store.RemoveTaskDependency(ctx, "blocks", blocker.ID, blocked.ID); err != nil {
 		t.Fatalf("RemoveTaskDependency returned error: %v", err)
+	}
+}
+
+func TestReplaceIndexedDocumentsRebuildsProjectIndex(t *testing.T) {
+	ctx := context.Background()
+	store := openInitializedTestStore(t)
+
+	project, err := store.CreateProject(ctx, CreateProjectInput{
+		Name:        "tok",
+		DisplayName: "TOK",
+		Path:        "/tmp/tok",
+	})
+	if err != nil {
+		t.Fatalf("CreateProject returned error: %v", err)
+	}
+
+	indexed, err := store.ReplaceIndexedDocuments(ctx, project.ID, []IndexedDocumentInput{
+		{
+			ProjectID:  project.ID,
+			Path:       "README.md",
+			Provenance: "project_file",
+			SizeBytes:  14,
+			Content:    "first content",
+		},
+	})
+	if err != nil {
+		t.Fatalf("ReplaceIndexedDocuments returned error: %v", err)
+	}
+	if indexed != 1 {
+		t.Fatalf("expected 1 indexed document, got %d", indexed)
+	}
+
+	indexed, err = store.ReplaceIndexedDocuments(ctx, project.ID, []IndexedDocumentInput{
+		{
+			ProjectID:  project.ID,
+			Path:       "internal/app/cli.go",
+			Provenance: "project_file",
+			SizeBytes:  15,
+			Content:    "second content",
+		},
+	})
+	if err != nil {
+		t.Fatalf("second ReplaceIndexedDocuments returned error: %v", err)
+	}
+	if indexed != 1 {
+		t.Fatalf("expected 1 indexed document after rebuild, got %d", indexed)
+	}
+
+	docs, err := store.ListIndexedDocuments(ctx, project.ID)
+	if err != nil {
+		t.Fatalf("ListIndexedDocuments returned error: %v", err)
+	}
+	if len(docs) != 1 || docs[0].Path != "internal/app/cli.go" || docs[0].Content != "second content" {
+		t.Fatalf("unexpected indexed documents after rebuild: %+v", docs)
+	}
+
+	var metadataRows int
+	if err := store.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM index_metadata
+		WHERE project_id = ? AND source_id IS NULL AND key = 'retrieval_documents'
+	`, project.ID).Scan(&metadataRows); err != nil {
+		t.Fatalf("count index metadata rows: %v", err)
+	}
+	if metadataRows != 1 {
+		t.Fatalf("expected 1 metadata row, got %d", metadataRows)
 	}
 }
 

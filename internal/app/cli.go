@@ -89,6 +89,10 @@ func (c *CLI) Run(ctx context.Context, args []string) error {
 		return c.runProject(ctx, opts)
 	case "task":
 		return c.runTask(ctx, opts)
+	case "index":
+		return c.runIndex(ctx, opts)
+	case "search":
+		return c.runSearch(ctx, opts)
 	default:
 		return &UsageError{
 			Message: fmt.Sprintf("unknown command %q\n\nRun '%s help' for usage.", opts.args[0], commandName),
@@ -241,5 +245,7 @@ Commands:
   config    Inspect runtime configuration
   project   Register and inspect local projects
   task      Create and update project tasks
+  index     Update local retrieval indexes
+  search    Search indexed project files
   help      Show this help
 `
