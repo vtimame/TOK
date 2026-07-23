@@ -42,6 +42,7 @@ tok context build \
 tok context build --project tok --task <task-id> --json
 tok task progress <task-id> --body "Implemented the first slice."
 tok run show <run-id> --json
+tok run record-validation <run-id> --command "go test ./..." --status passed --summary "Tests pass."
 tok run finish <run-id> --status succeeded --summary "Run completed."
 tok task block <task-id> --reason "Waiting for a decision."
 tok task unblock <task-id> --note "Decision recorded."
@@ -60,6 +61,8 @@ The core invariants are:
 - `run start` records an agent run attempt with the handoff contract version,
   retrieval limit and git start snapshot. `run finish` records the attempt
   outcome without closing the task automatically.
+- `run record-validation` stores a manual validation result as a run artifact;
+  it records the command text and outcome, but does not execute anything.
 - `progress`, `block` and `unblock` record typed task events; blocked tasks are
   excluded from `ready` and cannot be claimed.
 - `done` records a completion event and moves an `in_progress` task to `done`.

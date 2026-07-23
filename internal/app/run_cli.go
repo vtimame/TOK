@@ -39,6 +39,8 @@ func (c *CLI) runRun(ctx context.Context, opts runtimeOptions) error {
 		return c.runRunStart(ctx, store, opts.args[2:])
 	case "show":
 		return c.runRunShow(ctx, store, opts.args[2:])
+	case "record-validation":
+		return c.runRunRecordValidation(ctx, store, opts.args[2:])
 	case "finish":
 		return c.runRunFinish(ctx, store, opts.args[2:])
 	default:
@@ -63,6 +65,14 @@ type runShowOptions struct {
 
 type runFinishOptions struct {
 	runID   int64
+	status  string
+	summary string
+	json    bool
+}
+
+type runRecordValidationOptions struct {
+	runID   int64
+	command string
 	status  string
 	summary string
 	json    bool
@@ -178,6 +188,35 @@ func (c *CLI) runRunFinish(ctx context.Context, store *storage.Store, args []str
 	return nil
 }
 
+func (c *CLI) runRunRecordValidation(ctx context.Context, store *storage.Store, args []string) error {
+	recordOpts, err := parseRunRecordValidationOptions(args)
+	if err != nil {
+		return err
+	}
+
+	metadata, err := validationArtifactMetadata(recordOpts)
+	if err != nil {
+		return err
+	}
+	artifact, err := store.AddRunArtifact(ctx, storage.AddRunArtifactInput{
+		RunID:    recordOpts.runID,
+		Kind:     "validation",
+		Metadata: metadata,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("run not found: %d", recordOpts.runID)
+		}
+		return err
+	}
+
+	if recordOpts.json {
+		return printRunArtifactJSON(c.out, artifact)
+	}
+	printRunArtifact(c.out, artifact)
+	return nil
+}
+
 func parseRunStartOptions(args []string) (runStartOptions, error) {
 	var opts runStartOptions
 
@@ -244,6 +283,66 @@ func parseRunStartOptions(args []string) (runStartOptions, error) {
 		opts.retrievalLimit = contextpkg.DefaultRetrievalLimit
 	}
 	opts.handoffOutput = strings.TrimSpace(opts.handoffOutput)
+	return opts, nil
+}
+
+func parseRunRecordValidationOptions(args []string) (runRecordValidationOptions, error) {
+	if len(args) == 0 {
+		return runRecordValidationOptions{}, &UsageError{Message: "run record-validation requires a run id", Code: 2}
+	}
+
+	runID, err := parseRunID(args[0])
+	if err != nil {
+		return runRecordValidationOptions{}, err
+	}
+
+	opts := runRecordValidationOptions{runID: runID}
+	for i := 1; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--command":
+			i++
+			if i >= len(args) {
+				return runRecordValidationOptions{}, &UsageError{Message: "--command requires a value", Code: 2}
+			}
+			opts.command = args[i]
+		case strings.HasPrefix(arg, "--command="):
+			opts.command = strings.TrimPrefix(arg, "--command=")
+		case arg == "--status":
+			i++
+			if i >= len(args) {
+				return runRecordValidationOptions{}, &UsageError{Message: "--status requires a value", Code: 2}
+			}
+			opts.status = args[i]
+		case strings.HasPrefix(arg, "--status="):
+			opts.status = strings.TrimPrefix(arg, "--status=")
+		case arg == "--summary":
+			i++
+			if i >= len(args) {
+				return runRecordValidationOptions{}, &UsageError{Message: "--summary requires a value", Code: 2}
+			}
+			opts.summary = args[i]
+		case strings.HasPrefix(arg, "--summary="):
+			opts.summary = strings.TrimPrefix(arg, "--summary=")
+		case arg == "--json":
+			opts.json = true
+		default:
+			return runRecordValidationOptions{}, &UsageError{Message: fmt.Sprintf("unknown run record-validation option %q", arg), Code: 2}
+		}
+	}
+
+	opts.command = strings.TrimSpace(opts.command)
+	if opts.command == "" {
+		return runRecordValidationOptions{}, &UsageError{Message: "run record-validation requires --command", Code: 2}
+	}
+	opts.status = strings.TrimSpace(opts.status)
+	if opts.status != "passed" && opts.status != "failed" {
+		return runRecordValidationOptions{}, &UsageError{Message: "run record-validation requires --status passed or failed", Code: 2}
+	}
+	opts.summary = strings.TrimSpace(opts.summary)
+	if opts.summary == "" {
+		return runRecordValidationOptions{}, &UsageError{Message: "run record-validation requires --summary", Code: 2}
+	}
 	return opts, nil
 }
 
@@ -363,10 +462,26 @@ func printRun(out io.Writer, run storage.Run) {
 	fmt.Fprintf(out, "result_summary: %s\n", run.ResultSummary)
 }
 
+func printRunArtifact(out io.Writer, artifact storage.RunArtifact) {
+	fmt.Fprintf(out, "id: %d\n", artifact.ID)
+	fmt.Fprintf(out, "run_id: %d\n", artifact.RunID)
+	fmt.Fprintf(out, "kind: %s\n", artifact.Kind)
+	fmt.Fprintf(out, "path: %s\n", artifact.Path)
+	fmt.Fprintf(out, "content_hash: %s\n", artifact.ContentHash)
+	fmt.Fprintf(out, "metadata: %s\n", artifact.Metadata)
+	fmt.Fprintf(out, "created_at: %s\n", artifact.CreatedAt)
+}
+
 func printRunJSON(out io.Writer, run storage.Run, artifacts []storage.RunArtifact) error {
 	encoder := json.NewEncoder(out)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(runOutputFromStorage(run, artifacts))
+}
+
+func printRunArtifactJSON(out io.Writer, artifact storage.RunArtifact) error {
+	encoder := json.NewEncoder(out)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(runArtifactOutputFromStorage(artifact))
 }
 
 func runOutputFromStorage(run storage.Run, artifacts []storage.RunArtifact) runOutput {
@@ -447,4 +562,20 @@ func writeRunHandoffArtifact(ctx context.Context, store *storage.Store, project 
 func sha256ContentHash(value string) string {
 	sum := sha256.Sum256([]byte(value))
 	return fmt.Sprintf("sha256:%x", sum)
+}
+
+func validationArtifactMetadata(opts runRecordValidationOptions) (string, error) {
+	raw, err := json.Marshal(struct {
+		Command string `json:"command"`
+		Status  string `json:"status"`
+		Summary string `json:"summary"`
+	}{
+		Command: opts.command,
+		Status:  opts.status,
+		Summary: opts.summary,
+	})
+	if err != nil {
+		return "", err
+	}
+	return string(raw), nil
 }

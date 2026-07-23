@@ -178,6 +178,91 @@ func TestCLIRunStartPrintsTextOutput(t *testing.T) {
 	}
 }
 
+func TestCLIRunRecordValidationArtifact(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	projectDir := t.TempDir()
+
+	projectCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	if err := projectCLI.Run(ctx, []string{"project", "add", projectDir, "--name", "tok"}); err != nil {
+		t.Fatalf("project add returned error: %v", err)
+	}
+	taskID := createTaskForTest(t, ctx, dataDir, "tok", "Validation artifact task")
+
+	var startOut bytes.Buffer
+	startCLI := newProjectTestCLI(dataDir, &startOut)
+	if err := startCLI.Run(ctx, []string{"run", "start", "--task", strconv.FormatInt(taskID, 10), "--json"}); err != nil {
+		t.Fatalf("run start --json returned error: %v", err)
+	}
+	var started runOutput
+	if err := json.Unmarshal(startOut.Bytes(), &started); err != nil {
+		t.Fatalf("parse run start JSON: %v\n%s", err, startOut.String())
+	}
+
+	var recordOut bytes.Buffer
+	recordCLI := newProjectTestCLI(dataDir, &recordOut)
+	if err := recordCLI.Run(ctx, []string{
+		"run", "record-validation",
+		strconv.FormatInt(started.ID, 10),
+		"--command", "go test ./...",
+		"--status", "passed",
+		"--summary", "All tests pass.",
+		"--json",
+	}); err != nil {
+		t.Fatalf("run record-validation --json returned error: %v", err)
+	}
+	var artifact runArtifactOutput
+	if err := json.Unmarshal(recordOut.Bytes(), &artifact); err != nil {
+		t.Fatalf("parse run record-validation JSON: %v\n%s", err, recordOut.String())
+	}
+	if artifact.ID == 0 || artifact.RunID != started.ID || artifact.Kind != "validation" {
+		t.Fatalf("unexpected validation artifact: %+v", artifact)
+	}
+	if artifact.Path != "" || artifact.ContentHash != "" || artifact.CreatedAt == "" {
+		t.Fatalf("unexpected validation artifact file fields: %+v", artifact)
+	}
+	var metadata struct {
+		Command string `json:"command"`
+		Status  string `json:"status"`
+		Summary string `json:"summary"`
+	}
+	if err := json.Unmarshal([]byte(artifact.Metadata), &metadata); err != nil {
+		t.Fatalf("parse validation metadata: %v\n%s", err, artifact.Metadata)
+	}
+	if metadata.Command != "go test ./..." || metadata.Status != "passed" || metadata.Summary != "All tests pass." {
+		t.Fatalf("unexpected validation metadata: %+v", metadata)
+	}
+
+	var showOut bytes.Buffer
+	showCLI := newProjectTestCLI(dataDir, &showOut)
+	if err := showCLI.Run(ctx, []string{"run", "show", strconv.FormatInt(started.ID, 10), "--json"}); err != nil {
+		t.Fatalf("run show --json returned error: %v", err)
+	}
+	var shown runOutput
+	if err := json.Unmarshal(showOut.Bytes(), &shown); err != nil {
+		t.Fatalf("parse run show JSON: %v\n%s", err, showOut.String())
+	}
+	if len(shown.Artifacts) != 1 || shown.Artifacts[0] != artifact {
+		t.Fatalf("run show did not include validation artifact: %+v", shown.Artifacts)
+	}
+
+	invalidStatusCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	err := invalidStatusCLI.Run(ctx, []string{
+		"run", "record-validation",
+		strconv.FormatInt(started.ID, 10),
+		"--command", "go test ./...",
+		"--status", "skipped",
+		"--summary", "Skipped.",
+	})
+	if err == nil {
+		t.Fatal("expected invalid validation status error")
+	}
+	var usageErr *UsageError
+	if !errors.As(err, &usageErr) || !strings.Contains(usageErr.Message, "passed or failed") {
+		t.Fatalf("unexpected invalid validation status error: %T %v", err, err)
+	}
+}
+
 func initRunTestGitRepo(t *testing.T, dir string) string {
 	t.Helper()
 
