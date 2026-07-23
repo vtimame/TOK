@@ -236,6 +236,7 @@ type contextPackageOutput struct {
 	ContractVersion   string                  `json:"contract_version"`
 	Project           projectOutput           `json:"project"`
 	Task              readyTaskOutput         `json:"task"`
+	RetrievalLimit    int                     `json:"retrieval_limit"`
 	Dependencies      []taskDependencyOutput  `json:"dependencies"`
 	Blockers          []taskDependencyOutput  `json:"blockers"`
 	Events            []taskEventOutput       `json:"events"`
@@ -263,11 +264,12 @@ type retrievalResultOutput struct {
 }
 
 type repositoryStateOutput struct {
-	Available bool     `json:"available"`
-	Branch    string   `json:"branch"`
-	Head      string   `json:"head"`
-	Status    []string `json:"status"`
-	Error     string   `json:"error"`
+	Available   bool     `json:"available"`
+	Branch      string   `json:"branch"`
+	Head        string   `json:"head"`
+	Status      []string `json:"status"`
+	DiffSummary []string `json:"diff_summary"`
+	Error       string   `json:"error"`
 }
 
 type taskDependencyOutput struct {
@@ -325,16 +327,18 @@ func contextPackageOutputFromPackage(pkg contextpkg.Package) contextPackageOutpu
 			UpdatedAt:   pkg.Project.UpdatedAt,
 		},
 		Task:             taskOutputFromStorage(pkg.Task),
+		RetrievalLimit:   pkg.RetrievalLimit,
 		Dependencies:     dependencies,
 		Blockers:         blockers,
 		Events:           events,
 		RetrievalResults: results,
 		RepositoryState: repositoryStateOutput{
-			Available: pkg.Git.Available,
-			Branch:    pkg.Git.Branch,
-			Head:      pkg.Git.Head,
-			Status:    pkg.Git.Status,
-			Error:     pkg.Git.Error,
+			Available:   pkg.Git.Available,
+			Branch:      pkg.Git.Branch,
+			Head:        pkg.Git.Head,
+			Status:      pkg.Git.Status,
+			DiffSummary: pkg.Git.DiffSummary,
+			Error:       pkg.Git.Error,
 		},
 		SuggestedCommands: pkg.SuggestedCommands,
 	}

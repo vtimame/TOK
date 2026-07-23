@@ -58,19 +58,22 @@ func TestCLIContextBuild(t *testing.T) {
 		"# TOK Context Package",
 		"## Handoff Contract",
 		"contract_version: tok.handoff.v0",
-		"tok task show " + strconv.FormatInt(taskID, 10) + " --json",
-		"## Project",
-		"name: tok",
-		"display_name: TOK",
+		"retrieval_limit: 2",
 		"## Task",
 		"title: Refresh token package",
 		"acceptance_criteria:",
 		"  - include retrieval results",
+		"## Current State",
+		"active_blockers: 1",
+		"repository_available: false",
+		"## Project",
+		"name: tok",
+		"display_name: TOK",
 		"## Task Dependencies",
 		"blocker_task_id: " + strconv.FormatInt(blockerID, 10) + " blocked_task_id: " + strconv.FormatInt(taskID, 10),
 		"## Task Events",
 		"type: created",
-		"## Retrieval Results",
+		"## Relevant Files",
 		"1. path: internal/auth/token.go",
 		"provenance: project_file",
 		"snippet: func refreshToken() string {",
@@ -79,6 +82,10 @@ func TestCLIContextBuild(t *testing.T) {
 		"## Repository State",
 		"available: false",
 		"error: not a git worktree",
+		"## Commands",
+		"tok task show " + strconv.FormatInt(taskID, 10) + " --json",
+		"## Open Questions",
+		"none",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("context package output missing %q:\n%s", want, output)
@@ -107,7 +114,7 @@ func TestCLIContextBuild(t *testing.T) {
 	}
 	fileText := string(fileContent)
 	for _, want := range []string{
-		"## Retrieval Results",
+		"## Relevant Files",
 		"1. path: custom.md",
 		"snippet: custom marker lives here.",
 		"excerpt:",
@@ -138,6 +145,9 @@ func TestCLIContextBuild(t *testing.T) {
 	if packageJSON.ContractVersion != "tok.handoff.v0" {
 		t.Fatalf("unexpected context package contract version: %+v", packageJSON)
 	}
+	if packageJSON.RetrievalLimit != 5 {
+		t.Fatalf("unexpected context package retrieval limit: %+v", packageJSON)
+	}
 	if len(packageJSON.Dependencies) != 1 || packageJSON.Dependencies[0].BlockerTaskID != blockerID || packageJSON.Dependencies[0].BlockedTaskID != taskID {
 		t.Fatalf("unexpected context package JSON dependencies: %+v", packageJSON.Dependencies)
 	}
@@ -155,6 +165,9 @@ func TestCLIContextBuild(t *testing.T) {
 	}
 	if packageJSON.RepositoryState.Available {
 		t.Fatalf("expected fixture project to have unavailable repository state: %+v", packageJSON.RepositoryState)
+	}
+	if len(packageJSON.RepositoryState.DiffSummary) != 0 {
+		t.Fatalf("expected unavailable repository state to have empty diff summary: %+v", packageJSON.RepositoryState)
 	}
 }
 

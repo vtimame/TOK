@@ -40,6 +40,7 @@ type Package struct {
 	ContractVersion   string
 	Project           storage.Project
 	Task              storage.Task
+	RetrievalLimit    int
 	Dependencies      []storage.TaskDependency
 	Blockers          []storage.TaskDependency
 	Events            []storage.TaskEvent
@@ -53,11 +54,12 @@ type GitInspector interface {
 }
 
 type GitState struct {
-	Available bool
-	Branch    string
-	Head      string
-	Status    []string
-	Error     string
+	Available   bool
+	Branch      string
+	Head        string
+	Status      []string
+	DiffSummary []string
+	Error       string
 }
 
 func NewBuilder(store Store, retrievalService *retrieval.Service) *Builder {
@@ -108,6 +110,7 @@ func (b *Builder) Build(ctx stdctx.Context, input BuildInput) (Package, error) {
 		ContractVersion:   HandoffContractV0,
 		Project:           input.Project,
 		Task:              input.Task,
+		RetrievalLimit:    input.RetrievalLimit,
 		Dependencies:      dependencies,
 		Blockers:          blockersForTask(input.Task.ID, dependencies),
 		Events:            events,
@@ -124,23 +127,8 @@ func (p Package) RenderText() string {
 
 	out.WriteString("## Handoff Contract\n")
 	fmt.Fprintf(&out, "contract_version: %s\n", p.ContractVersion)
-	out.WriteString("suggested_commands:\n")
-	if len(p.SuggestedCommands) == 0 {
-		out.WriteString("- none\n")
-	} else {
-		for _, command := range p.SuggestedCommands {
-			fmt.Fprintf(&out, "- %s\n", command)
-		}
-	}
+	fmt.Fprintf(&out, "retrieval_limit: %d\n", p.RetrievalLimit)
 	out.WriteString("\n")
-
-	out.WriteString("## Project\n")
-	fmt.Fprintf(&out, "id: %d\n", p.Project.ID)
-	fmt.Fprintf(&out, "name: %s\n", p.Project.Name)
-	fmt.Fprintf(&out, "display_name: %s\n", p.Project.DisplayName)
-	fmt.Fprintf(&out, "path: %s\n", p.Project.Path)
-	fmt.Fprintf(&out, "created_at: %s\n", p.Project.CreatedAt)
-	fmt.Fprintf(&out, "updated_at: %s\n\n", p.Project.UpdatedAt)
 
 	out.WriteString("## Task\n")
 	fmt.Fprintf(&out, "id: %d\n", p.Task.ID)
@@ -152,6 +140,24 @@ func (p Package) RenderText() string {
 	writeBlock(&out, "notes", p.Task.Notes)
 	fmt.Fprintf(&out, "created_at: %s\n", p.Task.CreatedAt)
 	fmt.Fprintf(&out, "updated_at: %s\n\n", p.Task.UpdatedAt)
+
+	out.WriteString("## Current State\n")
+	fmt.Fprintf(&out, "task_status: %s\n", p.Task.Status)
+	fmt.Fprintf(&out, "active_blockers: %d\n", len(p.Blockers))
+	fmt.Fprintf(&out, "repository_available: %t\n", p.Git.Available)
+	if p.Git.Available {
+		fmt.Fprintf(&out, "branch: %s\n", p.Git.Branch)
+		fmt.Fprintf(&out, "head: %s\n", p.Git.Head)
+	}
+	out.WriteString("\n")
+
+	out.WriteString("## Project\n")
+	fmt.Fprintf(&out, "id: %d\n", p.Project.ID)
+	fmt.Fprintf(&out, "name: %s\n", p.Project.Name)
+	fmt.Fprintf(&out, "display_name: %s\n", p.Project.DisplayName)
+	fmt.Fprintf(&out, "path: %s\n", p.Project.Path)
+	fmt.Fprintf(&out, "created_at: %s\n", p.Project.CreatedAt)
+	fmt.Fprintf(&out, "updated_at: %s\n\n", p.Project.UpdatedAt)
 
 	out.WriteString("## Task Dependencies\n")
 	if len(p.Dependencies) == 0 {
@@ -195,7 +201,7 @@ func (p Package) RenderText() string {
 		out.WriteString("\n")
 	}
 
-	out.WriteString("## Retrieval Results\n")
+	out.WriteString("## Relevant Files\n")
 	if len(p.Results) == 0 {
 		out.WriteString("none\n\n")
 	} else {
@@ -228,9 +234,31 @@ func (p Package) RenderText() string {
 				fmt.Fprintf(&out, "- %s\n", line)
 			}
 		}
+		out.WriteString("diff_summary:\n")
+		if len(p.Git.DiffSummary) == 0 {
+			out.WriteString("- none\n")
+		} else {
+			for _, line := range p.Git.DiffSummary {
+				fmt.Fprintf(&out, "- %s\n", line)
+			}
+		}
 	} else if p.Git.Error != "" {
 		fmt.Fprintf(&out, "error: %s\n", p.Git.Error)
 	}
+	out.WriteString("\n\n")
+
+	out.WriteString("## Commands\n")
+	if len(p.SuggestedCommands) == 0 {
+		out.WriteString("- none\n")
+	} else {
+		for _, command := range p.SuggestedCommands {
+			fmt.Fprintf(&out, "- %s\n", command)
+		}
+	}
+	out.WriteString("\n")
+
+	out.WriteString("## Open Questions\n")
+	out.WriteString("none\n")
 
 	return out.String()
 }
@@ -258,6 +286,7 @@ func (g CommandGitInspector) Inspect(ctx stdctx.Context, path string) GitState {
 	branch, _ := gitOutput(ctx, path, "branch", "--show-current")
 	head, headOK := gitOutput(ctx, path, "rev-parse", "--short", "HEAD")
 	status, _ := gitOutput(ctx, path, "status", "--short")
+	diffSummary := gitDiffSummary(ctx, path)
 	if !headOK {
 		return GitState{Available: false, Error: "git head is unavailable"}
 	}
@@ -271,10 +300,11 @@ func (g CommandGitInspector) Inspect(ctx stdctx.Context, path string) GitState {
 	}
 
 	return GitState{
-		Available: true,
-		Branch:    branch,
-		Head:      head,
-		Status:    statusLines,
+		Available:   true,
+		Branch:      branch,
+		Head:        head,
+		Status:      statusLines,
+		DiffSummary: diffSummary,
 	}
 }
 
@@ -287,6 +317,29 @@ func gitOutput(ctx stdctx.Context, path string, args ...string) (string, bool) {
 		return "", false
 	}
 	return strings.TrimSpace(string(out)), true
+}
+
+func gitDiffSummary(ctx stdctx.Context, path string) []string {
+	var lines []string
+
+	if staged, ok := gitOutput(ctx, path, "diff", "--cached", "--stat", "--"); ok {
+		lines = appendDiffSummary(lines, "staged", staged)
+	}
+	if unstaged, ok := gitOutput(ctx, path, "diff", "--stat", "--"); ok {
+		lines = appendDiffSummary(lines, "unstaged", unstaged)
+	}
+
+	return lines
+}
+
+func appendDiffSummary(lines []string, label, output string) []string {
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			lines = append(lines, label+": "+line)
+		}
+	}
+	return lines
 }
 
 func taskRetrievalQuery(task storage.Task) string {

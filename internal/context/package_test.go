@@ -58,10 +58,11 @@ func TestBuilderBuildsDeterministicTextPackage(t *testing.T) {
 
 	builder := NewBuilder(store, retrieval.NewService(store))
 	builder.git = fixedGitInspector{state: GitState{
-		Available: true,
-		Branch:    "main",
-		Head:      "abc1234",
-		Status:    []string{"M internal/context/package.go"},
+		Available:   true,
+		Branch:      "main",
+		Head:        "abc1234",
+		Status:      []string{"M internal/context/package.go"},
+		DiffSummary: []string{"unstaged: internal/context/package.go | 12 ++++++"},
 	}}
 
 	pkg, err := builder.Build(ctx, BuildInput{
@@ -74,6 +75,9 @@ func TestBuilderBuildsDeterministicTextPackage(t *testing.T) {
 	}
 	if pkg.ContractVersion != HandoffContractV0 {
 		t.Fatalf("unexpected contract version: %s", pkg.ContractVersion)
+	}
+	if pkg.RetrievalLimit != 3 {
+		t.Fatalf("unexpected retrieval limit: %d", pkg.RetrievalLimit)
 	}
 	if len(pkg.Dependencies) != 1 || pkg.Dependencies[0].ID != dependency.ID {
 		t.Fatalf("unexpected dependencies: %+v", pkg.Dependencies)
@@ -90,19 +94,22 @@ func TestBuilderBuildsDeterministicTextPackage(t *testing.T) {
 		"# TOK Context Package",
 		"## Handoff Contract",
 		"contract_version: tok.handoff.v0",
-		fmt.Sprintf("tok task show %d --json", task.ID),
-		"## Project",
-		"name: tok",
+		"retrieval_limit: 3",
 		"## Task",
 		"status: open",
 		"title: Refresh token retrieval",
 		"acceptance_criteria:",
 		"  - package includes retrieval results",
+		"## Current State",
+		"active_blockers: 1",
+		"repository_available: true",
+		"## Project",
+		"name: tok",
 		"## Task Dependencies",
 		fmt.Sprintf("blocker_task_id: %d blocked_task_id: %d role: blocker", blocker.ID, task.ID),
 		"## Task Events",
 		"type: created",
-		"## Retrieval Results",
+		"## Relevant Files",
 		"1. path: internal/auth/token.go",
 		"provenance: project_file",
 		"snippet: func refreshToken() string {",
@@ -113,6 +120,12 @@ func TestBuilderBuildsDeterministicTextPackage(t *testing.T) {
 		"branch: main",
 		"head: abc1234",
 		"- M internal/context/package.go",
+		"diff_summary:",
+		"- unstaged: internal/context/package.go | 12 ++++++",
+		"## Commands",
+		fmt.Sprintf("tok task show %d --json", task.ID),
+		"## Open Questions",
+		"none",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("package text missing %q:\n%s", want, text)
