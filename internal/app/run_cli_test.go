@@ -30,9 +30,21 @@ func TestCLIRunStartShowFinish(t *testing.T) {
 		t.Fatalf("task claim returned error: %v", err)
 	}
 
+	indexCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	if err := indexCLI.Run(ctx, []string{"index", "update", "--project", "tok"}); err != nil {
+		t.Fatalf("index update returned error: %v", err)
+	}
+
+	handoffPath := filepath.Join(t.TempDir(), "handoff.md")
 	var startOut bytes.Buffer
 	startCLI := newProjectTestCLI(dataDir, &startOut)
-	if err := startCLI.Run(ctx, []string{"run", "start", "--task", strconv.FormatInt(taskID, 10), "--limit", "3", "--json"}); err != nil {
+	if err := startCLI.Run(ctx, []string{
+		"run", "start",
+		"--task", strconv.FormatInt(taskID, 10),
+		"--limit", "3",
+		"--handoff-output", handoffPath,
+		"--json",
+	}); err != nil {
 		t.Fatalf("run start --json returned error: %v", err)
 	}
 	var started runOutput
@@ -48,6 +60,20 @@ func TestCLIRunStartShowFinish(t *testing.T) {
 	if started.RetrievalLimit != 3 || started.BaseBranch != "main" || started.BaseHead != initialHead {
 		t.Fatalf("unexpected started run snapshot: %+v", started)
 	}
+	handoffContent, err := os.ReadFile(handoffPath)
+	if err != nil {
+		t.Fatalf("ReadFile handoff path returned error: %v", err)
+	}
+	for _, want := range []string{
+		"# TOK Context Package",
+		"contract_version: tok.handoff.v0",
+		"title: Run handoff task",
+	} {
+		if !strings.Contains(string(handoffContent), want) {
+			t.Fatalf("handoff output missing %q:\n%s", want, string(handoffContent))
+		}
+	}
+	assertHandoffArtifactOutput(t, started.Artifacts, started.ID, handoffPath, sha256ContentHash(string(handoffContent)))
 
 	secondHead := commitRunTestGitChange(t, projectDir, "second.txt", "second")
 	if secondHead == initialHead {
@@ -69,6 +95,7 @@ func TestCLIRunStartShowFinish(t *testing.T) {
 	if shown.BaseHead != initialHead || shown.RetrievalLimit != 3 {
 		t.Fatalf("run show should preserve start snapshot, got %+v", shown)
 	}
+	assertHandoffArtifactOutput(t, shown.Artifacts, started.ID, handoffPath, sha256ContentHash(string(handoffContent)))
 
 	var finishOut bytes.Buffer
 	finishCLI := newProjectTestCLI(dataDir, &finishOut)
@@ -88,6 +115,7 @@ func TestCLIRunStartShowFinish(t *testing.T) {
 	if finished.Status != "succeeded" || finished.FinishedAt == "" || finished.ResultSummary != "Implemented and tests pass." {
 		t.Fatalf("unexpected finished run: %+v", finished)
 	}
+	assertHandoffArtifactOutput(t, finished.Artifacts, started.ID, handoffPath, sha256ContentHash(string(handoffContent)))
 
 	var taskOut bytes.Buffer
 	taskCLI := newProjectTestCLI(dataDir, &taskOut)
@@ -100,6 +128,24 @@ func TestCLIRunStartShowFinish(t *testing.T) {
 	}
 	if task.Task.Status != "in_progress" {
 		t.Fatalf("run finish should not close task, got %+v", task.Task)
+	}
+}
+
+func assertHandoffArtifactOutput(t *testing.T, artifacts []runArtifactOutput, runID int64, path, contentHash string) {
+	t.Helper()
+
+	if len(artifacts) != 1 {
+		t.Fatalf("expected one run artifact, got %+v", artifacts)
+	}
+	artifact := artifacts[0]
+	if artifact.ID == 0 || artifact.RunID != runID {
+		t.Fatalf("unexpected handoff artifact ids: %+v", artifact)
+	}
+	if artifact.Kind != "handoff" || artifact.Path != path || artifact.ContentHash != contentHash {
+		t.Fatalf("unexpected handoff artifact: %+v", artifact)
+	}
+	if artifact.Metadata != `{"format":"text"}` || artifact.CreatedAt == "" {
+		t.Fatalf("unexpected handoff artifact metadata: %+v", artifact)
 	}
 }
 

@@ -2,15 +2,18 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strconv"
 	"strings"
 
 	contextpkg "s26.sh/tok/internal/context"
+	"s26.sh/tok/internal/retrieval"
 	"s26.sh/tok/internal/storage"
 )
 
@@ -49,6 +52,7 @@ func (c *CLI) runRun(ctx context.Context, opts runtimeOptions) error {
 type runStartOptions struct {
 	taskID         int64
 	retrievalLimit int
+	handoffOutput  string
 	json           bool
 }
 
@@ -98,8 +102,17 @@ func (c *CLI) runRunStart(ctx context.Context, store *storage.Store, args []stri
 		return err
 	}
 
+	var artifacts []storage.RunArtifact
+	if startOpts.handoffOutput != "" {
+		artifact, err := writeRunHandoffArtifact(ctx, store, project, task, run, startOpts)
+		if err != nil {
+			return err
+		}
+		artifacts = append(artifacts, artifact)
+	}
+
 	if startOpts.json {
-		return printRunJSON(c.out, run)
+		return printRunJSON(c.out, run, artifacts)
 	}
 	printRun(c.out, run)
 	return nil
@@ -119,8 +132,12 @@ func (c *CLI) runRunShow(ctx context.Context, store *storage.Store, args []strin
 		return err
 	}
 
+	artifacts, err := store.ListRunArtifacts(ctx, run.ID)
+	if err != nil {
+		return err
+	}
 	if showOpts.json {
-		return printRunJSON(c.out, run)
+		return printRunJSON(c.out, run, artifacts)
 	}
 	printRun(c.out, run)
 	return nil
@@ -150,8 +167,12 @@ func (c *CLI) runRunFinish(ctx context.Context, store *storage.Store, args []str
 		return err
 	}
 
+	artifacts, err := store.ListRunArtifacts(ctx, run.ID)
+	if err != nil {
+		return err
+	}
 	if finishOpts.json {
-		return printRunJSON(c.out, run)
+		return printRunJSON(c.out, run, artifacts)
 	}
 	printRun(c.out, run)
 	return nil
@@ -195,6 +216,20 @@ func parseRunStartOptions(args []string) (runStartOptions, error) {
 				return runStartOptions{}, err
 			}
 			opts.retrievalLimit = limit
+		case arg == "--handoff-output":
+			i++
+			if i >= len(args) {
+				return runStartOptions{}, &UsageError{Message: "--handoff-output requires a path", Code: 2}
+			}
+			opts.handoffOutput = args[i]
+			if strings.TrimSpace(opts.handoffOutput) == "" {
+				return runStartOptions{}, &UsageError{Message: "--handoff-output requires a path", Code: 2}
+			}
+		case strings.HasPrefix(arg, "--handoff-output="):
+			opts.handoffOutput = strings.TrimPrefix(arg, "--handoff-output=")
+			if strings.TrimSpace(opts.handoffOutput) == "" {
+				return runStartOptions{}, &UsageError{Message: "--handoff-output requires a path", Code: 2}
+			}
 		case arg == "--json":
 			opts.json = true
 		default:
@@ -208,6 +243,7 @@ func parseRunStartOptions(args []string) (runStartOptions, error) {
 	if opts.retrievalLimit == 0 {
 		opts.retrievalLimit = contextpkg.DefaultRetrievalLimit
 	}
+	opts.handoffOutput = strings.TrimSpace(opts.handoffOutput)
 	return opts, nil
 }
 
@@ -291,16 +327,27 @@ func parseRunFinishOptions(args []string) (runFinishOptions, error) {
 }
 
 type runOutput struct {
-	ID                     int64  `json:"id"`
-	TaskID                 int64  `json:"task_id"`
-	Status                 string `json:"status"`
-	HandoffContractVersion string `json:"handoff_contract_version"`
-	RetrievalLimit         int    `json:"retrieval_limit"`
-	StartedAt              string `json:"started_at"`
-	FinishedAt             string `json:"finished_at"`
-	BaseBranch             string `json:"base_branch"`
-	BaseHead               string `json:"base_head"`
-	ResultSummary          string `json:"result_summary"`
+	ID                     int64               `json:"id"`
+	TaskID                 int64               `json:"task_id"`
+	Status                 string              `json:"status"`
+	HandoffContractVersion string              `json:"handoff_contract_version"`
+	RetrievalLimit         int                 `json:"retrieval_limit"`
+	StartedAt              string              `json:"started_at"`
+	FinishedAt             string              `json:"finished_at"`
+	BaseBranch             string              `json:"base_branch"`
+	BaseHead               string              `json:"base_head"`
+	ResultSummary          string              `json:"result_summary"`
+	Artifacts              []runArtifactOutput `json:"artifacts"`
+}
+
+type runArtifactOutput struct {
+	ID          int64  `json:"id"`
+	RunID       int64  `json:"run_id"`
+	Kind        string `json:"kind"`
+	Path        string `json:"path"`
+	ContentHash string `json:"content_hash"`
+	Metadata    string `json:"metadata"`
+	CreatedAt   string `json:"created_at"`
 }
 
 func printRun(out io.Writer, run storage.Run) {
@@ -316,13 +363,18 @@ func printRun(out io.Writer, run storage.Run) {
 	fmt.Fprintf(out, "result_summary: %s\n", run.ResultSummary)
 }
 
-func printRunJSON(out io.Writer, run storage.Run) error {
+func printRunJSON(out io.Writer, run storage.Run, artifacts []storage.RunArtifact) error {
 	encoder := json.NewEncoder(out)
 	encoder.SetIndent("", "  ")
-	return encoder.Encode(runOutputFromStorage(run))
+	return encoder.Encode(runOutputFromStorage(run, artifacts))
 }
 
-func runOutputFromStorage(run storage.Run) runOutput {
+func runOutputFromStorage(run storage.Run, artifacts []storage.RunArtifact) runOutput {
+	artifactOutputs := make([]runArtifactOutput, 0, len(artifacts))
+	for _, artifact := range artifacts {
+		artifactOutputs = append(artifactOutputs, runArtifactOutputFromStorage(artifact))
+	}
+
 	return runOutput{
 		ID:                     run.ID,
 		TaskID:                 run.TaskID,
@@ -334,6 +386,19 @@ func runOutputFromStorage(run storage.Run) runOutput {
 		BaseBranch:             run.BaseBranch,
 		BaseHead:               run.BaseHead,
 		ResultSummary:          run.ResultSummary,
+		Artifacts:              artifactOutputs,
+	}
+}
+
+func runArtifactOutputFromStorage(artifact storage.RunArtifact) runArtifactOutput {
+	return runArtifactOutput{
+		ID:          artifact.ID,
+		RunID:       artifact.RunID,
+		Kind:        artifact.Kind,
+		Path:        artifact.Path,
+		ContentHash: artifact.ContentHash,
+		Metadata:    artifact.Metadata,
+		CreatedAt:   artifact.CreatedAt,
 	}
 }
 
@@ -343,4 +408,43 @@ func parseRunID(value string) (int64, error) {
 		return 0, &UsageError{Message: fmt.Sprintf("invalid run id: %s", value), Code: 2}
 	}
 	return id, nil
+}
+
+func writeRunHandoffArtifact(ctx context.Context, store *storage.Store, project storage.Project, task storage.Task, run storage.Run, opts runStartOptions) (storage.RunArtifact, error) {
+	outputPath := opts.handoffOutput
+	if !filepath.IsAbs(outputPath) {
+		absPath, err := filepath.Abs(outputPath)
+		if err != nil {
+			return storage.RunArtifact{}, fmt.Errorf("resolve handoff output path %q: %w", outputPath, err)
+		}
+		outputPath = absPath
+	}
+
+	builder := contextpkg.NewBuilder(store, retrieval.NewService(store))
+	pkg, err := builder.Build(ctx, contextpkg.BuildInput{
+		Project:        project,
+		Task:           task,
+		RetrievalLimit: opts.retrievalLimit,
+	})
+	if err != nil {
+		return storage.RunArtifact{}, err
+	}
+
+	text := pkg.RenderText()
+	if err := writeContextPackage(outputPath, text); err != nil {
+		return storage.RunArtifact{}, err
+	}
+
+	return store.AddRunArtifact(ctx, storage.AddRunArtifactInput{
+		RunID:       run.ID,
+		Kind:        "handoff",
+		Path:        outputPath,
+		ContentHash: sha256ContentHash(text),
+		Metadata:    `{"format":"text"}`,
+	})
+}
+
+func sha256ContentHash(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return fmt.Sprintf("sha256:%x", sum)
 }
