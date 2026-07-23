@@ -102,6 +102,16 @@ type Run struct {
 	ResultSummary          string
 }
 
+type RunArtifact struct {
+	ID          int64
+	RunID       int64
+	Kind        string
+	Path        string
+	ContentHash string
+	Metadata    string
+	CreatedAt   string
+}
+
 type CreateRunInput struct {
 	TaskID                 int64
 	Status                 string
@@ -115,6 +125,14 @@ type FinishRunInput struct {
 	ID            int64
 	Status        string
 	ResultSummary string
+}
+
+type AddRunArtifactInput struct {
+	RunID       int64
+	Kind        string
+	Path        string
+	ContentHash string
+	Metadata    string
 }
 
 type ContextSource struct {
@@ -709,6 +727,80 @@ func (s *Store) FinishRun(ctx context.Context, input FinishRunInput) (Run, error
 	return s.GetRun(ctx, input.ID)
 }
 
+func (s *Store) AddRunArtifact(ctx context.Context, input AddRunArtifactInput) (RunArtifact, error) {
+	if input.RunID <= 0 {
+		return RunArtifact{}, errors.New("run artifact run id is required")
+	}
+	if _, err := s.GetRun(ctx, input.RunID); err != nil {
+		return RunArtifact{}, err
+	}
+	input.Kind = strings.TrimSpace(input.Kind)
+	if !validRunArtifactKind(input.Kind) {
+		return RunArtifact{}, fmt.Errorf("invalid run artifact kind %q", input.Kind)
+	}
+	input.Path = strings.TrimSpace(input.Path)
+	input.ContentHash = strings.TrimSpace(input.ContentHash)
+	input.Metadata = strings.TrimSpace(input.Metadata)
+	if input.Metadata == "" {
+		input.Metadata = "{}"
+	}
+
+	res, err := s.db.ExecContext(ctx, `
+		INSERT INTO run_artifacts (run_id, kind, path, content_hash, metadata)
+		VALUES (?, ?, ?, ?, ?)
+	`, input.RunID, input.Kind, input.Path, input.ContentHash, input.Metadata)
+	if err != nil {
+		return RunArtifact{}, fmt.Errorf("add run artifact: %w", err)
+	}
+
+	id, err := res.LastInsertId()
+	if err != nil {
+		return RunArtifact{}, fmt.Errorf("read run artifact id: %w", err)
+	}
+
+	return s.GetRunArtifact(ctx, id)
+}
+
+func (s *Store) GetRunArtifact(ctx context.Context, id int64) (RunArtifact, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, run_id, kind, path, content_hash, metadata, created_at
+		FROM run_artifacts
+		WHERE id = ?
+	`, id)
+	return scanRunArtifact(row)
+}
+
+func (s *Store) ListRunArtifacts(ctx context.Context, runID int64) ([]RunArtifact, error) {
+	if runID <= 0 {
+		return nil, errors.New("run artifact run id is required")
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, run_id, kind, path, content_hash, metadata, created_at
+		FROM run_artifacts
+		WHERE run_id = ?
+		ORDER BY id
+	`, runID)
+	if err != nil {
+		return nil, fmt.Errorf("list run artifacts: %w", err)
+	}
+	defer rows.Close()
+
+	var artifacts []RunArtifact
+	for rows.Next() {
+		artifact, err := scanRunArtifact(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan run artifact: %w", err)
+		}
+		artifacts = append(artifacts, artifact)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate run artifacts: %w", err)
+	}
+
+	return artifacts, nil
+}
+
 func (s *Store) ListReadyTasks(ctx context.Context, projectID int64) ([]Task, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT t.id, t.project_id, t.status, t.title, t.description, t.acceptance_criteria, t.notes, t.created_at, t.updated_at
@@ -1273,6 +1365,22 @@ func scanRun(row scanner) (Run, error) {
 	return run, nil
 }
 
+func scanRunArtifact(row scanner) (RunArtifact, error) {
+	var artifact RunArtifact
+	if err := row.Scan(
+		&artifact.ID,
+		&artifact.RunID,
+		&artifact.Kind,
+		&artifact.Path,
+		&artifact.ContentHash,
+		&artifact.Metadata,
+		&artifact.CreatedAt,
+	); err != nil {
+		return RunArtifact{}, err
+	}
+	return artifact, nil
+}
+
 func scanContextSource(row scanner) (ContextSource, error) {
 	var source ContextSource
 	if err := row.Scan(&source.ID, &source.ProjectID, &source.Kind, &source.URI, &source.Metadata, &source.CreatedAt, &source.UpdatedAt); err != nil {
@@ -1323,6 +1431,15 @@ func validRunStatus(status string) bool {
 func runStatusTerminal(status string) bool {
 	switch status {
 	case "succeeded", "failed", "blocked", "cancelled":
+		return true
+	default:
+		return false
+	}
+}
+
+func validRunArtifactKind(kind string) bool {
+	switch kind {
+	case "handoff", "validation", "log", "patch", "note":
 		return true
 	default:
 		return false

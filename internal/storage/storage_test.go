@@ -20,7 +20,7 @@ func TestInitAppliesEmbeddedMigrations(t *testing.T) {
 		t.Fatalf("second Init returned error: %v", err)
 	}
 
-	for _, table := range []string{"projects", "tasks", "task_events", "context_sources", "index_metadata", "retrieval_documents", "runs"} {
+	for _, table := range []string{"projects", "tasks", "task_events", "context_sources", "index_metadata", "retrieval_documents", "runs", "run_artifacts"} {
 		var name string
 		err := store.db.QueryRowContext(ctx, `
 			SELECT name
@@ -36,8 +36,8 @@ func TestInitAppliesEmbeddedMigrations(t *testing.T) {
 	if err := store.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM schema_migrations").Scan(&applied); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if applied != 5 {
-		t.Fatalf("expected 5 applied migrations, got %d", applied)
+	if applied != 6 {
+		t.Fatalf("expected 6 applied migrations, got %d", applied)
 	}
 }
 
@@ -443,6 +443,112 @@ func TestRunLifecycleValidation(t *testing.T) {
 	})
 	if !errors.Is(err, ErrRunResultSummaryEmpty) {
 		t.Fatalf("expected empty run summary error, got %v", err)
+	}
+}
+
+func TestRunArtifacts(t *testing.T) {
+	ctx := context.Background()
+	store := openInitializedTestStore(t)
+
+	project, err := store.CreateProject(ctx, CreateProjectInput{
+		Name:        "tok",
+		DisplayName: "TOK",
+		Path:        "/tmp/tok",
+	})
+	if err != nil {
+		t.Fatalf("CreateProject returned error: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskInput{
+		ProjectID: project.ID,
+		Title:     "Artifact task",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask returned error: %v", err)
+	}
+	run, err := store.CreateRun(ctx, CreateRunInput{
+		TaskID:                 task.ID,
+		Status:                 "in_progress",
+		HandoffContractVersion: "tok.handoff.v0",
+	})
+	if err != nil {
+		t.Fatalf("CreateRun returned error: %v", err)
+	}
+
+	handoff, err := store.AddRunArtifact(ctx, AddRunArtifactInput{
+		RunID:       run.ID,
+		Kind:        "handoff",
+		Path:        "/tmp/context.md",
+		ContentHash: "sha256:abc123",
+		Metadata:    `{"format":"text"}`,
+	})
+	if err != nil {
+		t.Fatalf("AddRunArtifact handoff returned error: %v", err)
+	}
+	if handoff.ID == 0 || handoff.RunID != run.ID || handoff.Kind != "handoff" || handoff.CreatedAt == "" {
+		t.Fatalf("unexpected handoff artifact: %+v", handoff)
+	}
+
+	note, err := store.AddRunArtifact(ctx, AddRunArtifactInput{
+		RunID: run.ID,
+		Kind:  "note",
+	})
+	if err != nil {
+		t.Fatalf("AddRunArtifact note returned error: %v", err)
+	}
+	if note.Metadata != "{}" {
+		t.Fatalf("expected default artifact metadata, got %+v", note)
+	}
+
+	artifacts, err := store.ListRunArtifacts(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("ListRunArtifacts returned error: %v", err)
+	}
+	if len(artifacts) != 2 || artifacts[0].ID != handoff.ID || artifacts[1].ID != note.ID {
+		t.Fatalf("unexpected artifacts: %+v", artifacts)
+	}
+}
+
+func TestRunArtifactValidation(t *testing.T) {
+	ctx := context.Background()
+	store := openInitializedTestStore(t)
+
+	_, err := store.AddRunArtifact(ctx, AddRunArtifactInput{
+		RunID: 1,
+		Kind:  "binary",
+	})
+	if !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("expected missing run error before kind validation, got %v", err)
+	}
+
+	project, err := store.CreateProject(ctx, CreateProjectInput{
+		Name:        "tok",
+		DisplayName: "TOK",
+		Path:        "/tmp/tok",
+	})
+	if err != nil {
+		t.Fatalf("CreateProject returned error: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskInput{
+		ProjectID: project.ID,
+		Title:     "Artifact validation",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask returned error: %v", err)
+	}
+	run, err := store.CreateRun(ctx, CreateRunInput{
+		TaskID:                 task.ID,
+		HandoffContractVersion: "tok.handoff.v0",
+	})
+	if err != nil {
+		t.Fatalf("CreateRun returned error: %v", err)
+	}
+
+	_, err = store.AddRunArtifact(ctx, AddRunArtifactInput{
+		RunID: run.ID,
+		Kind:  "binary",
+	})
+	if err == nil || !strings.Contains(err.Error(), `invalid run artifact kind "binary"`) {
+		t.Fatalf("expected invalid kind error, got %v", err)
 	}
 }
 
