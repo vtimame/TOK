@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -19,7 +20,7 @@ func TestInitAppliesEmbeddedMigrations(t *testing.T) {
 		t.Fatalf("second Init returned error: %v", err)
 	}
 
-	for _, table := range []string{"projects", "tasks", "task_events", "context_sources", "index_metadata", "retrieval_documents"} {
+	for _, table := range []string{"projects", "tasks", "task_events", "context_sources", "index_metadata", "retrieval_documents", "runs"} {
 		var name string
 		err := store.db.QueryRowContext(ctx, `
 			SELECT name
@@ -35,8 +36,8 @@ func TestInitAppliesEmbeddedMigrations(t *testing.T) {
 	if err := store.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM schema_migrations").Scan(&applied); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if applied != 3 {
-		t.Fatalf("expected 3 applied migrations, got %d", applied)
+	if applied != 4 {
+		t.Fatalf("expected 4 applied migrations, got %d", applied)
 	}
 }
 
@@ -301,6 +302,143 @@ func TestClaimTasksAtomicallyMarksReadyTaskInProgress(t *testing.T) {
 
 	if _, err := store.ClaimNextReadyTask(ctx, project.ID); !errors.Is(err, ErrNoReadyTask) {
 		t.Fatalf("expected no ready task, got %v", err)
+	}
+}
+
+func TestRunLifecycle(t *testing.T) {
+	ctx := context.Background()
+	store := openInitializedTestStore(t)
+
+	project, err := store.CreateProject(ctx, CreateProjectInput{
+		Name:        "tok",
+		DisplayName: "TOK",
+		Path:        "/tmp/tok",
+	})
+	if err != nil {
+		t.Fatalf("CreateProject returned error: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskInput{
+		ProjectID: project.ID,
+		Title:     "Run task",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask returned error: %v", err)
+	}
+
+	run, err := store.CreateRun(ctx, CreateRunInput{
+		TaskID:                 task.ID,
+		Status:                 "in_progress",
+		HandoffContractVersion: "tok.handoff.v0",
+		BaseBranch:             "main",
+		BaseHead:               "abc1234",
+	})
+	if err != nil {
+		t.Fatalf("CreateRun returned error: %v", err)
+	}
+	if run.ID == 0 || run.TaskID != task.ID || run.Status != "in_progress" || run.StartedAt == "" {
+		t.Fatalf("unexpected created run: %+v", run)
+	}
+	if run.HandoffContractVersion != "tok.handoff.v0" || run.BaseBranch != "main" || run.BaseHead != "abc1234" {
+		t.Fatalf("unexpected run snapshot fields: %+v", run)
+	}
+	if run.FinishedAt != "" || run.ResultSummary != "" {
+		t.Fatalf("new run should not be finished: %+v", run)
+	}
+
+	got, err := store.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun returned error: %v", err)
+	}
+	if got.ID != run.ID || got.TaskID != task.ID {
+		t.Fatalf("unexpected run from GetRun: %+v", got)
+	}
+
+	finished, err := store.FinishRun(ctx, FinishRunInput{
+		ID:            run.ID,
+		Status:        "succeeded",
+		ResultSummary: "Implemented and tests pass.",
+	})
+	if err != nil {
+		t.Fatalf("FinishRun returned error: %v", err)
+	}
+	if finished.Status != "succeeded" || finished.FinishedAt == "" || finished.ResultSummary != "Implemented and tests pass." {
+		t.Fatalf("unexpected finished run: %+v", finished)
+	}
+
+	_, err = store.FinishRun(ctx, FinishRunInput{
+		ID:            run.ID,
+		Status:        "failed",
+		ResultSummary: "Should not change.",
+	})
+	if !errors.Is(err, ErrInvalidRunTransition) {
+		t.Fatalf("expected invalid run transition, got %v", err)
+	}
+}
+
+func TestRunLifecycleValidation(t *testing.T) {
+	ctx := context.Background()
+	store := openInitializedTestStore(t)
+
+	project, err := store.CreateProject(ctx, CreateProjectInput{
+		Name:        "tok",
+		DisplayName: "TOK",
+		Path:        "/tmp/tok",
+	})
+	if err != nil {
+		t.Fatalf("CreateProject returned error: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskInput{
+		ProjectID: project.ID,
+		Title:     "Run validation",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask returned error: %v", err)
+	}
+
+	created, err := store.CreateRun(ctx, CreateRunInput{
+		TaskID:                 task.ID,
+		HandoffContractVersion: "tok.handoff.v0",
+	})
+	if err != nil {
+		t.Fatalf("CreateRun default status returned error: %v", err)
+	}
+	if created.Status != "created" {
+		t.Fatalf("expected default created status, got %+v", created)
+	}
+
+	_, err = store.CreateRun(ctx, CreateRunInput{
+		TaskID:                 task.ID,
+		Status:                 "paused",
+		HandoffContractVersion: "tok.handoff.v0",
+	})
+	if err == nil || !strings.Contains(err.Error(), `invalid run status "paused"`) {
+		t.Fatalf("expected invalid run status error, got %v", err)
+	}
+
+	_, err = store.CreateRun(ctx, CreateRunInput{
+		TaskID:                 task.ID,
+		Status:                 "succeeded",
+		HandoffContractVersion: "tok.handoff.v0",
+	})
+	if !errors.Is(err, ErrInvalidRunTransition) {
+		t.Fatalf("expected invalid create terminal transition, got %v", err)
+	}
+
+	_, err = store.FinishRun(ctx, FinishRunInput{
+		ID:            created.ID,
+		Status:        "in_progress",
+		ResultSummary: "Still running.",
+	})
+	if err == nil || !strings.Contains(err.Error(), `invalid terminal run status "in_progress"`) {
+		t.Fatalf("expected invalid terminal status error, got %v", err)
+	}
+
+	_, err = store.FinishRun(ctx, FinishRunInput{
+		ID:     created.ID,
+		Status: "failed",
+	})
+	if !errors.Is(err, ErrRunResultSummaryEmpty) {
+		t.Fatalf("expected empty run summary error, got %v", err)
 	}
 }
 

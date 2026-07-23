@@ -25,6 +25,8 @@ var (
 	ErrInvalidTaskTransition   = errors.New("invalid task status transition")
 	ErrTaskCompletionNoteEmpty = errors.New("task completion note is required")
 	ErrTaskNoteEmpty           = errors.New("task note is required")
+	ErrInvalidRunTransition    = errors.New("invalid run status transition")
+	ErrRunResultSummaryEmpty   = errors.New("run result summary is required")
 )
 
 //go:embed migrations/*.sql
@@ -85,6 +87,32 @@ type TaskDependency struct {
 	BlockerTaskID int64
 	BlockedTaskID int64
 	CreatedAt     string
+}
+
+type Run struct {
+	ID                     int64
+	TaskID                 int64
+	Status                 string
+	HandoffContractVersion string
+	StartedAt              string
+	FinishedAt             string
+	BaseBranch             string
+	BaseHead               string
+	ResultSummary          string
+}
+
+type CreateRunInput struct {
+	TaskID                 int64
+	Status                 string
+	HandoffContractVersion string
+	BaseBranch             string
+	BaseHead               string
+}
+
+type FinishRunInput struct {
+	ID            int64
+	Status        string
+	ResultSummary string
 }
 
 type ContextSource struct {
@@ -584,6 +612,96 @@ func (s *Store) ListTaskDependencies(ctx context.Context, projectID, taskID int6
 	}
 
 	return dependencies, nil
+}
+
+func (s *Store) CreateRun(ctx context.Context, input CreateRunInput) (Run, error) {
+	if input.TaskID <= 0 {
+		return Run{}, errors.New("run task id is required")
+	}
+	if _, err := s.GetTask(ctx, input.TaskID); err != nil {
+		return Run{}, err
+	}
+	status := strings.TrimSpace(input.Status)
+	if status == "" {
+		status = "created"
+	}
+	if !validRunStatus(status) {
+		return Run{}, fmt.Errorf("invalid run status %q", status)
+	}
+	if runStatusTerminal(status) {
+		return Run{}, ErrInvalidRunTransition
+	}
+	input.HandoffContractVersion = strings.TrimSpace(input.HandoffContractVersion)
+	if input.HandoffContractVersion == "" {
+		return Run{}, errors.New("run handoff contract version is required")
+	}
+
+	res, err := s.db.ExecContext(ctx, `
+		INSERT INTO runs (task_id, status, handoff_contract_version, base_branch, base_head)
+		VALUES (?, ?, ?, ?, ?)
+	`, input.TaskID, status, input.HandoffContractVersion, input.BaseBranch, input.BaseHead)
+	if err != nil {
+		return Run{}, fmt.Errorf("create run: %w", err)
+	}
+
+	id, err := res.LastInsertId()
+	if err != nil {
+		return Run{}, fmt.Errorf("read created run id: %w", err)
+	}
+
+	return s.GetRun(ctx, id)
+}
+
+func (s *Store) GetRun(ctx context.Context, id int64) (Run, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, task_id, status, handoff_contract_version, started_at, finished_at, base_branch, base_head, result_summary
+		FROM runs
+		WHERE id = ?
+	`, id)
+	return scanRun(row)
+}
+
+func (s *Store) FinishRun(ctx context.Context, input FinishRunInput) (Run, error) {
+	if input.ID <= 0 {
+		return Run{}, errors.New("run id is required")
+	}
+	input.Status = strings.TrimSpace(input.Status)
+	if !runStatusTerminal(input.Status) {
+		return Run{}, fmt.Errorf("invalid terminal run status %q", input.Status)
+	}
+	input.ResultSummary = strings.TrimSpace(input.ResultSummary)
+	if input.ResultSummary == "" {
+		return Run{}, ErrRunResultSummaryEmpty
+	}
+
+	current, err := s.GetRun(ctx, input.ID)
+	if err != nil {
+		return Run{}, err
+	}
+	if runStatusTerminal(current.Status) {
+		return Run{}, ErrInvalidRunTransition
+	}
+
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE runs
+		SET status = ?,
+			finished_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+			result_summary = ?
+		WHERE id = ?
+		  AND status IN ('created', 'in_progress')
+	`, input.Status, input.ResultSummary, input.ID)
+	if err != nil {
+		return Run{}, fmt.Errorf("finish run: %w", err)
+	}
+	updated, err := res.RowsAffected()
+	if err != nil {
+		return Run{}, fmt.Errorf("read finished run count: %w", err)
+	}
+	if updated == 0 {
+		return Run{}, ErrInvalidRunTransition
+	}
+
+	return s.GetRun(ctx, input.ID)
 }
 
 func (s *Store) ListReadyTasks(ctx context.Context, projectID int64) ([]Task, error) {
@@ -1131,6 +1249,24 @@ func scanTaskDependency(row scanner) (TaskDependency, error) {
 	return dependency, nil
 }
 
+func scanRun(row scanner) (Run, error) {
+	var run Run
+	if err := row.Scan(
+		&run.ID,
+		&run.TaskID,
+		&run.Status,
+		&run.HandoffContractVersion,
+		&run.StartedAt,
+		&run.FinishedAt,
+		&run.BaseBranch,
+		&run.BaseHead,
+		&run.ResultSummary,
+	); err != nil {
+		return Run{}, err
+	}
+	return run, nil
+}
+
 func scanContextSource(row scanner) (ContextSource, error) {
 	var source ContextSource
 	if err := row.Scan(&source.ID, &source.ProjectID, &source.Kind, &source.URI, &source.Metadata, &source.CreatedAt, &source.UpdatedAt); err != nil {
@@ -1163,6 +1299,24 @@ func validateProjectInput(input CreateProjectInput) error {
 func validTaskStatus(status string) bool {
 	switch status {
 	case "open", "in_progress", "blocked", "done":
+		return true
+	default:
+		return false
+	}
+}
+
+func validRunStatus(status string) bool {
+	switch status {
+	case "created", "in_progress", "succeeded", "failed", "blocked", "cancelled":
+		return true
+	default:
+		return false
+	}
+}
+
+func runStatusTerminal(status string) bool {
+	switch status {
+	case "succeeded", "failed", "blocked", "cancelled":
 		return true
 	default:
 		return false
