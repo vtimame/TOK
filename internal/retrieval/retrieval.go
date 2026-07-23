@@ -47,6 +47,7 @@ type SearchResult struct {
 	Score      float64
 	Line       int
 	Snippet    string
+	Excerpt    string
 	Provenance string
 }
 
@@ -127,12 +128,13 @@ func (s *Service) Search(ctx context.Context, project storage.Project, query str
 
 	results := make([]SearchResult, 0, len(ranked))
 	for _, rankedDoc := range ranked {
-		line, snippet := matchingLine(rankedDoc.Content, tokens)
+		line, snippet, excerpt := matchingLine(rankedDoc.Content, tokens)
 		results = append(results, SearchResult{
 			Path:       rankedDoc.Path,
 			Score:      rankedDoc.Score,
 			Line:       line,
 			Snippet:    snippet,
+			Excerpt:    excerpt,
 			Provenance: rankedDoc.Provenance,
 		})
 	}
@@ -403,7 +405,7 @@ func splitIdentifier(raw string) []string {
 	return parts
 }
 
-func matchingLine(content string, tokens []string) (int, string) {
+func matchingLine(content string, tokens []string) (int, string, string) {
 	lines := strings.Split(content, "\n")
 	bestLine := 0
 	bestScore := 0
@@ -421,12 +423,12 @@ func matchingLine(content string, tokens []string) (int, string) {
 		}
 	}
 	if bestScore > 0 {
-		return bestLine, trimSnippet(lines[bestLine-1])
+		return bestLine, trimSnippet(lines[bestLine-1]), excerpt(lines, bestLine, 1)
 	}
 	if len(lines) == 0 {
-		return 0, ""
+		return 0, "", ""
 	}
-	return 1, trimSnippet(lines[0])
+	return 1, trimSnippet(lines[0]), excerpt(lines, 1, 1)
 }
 
 func trimSnippet(line string) string {
@@ -435,4 +437,27 @@ func trimSnippet(line string) string {
 		return snippet
 	}
 	return snippet[:157] + "..."
+}
+
+func excerpt(lines []string, lineNumber, radius int) string {
+	if len(lines) == 0 || lineNumber <= 0 {
+		return ""
+	}
+	start := lineNumber - radius
+	if start < 1 {
+		start = 1
+	}
+	end := lineNumber + radius
+	if end > len(lines) {
+		end = len(lines)
+	}
+
+	var out strings.Builder
+	for i := start; i <= end; i++ {
+		if out.Len() > 0 {
+			out.WriteString("\n")
+		}
+		fmt.Fprintf(&out, "%d: %s", i, trimSnippet(lines[i-1]))
+	}
+	return out.String()
 }

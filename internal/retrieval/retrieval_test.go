@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"s26.sh/tok/internal/storage"
@@ -74,6 +75,11 @@ func TestIndexAndSearchFixtureProject(t *testing.T) {
 			foundAuth = true
 			if result.Line != 3 || result.Snippet != "func refreshToken() string {" {
 				t.Fatalf("unexpected auth snippet: %+v", result)
+			}
+			for _, want := range []string{"2:", "3: func refreshToken() string {", "4: return \"value\""} {
+				if !strings.Contains(result.Excerpt, want) {
+					t.Fatalf("auth excerpt missing %q: %+v", want, result)
+				}
 			}
 			if result.Provenance != "project_file" {
 				t.Fatalf("unexpected provenance: %+v", result)

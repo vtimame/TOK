@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -45,6 +47,8 @@ type contextBuildOptions struct {
 	projectName    string
 	taskID         int64
 	retrievalLimit int
+	outputPath     string
+	query          string
 }
 
 func (c *CLI) runContextBuild(ctx context.Context, store *storage.Store, args []string) error {
@@ -71,12 +75,22 @@ func (c *CLI) runContextBuild(ctx context.Context, store *storage.Store, args []
 		Project:        project,
 		Task:           task,
 		RetrievalLimit: buildOpts.retrievalLimit,
+		Query:          buildOpts.query,
 	})
 	if err != nil {
 		return err
 	}
 
-	fmt.Fprint(c.out, pkg.RenderText())
+	text := pkg.RenderText()
+	if buildOpts.outputPath != "" {
+		if err := writeContextPackage(buildOpts.outputPath, text); err != nil {
+			return err
+		}
+		fmt.Fprintf(c.out, "wrote context package: %s\n", buildOpts.outputPath)
+		return nil
+	}
+
+	fmt.Fprint(c.out, text)
 	return nil
 }
 
@@ -129,6 +143,28 @@ func parseContextBuildOptions(args []string) (contextBuildOptions, error) {
 				return contextBuildOptions{}, err
 			}
 			opts.retrievalLimit = limit
+		case arg == "--output":
+			i++
+			if i >= len(args) {
+				return contextBuildOptions{}, &UsageError{Message: "--output requires a path", Code: 2}
+			}
+			opts.outputPath = args[i]
+		case strings.HasPrefix(arg, "--output="):
+			opts.outputPath = strings.TrimPrefix(arg, "--output=")
+			if opts.outputPath == "" {
+				return contextBuildOptions{}, &UsageError{Message: "--output requires a path", Code: 2}
+			}
+		case arg == "--query":
+			i++
+			if i >= len(args) {
+				return contextBuildOptions{}, &UsageError{Message: "--query requires a value", Code: 2}
+			}
+			opts.query = args[i]
+		case strings.HasPrefix(arg, "--query="):
+			opts.query = strings.TrimPrefix(arg, "--query=")
+			if opts.query == "" {
+				return contextBuildOptions{}, &UsageError{Message: "--query requires a value", Code: 2}
+			}
 		default:
 			return contextBuildOptions{}, &UsageError{Message: fmt.Sprintf("unknown context build option %q", arg), Code: 2}
 		}
@@ -144,6 +180,8 @@ func parseContextBuildOptions(args []string) (contextBuildOptions, error) {
 	if opts.retrievalLimit == 0 {
 		opts.retrievalLimit = contextpkg.DefaultRetrievalLimit
 	}
+	opts.outputPath = strings.TrimSpace(opts.outputPath)
+	opts.query = strings.TrimSpace(opts.query)
 
 	return opts, nil
 }
@@ -154,4 +192,21 @@ func parseContextLimit(value string) (int, error) {
 		return 0, &UsageError{Message: fmt.Sprintf("invalid context retrieval limit: %s", value), Code: 2}
 	}
 	return limit, nil
+}
+
+func writeContextPackage(path, text string) error {
+	if !filepath.IsAbs(path) {
+		absPath, err := filepath.Abs(path)
+		if err != nil {
+			return fmt.Errorf("resolve context output path %q: %w", path, err)
+		}
+		path = absPath
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create context output directory: %w", err)
+	}
+	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+		return fmt.Errorf("write context package %q: %w", path, err)
+	}
+	return nil
 }

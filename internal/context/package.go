@@ -29,6 +29,7 @@ type BuildInput struct {
 	Project        storage.Project
 	Task           storage.Task
 	RetrievalLimit int
+	Query          string
 }
 
 type Package struct {
@@ -81,7 +82,12 @@ func (b *Builder) Build(ctx stdctx.Context, input BuildInput) (Package, error) {
 		return Package{}, err
 	}
 
-	results, err := b.retrieval.Search(ctx, input.Project, taskRetrievalQuery(input.Task), input.RetrievalLimit)
+	query := strings.TrimSpace(input.Query)
+	if query == "" {
+		query = taskRetrievalQuery(input.Task)
+	}
+
+	results, err := b.retrieval.Search(ctx, input.Project, query, input.RetrievalLimit)
 	if err != nil {
 		return Package{}, err
 	}
@@ -149,6 +155,12 @@ func (p Package) RenderText() string {
 			fmt.Fprintf(&out, "   score: %.6f\n", result.Score)
 			fmt.Fprintf(&out, "   provenance: %s\n", result.Provenance)
 			fmt.Fprintf(&out, "   snippet: %s\n", result.Snippet)
+			if result.Excerpt != "" {
+				out.WriteString("   excerpt:\n")
+				for _, line := range strings.Split(result.Excerpt, "\n") {
+					fmt.Fprintf(&out, "     %s\n", line)
+				}
+			}
 		}
 		out.WriteString("\n")
 	}

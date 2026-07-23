@@ -77,6 +77,8 @@ func TestBuilderBuildsDeterministicTextPackage(t *testing.T) {
 		"1. path: internal/auth/token.go",
 		"provenance: project_file",
 		"snippet: func refreshToken() string {",
+		"excerpt:",
+		"3: func refreshToken() string {",
 		"## Repository State",
 		"available: true",
 		"branch: main",
