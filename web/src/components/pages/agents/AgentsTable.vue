@@ -69,7 +69,9 @@ function updateDeleteDialogOpen(open: boolean) {
         </AlertDialogDescription>
       </AlertDialogHeader>
       <AlertDialogFooter>
-        <AlertDialogCancel :disabled="deleteAgentMutation.isPending.value">Cancel</AlertDialogCancel>
+        <AlertDialogCancel :disabled="deleteAgentMutation.isPending.value"
+          >Cancel</AlertDialogCancel
+        >
         <AlertDialogAction
           class="bg-destructive text-destructive-foreground hover:bg-destructive/90"
           :disabled="deleteAgentMutation.isPending.value"
@@ -86,7 +88,6 @@ function updateDeleteDialogOpen(open: boolean) {
       <TableRow>
         <TableHead class="w-16 pl-4">ID</TableHead>
         <TableHead>Agent</TableHead>
-        <TableHead>Projects</TableHead>
         <TableHead class="text-right">Tasks</TableHead>
         <TableHead class="text-right">Events</TableHead>
         <TableHead class="text-right">Last activity</TableHead>
@@ -95,12 +96,12 @@ function updateDeleteDialogOpen(open: boolean) {
     </TableHeader>
     <TableBody>
       <TableRow v-if="props.error">
-        <TableCell colspan="7" class="h-24 text-center text-destructive">
+        <TableCell colspan="6" class="h-24 text-center text-destructive">
           Failed to load agents.
         </TableCell>
       </TableRow>
       <TableRow v-if="!props.loading && props.agents.length === 0">
-        <TableCell colspan="7" class="h-36 text-center">
+        <TableCell colspan="6" class="h-36 text-center">
           <div class="flex flex-col items-center gap-3">
             <div>
               <div class="font-medium">No agents yet</div>

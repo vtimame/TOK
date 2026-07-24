@@ -43,19 +43,6 @@ const lastActivity = computed(() => {
         </div>
       </div>
     </TableCell>
-    <TableCell class="max-w-[24rem]">
-      <div v-if="agent.projects.length > 0" class="flex flex-wrap gap-1.5">
-        <RouterLink
-          v-for="project in agent.projects"
-          :key="project.id"
-          :to="{ path: '/tasks', query: { projectId: String(project.id) } }"
-          class="rounded-full border px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-        >
-          {{ project.displayName }}
-        </RouterLink>
-      </div>
-      <span v-else class="text-sm text-muted-foreground">No projects</span>
-    </TableCell>
     <TableCell class="text-right">{{ agent.tasksCount }}</TableCell>
     <TableCell class="text-right">{{ agent.eventsCount }}</TableCell>
     <TableCell class="text-right text-muted-foreground">{{ lastActivity }}</TableCell>
