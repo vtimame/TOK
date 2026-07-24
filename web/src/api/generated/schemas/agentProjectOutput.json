@@ -1,0 +1,13 @@
+{
+  "properties": {
+    "display_name": { "type": "string" },
+    "events_count": { "type": "integer" },
+    "id": { "format": "int64", "type": "integer" },
+    "last_activity_at": { "type": "string" },
+    "name": { "type": "string" },
+    "tasks_count": { "type": "integer" }
+  },
+  "required": ["display_name", "events_count", "id", "last_activity_at", "name", "tasks_count"],
+  "type": "object",
+  "x-readme-ref-name": "AgentProjectOutput"
+}

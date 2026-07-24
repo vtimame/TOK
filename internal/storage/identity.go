@@ -30,9 +30,30 @@ type AgentWithToken struct {
 	Token string
 }
 
+type AgentActivity struct {
+	Actor          Actor
+	TasksCount     int
+	EventsCount    int
+	LastActivityAt string
+}
+
+type AgentProjectActivity struct {
+	ActorID        int64
+	ProjectID      int64
+	ProjectName    string
+	ProjectDisplay string
+	TasksCount     int
+	EventsCount    int
+	LastActivityAt string
+}
+
 type ActorRef struct {
 	ID   int64
 	Kind string
+	Name string
+}
+
+type UpdateAgentInput struct {
 	Name string
 }
 
@@ -140,6 +161,160 @@ func (s *Store) ListAgents(ctx context.Context) ([]Actor, error) {
 	}
 
 	return agents, nil
+}
+
+func (s *Store) UpdateAgent(ctx context.Context, id int64, input UpdateAgentInput) (Actor, error) {
+	if id <= 0 {
+		return Actor{}, errors.New("agent id is required")
+	}
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		return Actor{}, errors.New("agent name is required")
+	}
+
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE actors
+		SET name = ?,
+			updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+		WHERE id = ? AND kind = 'agent'
+	`, name, id)
+	if err != nil {
+		return Actor{}, fmt.Errorf("update agent %d: %w", id, err)
+	}
+	updated, err := res.RowsAffected()
+	if err != nil {
+		return Actor{}, fmt.Errorf("read updated agent count: %w", err)
+	}
+	if updated == 0 {
+		return Actor{}, sql.ErrNoRows
+	}
+
+	return s.GetActor(ctx, id)
+}
+
+func (s *Store) DeleteAgent(ctx context.Context, id int64) error {
+	if id <= 0 {
+		return errors.New("agent id is required")
+	}
+	res, err := s.db.ExecContext(ctx, "DELETE FROM actors WHERE id = ? AND kind = 'agent'", id)
+	if err != nil {
+		return fmt.Errorf("delete agent %d: %w", id, err)
+	}
+	deleted, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read deleted agent count: %w", err)
+	}
+	if deleted == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *Store) ListAgentActivity(ctx context.Context) ([]AgentActivity, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT
+			actors.id,
+			actors.kind,
+			actors.name,
+			actors.token_hash,
+			actors.token_revoked_at,
+			actors.created_at,
+			actors.updated_at,
+			COALESCE(activity.tasks_count, 0),
+			COALESCE(activity.events_count, 0),
+			COALESCE(activity.last_activity_at, '')
+		FROM actors
+		LEFT JOIN (
+			SELECT
+				actor_id,
+				COUNT(DISTINCT task_id) AS tasks_count,
+				COUNT(*) AS events_count,
+				MAX(created_at) AS last_activity_at
+			FROM task_events
+			WHERE actor_kind = 'agent' AND actor_id > 0
+			GROUP BY actor_id
+		) activity ON activity.actor_id = actors.id
+		WHERE actors.kind = 'agent'
+		ORDER BY
+			CASE WHEN activity.last_activity_at IS NULL THEN 1 ELSE 0 END,
+			activity.last_activity_at DESC,
+			actors.name
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list agent activity: %w", err)
+	}
+	defer rows.Close()
+
+	var agents []AgentActivity
+	for rows.Next() {
+		var agent AgentActivity
+		if err := rows.Scan(
+			&agent.Actor.ID,
+			&agent.Actor.Kind,
+			&agent.Actor.Name,
+			&agent.Actor.TokenHash,
+			&agent.Actor.TokenRevokedAt,
+			&agent.Actor.CreatedAt,
+			&agent.Actor.UpdatedAt,
+			&agent.TasksCount,
+			&agent.EventsCount,
+			&agent.LastActivityAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan agent activity: %w", err)
+		}
+		agents = append(agents, agent)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate agent activity: %w", err)
+	}
+
+	return agents, nil
+}
+
+func (s *Store) ListAgentProjectActivity(ctx context.Context) ([]AgentProjectActivity, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT
+			task_events.actor_id,
+			projects.id,
+			projects.name,
+			projects.display_name,
+			COUNT(DISTINCT task_events.task_id) AS tasks_count,
+			COUNT(*) AS events_count,
+			MAX(task_events.created_at) AS last_activity_at
+		FROM task_events
+		JOIN actors ON actors.id = task_events.actor_id AND actors.kind = 'agent'
+		JOIN tasks ON tasks.id = task_events.task_id
+		JOIN projects ON projects.id = tasks.project_id
+		WHERE task_events.actor_kind = 'agent' AND task_events.actor_id > 0
+		GROUP BY task_events.actor_id, projects.id
+		ORDER BY projects.display_name, projects.id
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list agent project activity: %w", err)
+	}
+	defer rows.Close()
+
+	var projects []AgentProjectActivity
+	for rows.Next() {
+		var project AgentProjectActivity
+		if err := rows.Scan(
+			&project.ActorID,
+			&project.ProjectID,
+			&project.ProjectName,
+			&project.ProjectDisplay,
+			&project.TasksCount,
+			&project.EventsCount,
+			&project.LastActivityAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan agent project activity: %w", err)
+		}
+		projects = append(projects, project)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate agent project activity: %w", err)
+	}
+
+	return projects, nil
 }
 
 func (s *Store) RevokeAgent(ctx context.Context, id int64) (Actor, error) {

@@ -1,0 +1,56 @@
+{
+  "description": "AgentResponse schema",
+  "properties": {
+    "agent": {
+      "properties": {
+        "created_at": { "type": "string" },
+        "events_count": { "type": "integer" },
+        "id": { "format": "int64", "type": "integer" },
+        "kind": { "type": "string" },
+        "last_activity_at": { "type": "string" },
+        "name": { "type": "string" },
+        "projects": {
+          "items": {
+            "properties": {
+              "display_name": { "type": "string" },
+              "events_count": { "type": "integer" },
+              "id": { "format": "int64", "type": "integer" },
+              "last_activity_at": { "type": "string" },
+              "name": { "type": "string" },
+              "tasks_count": { "type": "integer" }
+            },
+            "required": [
+              "display_name",
+              "events_count",
+              "id",
+              "last_activity_at",
+              "name",
+              "tasks_count"
+            ],
+            "type": "object",
+            "x-readme-ref-name": "AgentProjectOutput"
+          },
+          "type": ["array", "null"]
+        },
+        "tasks_count": { "type": "integer" },
+        "updated_at": { "type": "string" }
+      },
+      "required": [
+        "created_at",
+        "events_count",
+        "id",
+        "kind",
+        "last_activity_at",
+        "name",
+        "projects",
+        "tasks_count",
+        "updated_at"
+      ],
+      "type": "object",
+      "x-readme-ref-name": "AgentOutput"
+    }
+  },
+  "required": ["agent"],
+  "type": "object",
+  "x-readme-ref-name": "AgentResponse"
+}

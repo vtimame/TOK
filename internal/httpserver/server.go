@@ -88,6 +88,12 @@ func (s *Server) Handler() http.Handler {
 func registerRoutes(s *fuego.Server, a *api) {
 	fuego.Get(s, "/api/health", a.health, operation("getHealth", "System", "Show local TOK UI API health")...)
 
+	fuego.Get(s, "/api/agents", a.listAgents, operation("listAgents", "Agents", "List registered agents with project activity")...)
+	fuego.Post(s, "/api/agents", a.createAgent, append(operation("createAgent", "Agents", "Register an agent"), jsonBody()...)...)
+	fuego.Get(s, "/api/agents/{id}", a.showAgent, operation("showAgent", "Agents", "Show an agent")...)
+	fuego.Patch(s, "/api/agents/{id}", a.updateAgent, append(operation("updateAgent", "Agents", "Update an agent"), jsonBody()...)...)
+	fuego.Delete(s, "/api/agents/{id}", a.deleteAgent, operation("deleteAgent", "Agents", "Delete an agent")...)
+
 	fuego.Get(s, "/api/projects", a.listProjects, append(operation("listProjects", "Projects", "List registered projects"), option.Query("limit", "Maximum projects to return"), option.Query("offset", "Projects to skip before returning results"))...)
 	fuego.Post(s, "/api/projects", a.createProject, append(operation("createProject", "Projects", "Register a project"), jsonBody()...)...)
 	fuego.Get(s, "/api/projects/{project}", a.showProject, operation("showProject", "Projects", "Show a project")...)
@@ -125,6 +131,91 @@ func jsonBody() []fuego.RouteOption {
 
 func (a *api) health(_ fuego.ContextNoBody) (HealthOutput, error) {
 	return HealthOutput{Status: "ok", Version: a.version}, nil
+}
+
+func (a *api) listAgents(ctx fuego.ContextNoBody) (AgentListResponse, error) {
+	agents, err := a.store.ListAgentActivity(ctx.Context())
+	if err != nil {
+		return AgentListResponse{}, err
+	}
+	projects, err := a.store.ListAgentProjectActivity(ctx.Context())
+	if err != nil {
+		return AgentListResponse{}, err
+	}
+	return agentListFromStorage(agents, projects), nil
+}
+
+func (a *api) createAgent(ctx fuego.ContextWithBody[CreateAgentInput]) (CreateAgentResponse, error) {
+	body, err := ctx.Body()
+	if err != nil {
+		return CreateAgentResponse{}, err
+	}
+	name := strings.TrimSpace(body.Name)
+	if name == "" {
+		return CreateAgentResponse{}, badRequest("agent name is required")
+	}
+
+	created, err := a.store.CreateAgent(ctx.Context(), name)
+	if err != nil {
+		return CreateAgentResponse{}, mapAgentWriteError(err)
+	}
+	agentOut, err := a.agentOutput(ctx.Context(), created.Agent)
+	if err != nil {
+		return CreateAgentResponse{}, err
+	}
+	return CreateAgentResponse{Agent: agentOut, Token: created.Token}, nil
+}
+
+func (a *api) showAgent(ctx fuego.ContextNoBody) (AgentResponse, error) {
+	agent, err := a.agentByID(ctx.Context(), ctx.PathParam("id"))
+	if err != nil {
+		return AgentResponse{}, err
+	}
+	agentOut, err := a.agentOutput(ctx.Context(), agent)
+	if err != nil {
+		return AgentResponse{}, err
+	}
+	return AgentResponse{Agent: agentOut}, nil
+}
+
+func (a *api) updateAgent(ctx fuego.ContextWithBody[UpdateAgentInput]) (AgentResponse, error) {
+	current, err := a.agentByID(ctx.Context(), ctx.PathParam("id"))
+	if err != nil {
+		return AgentResponse{}, err
+	}
+	body, err := ctx.Body()
+	if err != nil {
+		return AgentResponse{}, err
+	}
+	name := strings.TrimSpace(body.Name)
+	if name == "" {
+		name = current.Name
+	}
+
+	agent, err := a.store.UpdateAgent(ctx.Context(), current.ID, storage.UpdateAgentInput{Name: name})
+	if err != nil {
+		return AgentResponse{}, mapAgentWriteError(err)
+	}
+	agentOut, err := a.agentOutput(ctx.Context(), agent)
+	if err != nil {
+		return AgentResponse{}, err
+	}
+	return AgentResponse{Agent: agentOut}, nil
+}
+
+func (a *api) deleteAgent(ctx fuego.ContextNoBody) (AgentResponse, error) {
+	agent, err := a.agentByID(ctx.Context(), ctx.PathParam("id"))
+	if err != nil {
+		return AgentResponse{}, err
+	}
+	agentOut, err := a.agentOutput(ctx.Context(), agent)
+	if err != nil {
+		return AgentResponse{}, err
+	}
+	if err := a.store.DeleteAgent(ctx.Context(), agent.ID); err != nil {
+		return AgentResponse{}, mapAgentWriteError(err)
+	}
+	return AgentResponse{Agent: agentOut}, nil
 }
 
 func (a *api) listProjects(ctx fuego.ContextNoBody) (ProjectListResponse, error) {
@@ -604,6 +695,25 @@ func (a *api) projectOutput(ctx context.Context, project storage.Project) (Proje
 	return projectFromStorage(project, taskCountsFromStorage(tasks, len(readyTasks)), agents), nil
 }
 
+func (a *api) agentOutput(ctx context.Context, actor storage.Actor) (AgentOutput, error) {
+	activity := storage.AgentActivity{Actor: actor}
+	agents, err := a.store.ListAgentActivity(ctx)
+	if err != nil {
+		return AgentOutput{}, err
+	}
+	for _, agent := range agents {
+		if agent.Actor.ID == actor.ID {
+			activity = agent
+			break
+		}
+	}
+	projects, err := a.store.ListAgentProjectActivity(ctx)
+	if err != nil {
+		return AgentOutput{}, err
+	}
+	return agentOutputFromStorage(activity, projects), nil
+}
+
 func (a *api) projectResponse(ctx context.Context, project storage.Project) (ProjectResponse, error) {
 	projectOut, err := a.projectOutput(ctx, project)
 	if err != nil {
@@ -665,6 +775,18 @@ func (a *api) projectByName(ctx context.Context, name string) (storage.Project, 
 	return project, err
 }
 
+func (a *api) agentByID(ctx context.Context, rawID string) (storage.Actor, error) {
+	id, err := agentIDFromPath(rawID)
+	if err != nil {
+		return storage.Actor{}, err
+	}
+	actor, err := a.store.GetActor(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && actor.Kind != "agent") {
+		return storage.Actor{}, fuego.NotFoundError{Title: "Agent not found", Detail: strconv.FormatInt(id, 10)}
+	}
+	return actor, err
+}
+
 func (a *api) taskByID(ctx context.Context, id int64) (storage.Task, error) {
 	if id <= 0 {
 		return storage.Task{}, badRequest("task id is required")
@@ -674,6 +796,15 @@ func (a *api) taskByID(ctx context.Context, id int64) (storage.Task, error) {
 		return storage.Task{}, fuego.NotFoundError{Title: "Task not found", Detail: strconv.FormatInt(id, 10)}
 	}
 	return task, err
+}
+
+func agentIDFromPath(raw string) (int64, error) {
+	raw = strings.TrimSpace(raw)
+	id, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || id <= 0 {
+		return 0, badRequest(fmt.Sprintf("invalid agent id: %s", raw))
+	}
+	return id, nil
 }
 
 func taskIDFromPath(ctx interface{ PathParam(string) string }) (int64, error) {
@@ -727,6 +858,17 @@ func mapProjectWriteError(err error) error {
 		return fuego.NotFoundError{Title: "Project not found"}
 	case strings.Contains(err.Error(), "UNIQUE"):
 		return fuego.ConflictError{Title: "Project already exists", Detail: err.Error()}
+	default:
+		return err
+	}
+}
+
+func mapAgentWriteError(err error) error {
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return fuego.NotFoundError{Title: "Agent not found"}
+	case strings.Contains(err.Error(), "UNIQUE"):
+		return fuego.ConflictError{Title: "Agent already exists", Detail: err.Error()}
 	default:
 		return err
 	}

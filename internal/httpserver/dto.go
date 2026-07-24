@@ -25,6 +25,14 @@ type UpdateProjectInput struct {
 	Path        string `json:"path,omitempty"`
 }
 
+type CreateAgentInput struct {
+	Name string `json:"name" validate:"required"`
+}
+
+type UpdateAgentInput struct {
+	Name string `json:"name,omitempty"`
+}
+
 type CreateTaskInput struct {
 	Title              string `json:"title" validate:"required"`
 	Description        string `json:"description,omitempty"`
@@ -144,6 +152,40 @@ type ActorOutput struct {
 	Name string `json:"name"`
 }
 
+type AgentListResponse struct {
+	Agents []AgentOutput `json:"agents"`
+}
+
+type AgentResponse struct {
+	Agent AgentOutput `json:"agent"`
+}
+
+type CreateAgentResponse struct {
+	Agent AgentOutput `json:"agent"`
+	Token string      `json:"token"`
+}
+
+type AgentOutput struct {
+	ID             int64                `json:"id"`
+	Kind           string               `json:"kind"`
+	Name           string               `json:"name"`
+	Projects       []AgentProjectOutput `json:"projects"`
+	TasksCount     int                  `json:"tasks_count"`
+	EventsCount    int                  `json:"events_count"`
+	LastActivityAt string               `json:"last_activity_at"`
+	CreatedAt      string               `json:"created_at"`
+	UpdatedAt      string               `json:"updated_at"`
+}
+
+type AgentProjectOutput struct {
+	ID             int64  `json:"id"`
+	Name           string `json:"name"`
+	DisplayName    string `json:"display_name"`
+	TasksCount     int    `json:"tasks_count"`
+	EventsCount    int    `json:"events_count"`
+	LastActivityAt string `json:"last_activity_at"`
+}
+
 type IndexResponse struct {
 	ProjectName      string         `json:"project_name"`
 	IndexedDocuments int            `json:"indexed_documents"`
@@ -258,6 +300,69 @@ func taskDependencyFromStorage(taskID int64, dependency storage.TaskDependency) 
 		BlockedTaskID: dependency.BlockedTaskID,
 		Role:          role,
 		CreatedAt:     dependency.CreatedAt,
+	}
+}
+
+func agentListFromStorage(agents []storage.AgentActivity, projects []storage.AgentProjectActivity) AgentListResponse {
+	projectsByAgent := make(map[int64][]AgentProjectOutput)
+	for _, project := range projects {
+		projectsByAgent[project.ActorID] = append(projectsByAgent[project.ActorID], AgentProjectOutput{
+			ID:             project.ProjectID,
+			Name:           project.ProjectName,
+			DisplayName:    project.ProjectDisplay,
+			TasksCount:     project.TasksCount,
+			EventsCount:    project.EventsCount,
+			LastActivityAt: project.LastActivityAt,
+		})
+	}
+
+	out := AgentListResponse{Agents: make([]AgentOutput, 0, len(agents))}
+	for _, agent := range agents {
+		agentProjects := projectsByAgent[agent.Actor.ID]
+		if agentProjects == nil {
+			agentProjects = []AgentProjectOutput{}
+		}
+		out.Agents = append(out.Agents, AgentOutput{
+			ID:             agent.Actor.ID,
+			Kind:           agent.Actor.Kind,
+			Name:           agent.Actor.Name,
+			Projects:       agentProjects,
+			TasksCount:     agent.TasksCount,
+			EventsCount:    agent.EventsCount,
+			LastActivityAt: agent.LastActivityAt,
+			CreatedAt:      agent.Actor.CreatedAt,
+			UpdatedAt:      agent.Actor.UpdatedAt,
+		})
+	}
+	return out
+}
+
+func agentOutputFromStorage(agent storage.AgentActivity, projects []storage.AgentProjectActivity) AgentOutput {
+	agentProjects := make([]AgentProjectOutput, 0)
+	for _, project := range projects {
+		if project.ActorID != agent.Actor.ID {
+			continue
+		}
+		agentProjects = append(agentProjects, AgentProjectOutput{
+			ID:             project.ProjectID,
+			Name:           project.ProjectName,
+			DisplayName:    project.ProjectDisplay,
+			TasksCount:     project.TasksCount,
+			EventsCount:    project.EventsCount,
+			LastActivityAt: project.LastActivityAt,
+		})
+	}
+
+	return AgentOutput{
+		ID:             agent.Actor.ID,
+		Kind:           agent.Actor.Kind,
+		Name:           agent.Actor.Name,
+		Projects:       agentProjects,
+		TasksCount:     agent.TasksCount,
+		EventsCount:    agent.EventsCount,
+		LastActivityAt: agent.LastActivityAt,
+		CreatedAt:      agent.Actor.CreatedAt,
+		UpdatedAt:      agent.Actor.UpdatedAt,
 	}
 }
 

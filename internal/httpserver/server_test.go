@@ -61,6 +61,11 @@ func TestServerListsProjectsAndExposesOpenAPI(t *testing.T) {
 
 	expectedOperations := map[string]string{
 		"/api/health GET":                           "getHealth",
+		"/api/agents GET":                           "listAgents",
+		"/api/agents POST":                          "createAgent",
+		"/api/agents/{id} GET":                      "showAgent",
+		"/api/agents/{id} PATCH":                    "updateAgent",
+		"/api/agents/{id} DELETE":                   "deleteAgent",
 		"/api/projects GET":                         "listProjects",
 		"/api/projects POST":                        "createProject",
 		"/api/projects/{project} GET":               "showProject",
@@ -91,7 +96,7 @@ func TestServerListsProjectsAndExposesOpenAPI(t *testing.T) {
 		}
 	}
 
-	for _, name := range []string{"ProjectListResponse", "ProjectResponse", "TaskListResponse", "TaskResponse", "TaskShowResponse", "TaskEventResponse", "TaskDependencyOutput", "CreateTaskInput", "UpdateProjectInput", "ClaimTaskInput", "TaskDoneInput", "IndexResponse"} {
+	for _, name := range []string{"AgentListResponse", "AgentResponse", "CreateAgentResponse", "AgentOutput", "AgentProjectOutput", "CreateAgentInput", "UpdateAgentInput", "ProjectListResponse", "ProjectResponse", "TaskListResponse", "TaskResponse", "TaskShowResponse", "TaskEventResponse", "TaskDependencyOutput", "CreateTaskInput", "UpdateProjectInput", "ClaimTaskInput", "TaskDoneInput", "IndexResponse"} {
 		if _, ok := spec.Components.Schemas[name]; !ok {
 			t.Fatalf("openapi spec missing schema %s", name)
 		}
@@ -103,6 +108,11 @@ func TestServerListsProjectsAndExposesOpenAPI(t *testing.T) {
 		"TaskCounts":          {"total", "open", "in_progress", "blocked", "done", "ready"},
 		"TaskOutput":          {"agents"},
 		"TaskShowResponse":    {"dependencies"},
+		"AgentListResponse":   {"agents"},
+		"AgentResponse":       {"agent"},
+		"CreateAgentResponse": {"agent", "token"},
+		"AgentOutput":         {"projects", "tasks_count", "events_count", "last_activity_at"},
+		"AgentProjectOutput":  {"display_name", "tasks_count", "events_count", "last_activity_at"},
 	} {
 		props := openAPISchemaProperties(t, spec.Components.Schemas[schemaName])
 		for _, field := range fields {
@@ -123,6 +133,14 @@ func TestServerListsProjectsAndExposesOpenAPI(t *testing.T) {
 	updateProject := spec.Paths["/api/projects/{project}"]["patch"]
 	if updateProject.RequestBody == nil || !slices.Contains(updateProject.RequestBody.ContentTypes(), "application/json") {
 		t.Fatalf("update project request body should be application/json, got %+v", updateProject.RequestBody)
+	}
+	createAgent := spec.Paths["/api/agents"]["post"]
+	if createAgent.RequestBody == nil || !slices.Contains(createAgent.RequestBody.ContentTypes(), "application/json") {
+		t.Fatalf("create agent request body should be application/json, got %+v", createAgent.RequestBody)
+	}
+	updateAgent := spec.Paths["/api/agents/{id}"]["patch"]
+	if updateAgent.RequestBody == nil || !slices.Contains(updateAgent.RequestBody.ContentTypes(), "application/json") {
+		t.Fatalf("update agent request body should be application/json, got %+v", updateAgent.RequestBody)
 	}
 }
 
@@ -154,6 +172,71 @@ func TestServerPaginatesProjects(t *testing.T) {
 	}
 	if got := projectNames(projects.Projects); !slices.Equal(got, []string{"bravo", "charlie"}) {
 		t.Fatalf("unexpected paged projects: %v", got)
+	}
+}
+
+func TestServerCreatesUpdatesAndDeletesAgents(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	handler := newTestHandler(t, store)
+
+	createRes := doJSON(t, handler, http.MethodPost, "/api/agents", CreateAgentInput{Name: "Codex UI"})
+	defer createRes.Body.Close()
+	if createRes.StatusCode != http.StatusOK {
+		t.Fatalf("create agent status = %d", createRes.StatusCode)
+	}
+	var created CreateAgentResponse
+	decodeJSON(t, createRes, &created)
+	if created.Agent.Name != "Codex UI" || !strings.HasPrefix(created.Token, "tok_agent_") {
+		t.Fatalf("unexpected created agent: %+v", created)
+	}
+
+	if _, err := store.CreateAgent(ctx, "Claude"); err != nil {
+		t.Fatalf("CreateAgent duplicate target returned error: %v", err)
+	}
+	duplicateRes := doJSON(t, handler, http.MethodPatch, "/api/agents/"+jsonNumber(created.Agent.ID), UpdateAgentInput{Name: "Claude"})
+	defer duplicateRes.Body.Close()
+	if duplicateRes.StatusCode != http.StatusConflict {
+		t.Fatalf("duplicate update status = %d", duplicateRes.StatusCode)
+	}
+
+	updateRes := doJSON(t, handler, http.MethodPatch, "/api/agents/"+jsonNumber(created.Agent.ID), UpdateAgentInput{Name: "Codex Backend"})
+	defer updateRes.Body.Close()
+	if updateRes.StatusCode != http.StatusOK {
+		t.Fatalf("update agent status = %d", updateRes.StatusCode)
+	}
+	var updated AgentResponse
+	decodeJSON(t, updateRes, &updated)
+	if updated.Agent.ID != created.Agent.ID || updated.Agent.Name != "Codex Backend" {
+		t.Fatalf("unexpected updated agent: %+v", updated)
+	}
+
+	showRes := doJSON(t, handler, http.MethodGet, "/api/agents/"+jsonNumber(created.Agent.ID), nil)
+	defer showRes.Body.Close()
+	if showRes.StatusCode != http.StatusOK {
+		t.Fatalf("show agent status = %d", showRes.StatusCode)
+	}
+	var shown AgentResponse
+	decodeJSON(t, showRes, &shown)
+	if shown.Agent.Name != "Codex Backend" {
+		t.Fatalf("unexpected shown agent: %+v", shown)
+	}
+
+	deleteRes := doJSON(t, handler, http.MethodDelete, "/api/agents/"+jsonNumber(created.Agent.ID), nil)
+	defer deleteRes.Body.Close()
+	if deleteRes.StatusCode != http.StatusOK {
+		t.Fatalf("delete agent status = %d", deleteRes.StatusCode)
+	}
+	var deleted AgentResponse
+	decodeJSON(t, deleteRes, &deleted)
+	if deleted.Agent.ID != created.Agent.ID || deleted.Agent.Name != "Codex Backend" {
+		t.Fatalf("unexpected deleted agent response: %+v", deleted)
+	}
+
+	missingRes := doJSON(t, handler, http.MethodGet, "/api/agents/"+jsonNumber(created.Agent.ID), nil)
+	defer missingRes.Body.Close()
+	if missingRes.StatusCode != http.StatusNotFound {
+		t.Fatalf("show deleted agent status = %d", missingRes.StatusCode)
 	}
 }
 
@@ -365,6 +448,10 @@ func TestServerAggregatesAgentsFromTaskHistory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateAgent returned error: %v", err)
 	}
+	idleAgent, err := store.CreateAgent(ctx, "Claude Frontend")
+	if err != nil {
+		t.Fatalf("CreateAgent idle returned error: %v", err)
+	}
 	blockedByDependency, err := store.CreateTask(ctx, storage.CreateTaskInput{
 		ProjectID: project.ID,
 		Title:     "Wait for renderer",
@@ -474,6 +561,28 @@ func TestServerAggregatesAgentsFromTaskHistory(t *testing.T) {
 	if len(shown.Dependencies) != 1 || shown.Dependencies[0].Role != "blocks" {
 		t.Fatalf("unexpected task dependencies: %+v", shown.Dependencies)
 	}
+
+	agentsRes := doJSON(t, handler, http.MethodGet, "/api/agents", nil)
+	defer agentsRes.Body.Close()
+	if agentsRes.StatusCode != http.StatusOK {
+		t.Fatalf("agents status = %d", agentsRes.StatusCode)
+	}
+	var agents AgentListResponse
+	decodeJSON(t, agentsRes, &agents)
+	if len(agents.Agents) != 2 {
+		t.Fatalf("expected two registered agents, got %+v", agents)
+	}
+	active := findAgentOutput(t, agents.Agents, agent.Agent.ID)
+	if active.Name != "Codex Backend" || active.TasksCount != 4 || active.EventsCount != 5 || active.LastActivityAt == "" {
+		t.Fatalf("unexpected active agent aggregate: %+v", active)
+	}
+	if len(active.Projects) != 1 || active.Projects[0].ID != project.ID || active.Projects[0].TasksCount != 4 || active.Projects[0].EventsCount != 5 {
+		t.Fatalf("unexpected active agent projects: %+v", active.Projects)
+	}
+	idle := findAgentOutput(t, agents.Agents, idleAgent.Agent.ID)
+	if idle.Name != "Claude Frontend" || idle.TasksCount != 0 || idle.EventsCount != 0 || idle.LastActivityAt != "" || len(idle.Projects) != 0 {
+		t.Fatalf("unexpected idle agent aggregate: %+v", idle)
+	}
 }
 
 func newTestHandler(t *testing.T, store *storage.Store) http.Handler {
@@ -556,6 +665,17 @@ func assertSingleAgent(t *testing.T, agents []ActorOutput, id int64, name string
 	if agents[0].ID != id || agents[0].Kind != "agent" || agents[0].Name != name {
 		t.Fatalf("unexpected agent: %+v", agents[0])
 	}
+}
+
+func findAgentOutput(t *testing.T, agents []AgentOutput, id int64) AgentOutput {
+	t.Helper()
+	for _, agent := range agents {
+		if agent.ID == id {
+			return agent
+		}
+	}
+	t.Fatalf("agent %d not found in %+v", id, agents)
+	return AgentOutput{}
 }
 
 func projectNames(projects []ProjectOutput) []string {

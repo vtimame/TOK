@@ -1,4 +1,6 @@
 import type { ActorOutput } from "@/api/generated/models/ActorOutput.ts";
+import type { AgentOutput as ApiAgentOutput } from "@/api/generated/models/AgentOutput.ts";
+import type { AgentProjectOutput as ApiAgentProjectOutput } from "@/api/generated/models/AgentProjectOutput.ts";
 import type { ProjectOutput } from "@/api/generated/models/ProjectOutput.ts";
 import type { TaskDependencyOutput } from "@/api/generated/models/TaskDependencyOutput.ts";
 import type { TaskEventOutput } from "@/api/generated/models/TaskEventOutput.ts";
@@ -42,6 +44,28 @@ export type TaskDependency = {
   createdAt: string;
 };
 
+export type AgentProject = {
+  id: number;
+  name: string;
+  displayName: string;
+  tasksCount: number;
+  eventsCount: number;
+  lastActivityAt: string;
+};
+
+export type Agent = {
+  id: number;
+  kind: string;
+  name: string;
+  icon: string;
+  projects: AgentProject[];
+  tasksCount: number;
+  eventsCount: number;
+  lastActivityAt: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export function projectFromApi(project: ProjectOutput): Project {
   return {
     id: project.id,
@@ -53,6 +77,32 @@ export function projectFromApi(project: ProjectOutput): Project {
     tasksCount: project.tasks_count,
     taskCounts: project.task_counts,
     agents: (project.agents ?? []).map((actor) => agentIconValue(actor.name)),
+  };
+}
+
+export function agentFromApi(agent: ApiAgentOutput): Agent {
+  return {
+    id: agent.id,
+    kind: agent.kind,
+    name: actorDisplayName(agent),
+    icon: agentIconValue(agent.name),
+    projects: (agent.projects ?? []).map(agentProjectFromApi),
+    tasksCount: agent.tasks_count,
+    eventsCount: agent.events_count,
+    lastActivityAt: agent.last_activity_at,
+    createdAt: agent.created_at,
+    updatedAt: agent.updated_at,
+  };
+}
+
+function agentProjectFromApi(project: ApiAgentProjectOutput): AgentProject {
+  return {
+    id: project.id,
+    name: project.name,
+    displayName: project.display_name,
+    tasksCount: project.tasks_count,
+    eventsCount: project.events_count,
+    lastActivityAt: project.last_activity_at,
   };
 }
 

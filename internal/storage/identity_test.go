@@ -104,6 +104,40 @@ func TestAgentListAndRevoke(t *testing.T) {
 	}
 }
 
+func TestUpdateAndDeleteAgent(t *testing.T) {
+	ctx := context.Background()
+	store := openInitializedTestStore(t)
+
+	created, err := store.CreateAgent(ctx, "Codex")
+	if err != nil {
+		t.Fatalf("CreateAgent returned error: %v", err)
+	}
+	if _, err := store.CreateAgent(ctx, "Claude"); err != nil {
+		t.Fatalf("CreateAgent second returned error: %v", err)
+	}
+
+	updated, err := store.UpdateAgent(ctx, created.Agent.ID, UpdateAgentInput{Name: "Codex UI"})
+	if err != nil {
+		t.Fatalf("UpdateAgent returned error: %v", err)
+	}
+	if updated.Name != "Codex UI" || updated.ID != created.Agent.ID {
+		t.Fatalf("unexpected updated agent: %+v", updated)
+	}
+	if _, err := store.UpdateAgent(ctx, updated.ID, UpdateAgentInput{Name: "Claude"}); err == nil {
+		t.Fatalf("expected duplicate agent name to fail")
+	}
+
+	if err := store.DeleteAgent(ctx, updated.ID); err != nil {
+		t.Fatalf("DeleteAgent returned error: %v", err)
+	}
+	if _, err := store.GetActor(ctx, updated.ID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("expected deleted agent to be gone, got %v", err)
+	}
+	if err := store.DeleteAgent(ctx, updated.ID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("expected deleting unknown agent to return sql.ErrNoRows, got %v", err)
+	}
+}
+
 func TestTaskEventsAndRunsStoreActorAttributionSnapshots(t *testing.T) {
 	ctx := context.Background()
 	store := openInitializedTestStore(t)

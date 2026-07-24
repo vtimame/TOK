@@ -2,22 +2,31 @@ export type { BlockTaskMutationKey } from "./hooks/useBlockTask.ts";
 export type { ClaimTaskMutationKey } from "./hooks/useClaimTask.ts";
 export type { CommentTaskMutationKey } from "./hooks/useCommentTask.ts";
 export type { CompleteTaskMutationKey } from "./hooks/useCompleteTask.ts";
+export type { CreateAgentMutationKey } from "./hooks/useCreateAgent.ts";
 export type { CreateProjectMutationKey } from "./hooks/useCreateProject.ts";
 export type { CreateTaskMutationKey } from "./hooks/useCreateTask.ts";
+export type { DeleteAgentMutationKey } from "./hooks/useDeleteAgent.ts";
 export type { DeleteProjectMutationKey } from "./hooks/useDeleteProject.ts";
 export type { GetHealthQueryKey } from "./hooks/useGetHealth.ts";
 export type { GetProjectIndexStatusQueryKey } from "./hooks/useGetProjectIndexStatus.ts";
+export type { ListAgentsQueryKey } from "./hooks/useListAgents.ts";
 export type { ListProjectTasksQueryKey } from "./hooks/useListProjectTasks.ts";
 export type { ListProjectsQueryKey } from "./hooks/useListProjects.ts";
 export type { ListReadyTasksQueryKey } from "./hooks/useListReadyTasks.ts";
 export type { ListTasksQueryKey } from "./hooks/useListTasks.ts";
 export type { ProgressTaskMutationKey } from "./hooks/useProgressTask.ts";
+export type { ShowAgentQueryKey } from "./hooks/useShowAgent.ts";
 export type { ShowProjectQueryKey } from "./hooks/useShowProject.ts";
 export type { ShowTaskQueryKey } from "./hooks/useShowTask.ts";
 export type { UnblockTaskMutationKey } from "./hooks/useUnblockTask.ts";
+export type { UpdateAgentMutationKey } from "./hooks/useUpdateAgent.ts";
 export type { UpdateProjectMutationKey } from "./hooks/useUpdateProject.ts";
 export type { UpdateProjectIndexMutationKey } from "./hooks/useUpdateProjectIndex.ts";
 export type { ActorOutput } from "./models/ActorOutput.ts";
+export type { AgentListResponse } from "./models/AgentListResponse.ts";
+export type { AgentOutput } from "./models/AgentOutput.ts";
+export type { AgentProjectOutput } from "./models/AgentProjectOutput.ts";
+export type { AgentResponse } from "./models/AgentResponse.ts";
 export type {
   BlockTask200,
   BlockTask400,
@@ -56,6 +65,16 @@ export type {
   CompleteTaskPathParams,
 } from "./models/CompleteTask.ts";
 export type {
+  CreateAgent200,
+  CreateAgent400,
+  CreateAgent500,
+  CreateAgentMutation,
+  CreateAgentMutationRequest,
+  CreateAgentMutationResponse,
+} from "./models/CreateAgent.ts";
+export type { CreateAgentInput } from "./models/CreateAgentInput.ts";
+export type { CreateAgentResponse } from "./models/CreateAgentResponse.ts";
+export type {
   CreateProject200,
   CreateProject400,
   CreateProject500,
@@ -74,6 +93,14 @@ export type {
   CreateTaskPathParams,
 } from "./models/CreateTask.ts";
 export type { CreateTaskInput } from "./models/CreateTaskInput.ts";
+export type {
+  DeleteAgent200,
+  DeleteAgent400,
+  DeleteAgent500,
+  DeleteAgentMutation,
+  DeleteAgentMutationResponse,
+  DeleteAgentPathParams,
+} from "./models/DeleteAgent.ts";
 export type {
   DeleteProject200,
   DeleteProject400,
@@ -101,6 +128,13 @@ export type {
 export type { HTTPError } from "./models/HTTPError.ts";
 export type { HealthOutput } from "./models/HealthOutput.ts";
 export type { IndexResponse } from "./models/IndexResponse.ts";
+export type {
+  ListAgents200,
+  ListAgents400,
+  ListAgents500,
+  ListAgentsQuery,
+  ListAgentsQueryResponse,
+} from "./models/ListAgents.ts";
 export type {
   ListProjectTasks200,
   ListProjectTasks400,
@@ -147,6 +181,14 @@ export type { ProjectListResponse } from "./models/ProjectListResponse.ts";
 export type { ProjectOutput } from "./models/ProjectOutput.ts";
 export type { ProjectResponse } from "./models/ProjectResponse.ts";
 export type {
+  ShowAgent200,
+  ShowAgent400,
+  ShowAgent500,
+  ShowAgentPathParams,
+  ShowAgentQuery,
+  ShowAgentQueryResponse,
+} from "./models/ShowAgent.ts";
+export type {
   ShowProject200,
   ShowProject400,
   ShowProject500,
@@ -185,6 +227,16 @@ export type {
 } from "./models/UnblockTask.ts";
 export type { UnknownInterface } from "./models/UnknownInterface.ts";
 export type {
+  UpdateAgent200,
+  UpdateAgent400,
+  UpdateAgent500,
+  UpdateAgentMutation,
+  UpdateAgentMutationRequest,
+  UpdateAgentMutationResponse,
+  UpdateAgentPathParams,
+} from "./models/UpdateAgent.ts";
+export type { UpdateAgentInput } from "./models/UpdateAgentInput.ts";
+export type {
   UpdateProject200,
   UpdateProject400,
   UpdateProject500,
@@ -206,19 +258,24 @@ export { blockTask } from "./client/blockTask.ts";
 export { claimTask } from "./client/claimTask.ts";
 export { commentTask } from "./client/commentTask.ts";
 export { completeTask } from "./client/completeTask.ts";
+export { createAgent } from "./client/createAgent.ts";
 export { createProject } from "./client/createProject.ts";
 export { createTask } from "./client/createTask.ts";
+export { deleteAgent } from "./client/deleteAgent.ts";
 export { deleteProject } from "./client/deleteProject.ts";
 export { getHealth } from "./client/getHealth.ts";
 export { getProjectIndexStatus } from "./client/getProjectIndexStatus.ts";
+export { listAgents } from "./client/listAgents.ts";
 export { listProjectTasks } from "./client/listProjectTasks.ts";
 export { listProjects } from "./client/listProjects.ts";
 export { listReadyTasks } from "./client/listReadyTasks.ts";
 export { listTasks } from "./client/listTasks.ts";
 export { progressTask } from "./client/progressTask.ts";
+export { showAgent } from "./client/showAgent.ts";
 export { showProject } from "./client/showProject.ts";
 export { showTask } from "./client/showTask.ts";
 export { unblockTask } from "./client/unblockTask.ts";
+export { updateAgent } from "./client/updateAgent.ts";
 export { updateProject } from "./client/updateProject.ts";
 export { updateProjectIndex } from "./client/updateProjectIndex.ts";
 export { blockTaskMutationKey } from "./hooks/useBlockTask.ts";
@@ -229,10 +286,14 @@ export { commentTaskMutationKey } from "./hooks/useCommentTask.ts";
 export { useCommentTask } from "./hooks/useCommentTask.ts";
 export { completeTaskMutationKey } from "./hooks/useCompleteTask.ts";
 export { useCompleteTask } from "./hooks/useCompleteTask.ts";
+export { createAgentMutationKey } from "./hooks/useCreateAgent.ts";
+export { useCreateAgent } from "./hooks/useCreateAgent.ts";
 export { createProjectMutationKey } from "./hooks/useCreateProject.ts";
 export { useCreateProject } from "./hooks/useCreateProject.ts";
 export { createTaskMutationKey } from "./hooks/useCreateTask.ts";
 export { useCreateTask } from "./hooks/useCreateTask.ts";
+export { deleteAgentMutationKey } from "./hooks/useDeleteAgent.ts";
+export { useDeleteAgent } from "./hooks/useDeleteAgent.ts";
 export { deleteProjectMutationKey } from "./hooks/useDeleteProject.ts";
 export { useDeleteProject } from "./hooks/useDeleteProject.ts";
 export { getHealthQueryKey } from "./hooks/useGetHealth.ts";
@@ -241,6 +302,9 @@ export { useGetHealth } from "./hooks/useGetHealth.ts";
 export { getProjectIndexStatusQueryKey } from "./hooks/useGetProjectIndexStatus.ts";
 export { getProjectIndexStatusQueryOptions } from "./hooks/useGetProjectIndexStatus.ts";
 export { useGetProjectIndexStatus } from "./hooks/useGetProjectIndexStatus.ts";
+export { listAgentsQueryKey } from "./hooks/useListAgents.ts";
+export { listAgentsQueryOptions } from "./hooks/useListAgents.ts";
+export { useListAgents } from "./hooks/useListAgents.ts";
 export { listProjectTasksQueryKey } from "./hooks/useListProjectTasks.ts";
 export { listProjectTasksQueryOptions } from "./hooks/useListProjectTasks.ts";
 export { useListProjectTasks } from "./hooks/useListProjectTasks.ts";
@@ -255,6 +319,9 @@ export { listTasksQueryOptions } from "./hooks/useListTasks.ts";
 export { useListTasks } from "./hooks/useListTasks.ts";
 export { progressTaskMutationKey } from "./hooks/useProgressTask.ts";
 export { useProgressTask } from "./hooks/useProgressTask.ts";
+export { showAgentQueryKey } from "./hooks/useShowAgent.ts";
+export { showAgentQueryOptions } from "./hooks/useShowAgent.ts";
+export { useShowAgent } from "./hooks/useShowAgent.ts";
 export { showProjectQueryKey } from "./hooks/useShowProject.ts";
 export { showProjectQueryOptions } from "./hooks/useShowProject.ts";
 export { useShowProject } from "./hooks/useShowProject.ts";
@@ -263,6 +330,8 @@ export { showTaskQueryOptions } from "./hooks/useShowTask.ts";
 export { useShowTask } from "./hooks/useShowTask.ts";
 export { unblockTaskMutationKey } from "./hooks/useUnblockTask.ts";
 export { useUnblockTask } from "./hooks/useUnblockTask.ts";
+export { updateAgentMutationKey } from "./hooks/useUpdateAgent.ts";
+export { useUpdateAgent } from "./hooks/useUpdateAgent.ts";
 export { updateProjectMutationKey } from "./hooks/useUpdateProject.ts";
 export { useUpdateProject } from "./hooks/useUpdateProject.ts";
 export { updateProjectIndexMutationKey } from "./hooks/useUpdateProjectIndex.ts";

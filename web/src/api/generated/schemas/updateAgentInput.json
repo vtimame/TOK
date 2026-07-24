@@ -1,0 +1,6 @@
+{
+  "description": "UpdateAgentInput schema",
+  "properties": { "name": { "type": "string" } },
+  "type": "object",
+  "x-readme-ref-name": "UpdateAgentInput"
+}

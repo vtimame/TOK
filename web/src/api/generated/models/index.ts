@@ -1,4 +1,8 @@
 export type { ActorOutput } from "./ActorOutput.ts";
+export type { AgentListResponse } from "./AgentListResponse.ts";
+export type { AgentOutput } from "./AgentOutput.ts";
+export type { AgentProjectOutput } from "./AgentProjectOutput.ts";
+export type { AgentResponse } from "./AgentResponse.ts";
 export type {
   BlockTask200,
   BlockTask400,
@@ -37,6 +41,16 @@ export type {
   CompleteTaskPathParams,
 } from "./CompleteTask.ts";
 export type {
+  CreateAgent200,
+  CreateAgent400,
+  CreateAgent500,
+  CreateAgentMutation,
+  CreateAgentMutationRequest,
+  CreateAgentMutationResponse,
+} from "./CreateAgent.ts";
+export type { CreateAgentInput } from "./CreateAgentInput.ts";
+export type { CreateAgentResponse } from "./CreateAgentResponse.ts";
+export type {
   CreateProject200,
   CreateProject400,
   CreateProject500,
@@ -55,6 +69,14 @@ export type {
   CreateTaskPathParams,
 } from "./CreateTask.ts";
 export type { CreateTaskInput } from "./CreateTaskInput.ts";
+export type {
+  DeleteAgent200,
+  DeleteAgent400,
+  DeleteAgent500,
+  DeleteAgentMutation,
+  DeleteAgentMutationResponse,
+  DeleteAgentPathParams,
+} from "./DeleteAgent.ts";
 export type {
   DeleteProject200,
   DeleteProject400,
@@ -82,6 +104,13 @@ export type {
 export type { HTTPError } from "./HTTPError.ts";
 export type { HealthOutput } from "./HealthOutput.ts";
 export type { IndexResponse } from "./IndexResponse.ts";
+export type {
+  ListAgents200,
+  ListAgents400,
+  ListAgents500,
+  ListAgentsQuery,
+  ListAgentsQueryResponse,
+} from "./ListAgents.ts";
 export type {
   ListProjectTasks200,
   ListProjectTasks400,
@@ -128,6 +157,14 @@ export type { ProjectListResponse } from "./ProjectListResponse.ts";
 export type { ProjectOutput } from "./ProjectOutput.ts";
 export type { ProjectResponse } from "./ProjectResponse.ts";
 export type {
+  ShowAgent200,
+  ShowAgent400,
+  ShowAgent500,
+  ShowAgentPathParams,
+  ShowAgentQuery,
+  ShowAgentQueryResponse,
+} from "./ShowAgent.ts";
+export type {
   ShowProject200,
   ShowProject400,
   ShowProject500,
@@ -165,6 +202,16 @@ export type {
   UnblockTaskPathParams,
 } from "./UnblockTask.ts";
 export type { UnknownInterface } from "./UnknownInterface.ts";
+export type {
+  UpdateAgent200,
+  UpdateAgent400,
+  UpdateAgent500,
+  UpdateAgentMutation,
+  UpdateAgentMutationRequest,
+  UpdateAgentMutationResponse,
+  UpdateAgentPathParams,
+} from "./UpdateAgent.ts";
+export type { UpdateAgentInput } from "./UpdateAgentInput.ts";
 export type {
   UpdateProject200,
   UpdateProject400,
