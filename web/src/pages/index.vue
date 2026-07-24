@@ -1,7 +1,7 @@
 <script lang="ts" setup="">
+import { version } from "../../package.json";
 import Logo from "@/components/Logo.vue";
 import { Button } from "@/components/ui/button";
-import { version } from "../../package.json";
 import { useRoute, useRouter } from "vue-router";
 import { cn } from "@/lib/utils.ts";
 

@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Ellipsis } from "@lucide/vue";
 import { computed } from "vue";
-import { RouterLink } from "vue-router";
+import { useRouter } from "vue-router";
 
 const emits = defineEmits<{
   edit: [];
@@ -23,6 +23,7 @@ const props = defineProps<{
   project: Project;
   updatingIndex?: boolean;
 }>();
+const router = useRouter();
 
 const status = computed(() => {
   if (props.project.taskCounts.blocked > 0) return "Blocked";
@@ -33,15 +34,17 @@ const status = computed(() => {
   }
   return "Open";
 });
+
+function openTasks() {
+  router.push({ path: "/tasks", query: { projectId: String(props.project.id) } });
+}
 </script>
 
 <template>
-  <TableRow>
+  <TableRow class="cursor-pointer" @click="openTasks">
     <TableCell class="text-muted-foreground pl-4">#{{ project.id }}</TableCell>
     <TableCell class="font-medium">
-      <RouterLink :to="`/projects/${project.name}`" class="hover:underline">
-        {{ project.displayName }}
-      </RouterLink>
+      {{ project.displayName }}
     </TableCell>
     <TableCell class="max-w-[22rem] truncate text-muted-foreground">{{ project.path }}</TableCell>
     <TableCell>
@@ -56,20 +59,20 @@ const status = computed(() => {
     <TableCell class="text-right pr-4">
       <DropdownMenu>
         <DropdownMenuTrigger as-child>
-          <Button size="icon-xs" class="translate-y-0.5" variant="ghost">
+          <Button size="icon-xs" class="translate-y-0.5" variant="ghost" @click.stop>
             <Ellipsis />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent>
-          <DropdownMenuItem @click="emits('updateIndex')" :disabled="props.updatingIndex">
+        <DropdownMenuContent @click.stop>
+          <DropdownMenuItem @click.stop="emits('updateIndex')" :disabled="props.updatingIndex">
             <FolderSync />
             Update index
           </DropdownMenuItem>
-          <DropdownMenuItem @click="emits('edit')">
+          <DropdownMenuItem @click.stop="emits('edit')">
             <Pen />
             Rename
           </DropdownMenuItem>
-          <DropdownMenuItem variant="destructive" @click="emits('delete')">
+          <DropdownMenuItem variant="destructive" @click.stop="emits('delete')">
             <Trash />
             Delete
           </DropdownMenuItem>

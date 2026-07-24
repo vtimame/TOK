@@ -98,7 +98,7 @@ func registerRoutes(s *fuego.Server, a *api) {
 	fuego.Post(s, "/api/projects/{project}/tasks", a.createTask, append(operation("createTask", "Tasks", "Create a project task"), jsonBody()...)...)
 	fuego.Get(s, "/api/projects/{project}/tasks/ready", a.readyTasks, operation("listReadyTasks", "Tasks", "List ready project tasks")...)
 	fuego.Post(s, "/api/projects/{project}/tasks/claim", a.claimTask, append(operation("claimTask", "Tasks", "Claim the next ready task or a specific ready task"), jsonBody()...)...)
-	fuego.Get(s, "/api/tasks", a.listAllTasks, append(operation("listTasks", "Tasks", "List tasks"), option.Query("limit", "Maximum tasks to return"), option.Query("offset", "Tasks to skip before returning results"))...)
+	fuego.Get(s, "/api/tasks", a.listAllTasks, append(operation("listTasks", "Tasks", "List tasks"), option.Query("limit", "Maximum tasks to return"), option.Query("offset", "Tasks to skip before returning results"), option.Query("projectId", "Optional project id filter"), option.Query("project", "Optional project name filter"), option.Query("status", "Optional comma-separated task status filter"))...)
 	fuego.Get(s, "/api/tasks/{id}", a.showTask, operation("showTask", "Tasks", "Show a task with event history")...)
 	fuego.Post(s, "/api/tasks/{id}/comment", a.commentTask, append(operation("commentTask", "Tasks", "Add a task comment"), jsonBody()...)...)
 	fuego.Post(s, "/api/tasks/{id}/progress", a.progressTask, append(operation("progressTask", "Tasks", "Add task progress"), jsonBody()...)...)
@@ -128,7 +128,7 @@ func (a *api) health(_ fuego.ContextNoBody) (HealthOutput, error) {
 }
 
 func (a *api) listProjects(ctx fuego.ContextNoBody) (ProjectListResponse, error) {
-	limit, err := positiveIntQuery(ctx, "limit", 25, 100)
+	limit, err := positiveIntQuery(ctx, "limit", 0, 100)
 	if err != nil {
 		return ProjectListResponse{}, err
 	}
@@ -144,7 +144,11 @@ func (a *api) listProjects(ctx fuego.ContextNoBody) (ProjectListResponse, error)
 	if err != nil {
 		return ProjectListResponse{}, err
 	}
-	out := ProjectListResponse{Projects: make([]ProjectOutput, 0, len(projects)), Total: total, Limit: limit, Offset: offset}
+	responseLimit := limit
+	if responseLimit == 0 {
+		responseLimit = len(projects)
+	}
+	out := ProjectListResponse{Projects: make([]ProjectOutput, 0, len(projects)), Total: total, Limit: responseLimit, Offset: offset}
 	for _, project := range projects {
 		projectOut, err := a.projectOutput(ctx.Context(), project)
 		if err != nil {
@@ -276,15 +280,16 @@ func (a *api) listTasks(ctx fuego.ContextNoBody) (TaskListResponse, error) {
 	if err != nil {
 		return TaskListResponse{}, err
 	}
-	status := strings.TrimSpace(ctx.QueryParam("status"))
-	if status != "" && !validTaskStatus(status) {
-		return TaskListResponse{}, badRequest(fmt.Sprintf("invalid task status %q", status))
-	}
-	tasks, err := a.store.ListTasksWithOptions(ctx.Context(), project.ID, storage.ListTasksOptions{Status: status})
+	statuses, err := statusesFromQuery(ctx)
 	if err != nil {
 		return TaskListResponse{}, err
 	}
-	total, err := a.store.CountTasksWithOptions(ctx.Context(), project.ID, storage.ListTasksOptions{Status: status})
+	opts := storage.ListTasksOptions{Statuses: statuses}
+	tasks, err := a.store.ListTasksWithOptions(ctx.Context(), project.ID, opts)
+	if err != nil {
+		return TaskListResponse{}, err
+	}
+	total, err := a.store.CountTasksWithOptions(ctx.Context(), project.ID, opts)
 	if err != nil {
 		return TaskListResponse{}, err
 	}
@@ -300,15 +305,64 @@ func (a *api) listAllTasks(ctx fuego.ContextNoBody) (TaskListResponse, error) {
 	if err != nil {
 		return TaskListResponse{}, err
 	}
-	total, err := a.store.CountTasks(ctx.Context())
+	statuses, err := statusesFromQuery(ctx)
 	if err != nil {
 		return TaskListResponse{}, err
 	}
-	tasks, err := a.store.ListAllTasksWithOptions(ctx.Context(), storage.ListTasksOptions{Limit: limit, Offset: offset})
+	projectID, err := a.taskProjectIDFromQuery(ctx)
+	if err != nil {
+		return TaskListResponse{}, err
+	}
+	opts := storage.ListTasksOptions{Statuses: statuses, ProjectID: projectID, Limit: limit, Offset: offset}
+	total, err := a.store.CountTasksWithOptions(ctx.Context(), projectID, opts)
+	if err != nil {
+		return TaskListResponse{}, err
+	}
+	tasks, err := a.store.ListAllTasksWithOptions(ctx.Context(), opts)
 	if err != nil {
 		return TaskListResponse{}, err
 	}
 	return a.taskListResponse(ctx.Context(), tasks, total, limit, offset)
+}
+
+func (a *api) taskProjectIDFromQuery(ctx fuego.ContextNoBody) (int64, error) {
+	rawProjectID := strings.TrimSpace(ctx.QueryParam("projectId"))
+	if rawProjectID != "" {
+		projectID, err := strconv.ParseInt(rawProjectID, 10, 64)
+		if err != nil || projectID <= 0 {
+			return 0, badRequest("projectId must be a positive integer")
+		}
+		return projectID, nil
+	}
+	projectName := strings.TrimSpace(ctx.QueryParam("project"))
+	if projectName == "" {
+		return 0, nil
+	}
+	project, err := a.projectByName(ctx.Context(), projectName)
+	if err != nil {
+		return 0, err
+	}
+	return project.ID, nil
+}
+
+func statusesFromQuery(ctx fuego.ContextNoBody) ([]string, error) {
+	raw := strings.TrimSpace(ctx.QueryParam("status"))
+	if raw == "" {
+		return nil, nil
+	}
+	parts := strings.Split(raw, ",")
+	statuses := make([]string, 0, len(parts))
+	for _, part := range parts {
+		status := strings.TrimSpace(part)
+		if status == "" {
+			continue
+		}
+		if !validTaskStatus(status) {
+			return nil, badRequest(fmt.Sprintf("invalid task status %q", status))
+		}
+		statuses = append(statuses, status)
+	}
+	return statuses, nil
 }
 
 func (a *api) createTask(ctx fuego.ContextWithBody[CreateTaskInput]) (TaskResponse, error) {

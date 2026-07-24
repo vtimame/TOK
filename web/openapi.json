@@ -1408,6 +1408,30 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "Optional project id filter",
+            "in": "query",
+            "name": "projectId",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional project name filter",
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional comma-separated task status filter",
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {

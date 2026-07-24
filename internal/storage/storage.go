@@ -84,9 +84,11 @@ type CreateTaskInput struct {
 }
 
 type ListTasksOptions struct {
-	Status string
-	Limit  int
-	Offset int
+	Status    string
+	Statuses  []string
+	ProjectID int64
+	Limit     int
+	Offset    int
 }
 
 type TaskEvent struct {
@@ -460,7 +462,7 @@ func (s *Store) ListTasks(ctx context.Context, projectID int64) ([]Task, error) 
 }
 
 func (s *Store) ListAllTasksWithOptions(ctx context.Context, opts ListTasksOptions) ([]Task, error) {
-	return s.listTasksWithOptions(ctx, 0, opts, "DESC")
+	return s.listTasksWithOptions(ctx, opts.ProjectID, opts, "DESC")
 }
 
 func (s *Store) ListTasksWithOptions(ctx context.Context, projectID int64, opts ListTasksOptions) ([]Task, error) {
@@ -471,9 +473,9 @@ func (s *Store) ListTasksWithOptions(ctx context.Context, projectID int64, opts 
 }
 
 func (s *Store) listTasksWithOptions(ctx context.Context, projectID int64, opts ListTasksOptions, direction string) ([]Task, error) {
-	status := strings.TrimSpace(opts.Status)
-	if status != "" && !validTaskStatus(status) {
-		return nil, fmt.Errorf("invalid task status %q", status)
+	statuses, err := normalizeTaskStatuses(opts)
+	if err != nil {
+		return nil, err
 	}
 
 	query := `
@@ -486,9 +488,16 @@ func (s *Store) listTasksWithOptions(ctx context.Context, projectID int64, opts 
 		where = append(where, "project_id = ?")
 		args = append(args, projectID)
 	}
-	if status != "" {
+	switch len(statuses) {
+	case 0:
+	case 1:
 		where = append(where, "status = ?")
-		args = append(args, status)
+		args = append(args, statuses[0])
+	default:
+		where = append(where, "status IN ("+queryPlaceholders(len(statuses))+")")
+		for _, status := range statuses {
+			args = append(args, status)
+		}
 	}
 	if len(where) > 0 {
 		query += " WHERE " + strings.Join(where, " AND ")
@@ -528,9 +537,9 @@ func (s *Store) CountTasks(ctx context.Context) (int, error) {
 }
 
 func (s *Store) CountTasksWithOptions(ctx context.Context, projectID int64, opts ListTasksOptions) (int, error) {
-	status := strings.TrimSpace(opts.Status)
-	if status != "" && !validTaskStatus(status) {
-		return 0, fmt.Errorf("invalid task status %q", status)
+	statuses, err := normalizeTaskStatuses(opts)
+	if err != nil {
+		return 0, err
 	}
 
 	query := "SELECT COUNT(*) FROM tasks"
@@ -540,9 +549,16 @@ func (s *Store) CountTasksWithOptions(ctx context.Context, projectID int64, opts
 		where = append(where, "project_id = ?")
 		args = append(args, projectID)
 	}
-	if status != "" {
+	switch len(statuses) {
+	case 0:
+	case 1:
 		where = append(where, "status = ?")
-		args = append(args, status)
+		args = append(args, statuses[0])
+	default:
+		where = append(where, "status IN ("+queryPlaceholders(len(statuses))+")")
+		for _, status := range statuses {
+			args = append(args, status)
+		}
 	}
 	if len(where) > 0 {
 		query += " WHERE " + strings.Join(where, " AND ")
@@ -553,6 +569,38 @@ func (s *Store) CountTasksWithOptions(ctx context.Context, projectID int64, opts
 		return 0, fmt.Errorf("count tasks: %w", err)
 	}
 	return count, nil
+}
+
+func normalizeTaskStatuses(opts ListTasksOptions) ([]string, error) {
+	raw := opts.Statuses
+	if len(raw) == 0 && strings.TrimSpace(opts.Status) != "" {
+		raw = []string{opts.Status}
+	}
+	statuses := make([]string, 0, len(raw))
+	seen := map[string]bool{}
+	for _, item := range raw {
+		status := strings.TrimSpace(item)
+		if status == "" || seen[status] {
+			continue
+		}
+		if !validTaskStatus(status) {
+			return nil, fmt.Errorf("invalid task status %q", status)
+		}
+		seen[status] = true
+		statuses = append(statuses, status)
+	}
+	return statuses, nil
+}
+
+func queryPlaceholders(count int) string {
+	if count <= 0 {
+		return ""
+	}
+	parts := make([]string, count)
+	for i := range parts {
+		parts[i] = "?"
+	}
+	return strings.Join(parts, ",")
 }
 
 func (s *Store) UpdateTaskStatus(ctx context.Context, id int64, status string) (Task, error) {

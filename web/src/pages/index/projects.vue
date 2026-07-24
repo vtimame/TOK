@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { Button } from "@/components/ui/button";
 import { useTitle } from "@vueuse/core";
-import { computed, ref, watch } from "vue";
+import { computed, ref } from "vue";
 import ProjectDialog from "@/components/pages/projects/ProjectDialog.vue";
 import {
   type ProjectDraft,
@@ -17,14 +17,7 @@ import type { Project } from "@/components/pages/projects";
 const route = useRoute();
 const showProjectDialog = ref(false);
 const editingProject = ref<Project>();
-const pageSize = ref(25);
-const page = ref(1);
-const offset = computed(() => (page.value - 1) * pageSize.value);
-const projectListParams = computed(() => ({
-  limit: String(pageSize.value),
-  offset: String(offset.value),
-}));
-const projectsQuery = useProjectsQuery(projectListParams);
+const projectsQuery = useProjectsQuery();
 const createProjectMutation = useCreateProjectMutation();
 const updateProjectMutation = useUpdateProjectMutation();
 const projectsPage = computed(
@@ -32,23 +25,12 @@ const projectsPage = computed(
     projectsQuery.data.value ?? {
       projects: [],
       total: 0,
-      limit: pageSize.value,
-      offset: offset.value,
+      limit: 0,
+      offset: 0,
     },
 );
 const projects = computed(() => projectsPage.value.projects);
-const pageCount = computed(() => Math.max(1, Math.ceil(projectsPage.value.total / pageSize.value)));
 const hasProjectRoute = computed(() => "project" in route.params);
-
-watch(pageSize, () => {
-  page.value = 1;
-});
-
-watch(pageCount, (nextPageCount) => {
-  if (page.value > nextPageCount) {
-    page.value = nextPageCount;
-  }
-});
 
 async function saveProject(input: ProjectDraft) {
   try {
@@ -116,21 +98,10 @@ useTitle("Projects");
       >
         <ProjectsTable
           :projects="projects"
-          :total="projectsPage.total"
-          :limit="projectsPage.limit"
-          :offset="projectsPage.offset"
-          :page="page"
-          :page-count="pageCount"
-          :page-size="pageSize"
           :loading="projectsQuery.isPending.value"
           :error="projectsQuery.isError.value"
           @create="createProject"
           @edit="editProject"
-          @first-page="page = 1"
-          @previous-page="page = Math.max(1, page - 1)"
-          @next-page="page = Math.min(pageCount, page + 1)"
-          @last-page="page = pageCount"
-          @update:page-size="pageSize = $event"
         />
       </div>
     </div>

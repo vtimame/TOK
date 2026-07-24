@@ -75,7 +75,9 @@ function updatePageSize(value: AcceptableValue) {
       <TableRow v-if="!props.loading && props.tasks.length === 0">
         <TableCell colspan="6" class="h-36 text-center">
           <div class="font-medium">No tasks yet</div>
-          <div class="text-sm text-muted-foreground">Tasks will appear here after they are created.</div>
+          <div class="text-sm text-muted-foreground">
+            Tasks will appear here after they are created.
+          </div>
         </TableCell>
       </TableRow>
       <TaskRow v-for="task in props.tasks" :key="task.id" :task="task" />
@@ -96,7 +98,7 @@ function updatePageSize(value: AcceptableValue) {
                   :disabled="props.loading"
                   @update:model-value="updatePageSize"
                 >
-                  <SelectTrigger class="h-8 w-[76px] bg-background">
+                  <SelectTrigger class="h-8 w-19 bg-background" size="sm">
                     <SelectValue :placeholder="String(props.pageSize)" />
                   </SelectTrigger>
                   <SelectContent side="top">

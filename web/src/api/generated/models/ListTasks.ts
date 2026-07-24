@@ -18,6 +18,21 @@ export type ListTasksQueryParams = {
    * @type string | undefined
    */
   offset?: string;
+  /**
+   * @description Optional project id filter
+   * @type string | undefined
+   */
+  projectId?: string;
+  /**
+   * @description Optional project name filter
+   * @type string | undefined
+   */
+  project?: string;
+  /**
+   * @description Optional comma-separated task status filter
+   * @type string | undefined
+   */
+  status?: string;
 };
 
 /**

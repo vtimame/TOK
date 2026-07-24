@@ -37,7 +37,7 @@ func TestServerListsProjectsAndExposesOpenAPI(t *testing.T) {
 	if len(projects.Projects) != 1 || projects.Projects[0].Name != "tok" || projects.Projects[0].DisplayName != "TOK" {
 		t.Fatalf("unexpected projects output: %+v", projects)
 	}
-	if projects.Total != 1 || projects.Limit != 25 || projects.Offset != 0 {
+	if projects.Total != 1 || projects.Limit != 1 || projects.Offset != 0 {
 		t.Fatalf("unexpected projects pagination: %+v", projects)
 	}
 
@@ -176,6 +176,20 @@ func TestServerPaginatesTasks(t *testing.T) {
 			t.Fatalf("CreateTask(%q) returned error: %v", title, err)
 		}
 	}
+	otherProject, err := store.CreateProject(ctx, storage.CreateProjectInput{
+		Name:        "other",
+		DisplayName: "Other",
+		Path:        t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("CreateProject other returned error: %v", err)
+	}
+	if _, err := store.CreateTask(ctx, storage.CreateTaskInput{
+		ProjectID: otherProject.ID,
+		Title:     "other task",
+	}); err != nil {
+		t.Fatalf("CreateTask other returned error: %v", err)
+	}
 
 	handler := newTestHandler(t, store)
 	res := doJSON(t, handler, http.MethodGet, "/api/tasks?limit=2&offset=1", nil)
@@ -186,11 +200,22 @@ func TestServerPaginatesTasks(t *testing.T) {
 	var tasks TaskListResponse
 	decodeJSON(t, res, &tasks)
 
-	if tasks.Total != 4 || tasks.Limit != 2 || tasks.Offset != 1 {
+	if tasks.Total != 5 || tasks.Limit != 2 || tasks.Offset != 1 {
 		t.Fatalf("unexpected pagination metadata: %+v", tasks)
 	}
-	if got := taskTitles(tasks.Tasks); !slices.Equal(got, []string{"third", "second"}) {
+	if got := taskTitles(tasks.Tasks); !slices.Equal(got, []string{"fourth", "third"}) {
 		t.Fatalf("unexpected paged tasks: %v", got)
+	}
+
+	filteredRes := doJSON(t, handler, http.MethodGet, "/api/tasks?projectId="+jsonNumber(project.ID)+"&status=open&limit=10&offset=0", nil)
+	defer filteredRes.Body.Close()
+	if filteredRes.StatusCode != http.StatusOK {
+		t.Fatalf("GET filtered tasks status = %d", filteredRes.StatusCode)
+	}
+	var filtered TaskListResponse
+	decodeJSON(t, filteredRes, &filtered)
+	if filtered.Total != 4 || len(filtered.Tasks) != 4 {
+		t.Fatalf("unexpected filtered tasks: %+v", filtered)
 	}
 }
 
