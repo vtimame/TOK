@@ -51,6 +51,11 @@ type CreateProjectInput struct {
 	Path        string
 }
 
+type ListProjectsOptions struct {
+	Limit  int
+	Offset int
+}
+
 type Task struct {
 	ID                 int64
 	ProjectID          int64
@@ -299,11 +304,22 @@ func (s *Store) GetProjectByID(ctx context.Context, id int64) (Project, error) {
 }
 
 func (s *Store) ListProjects(ctx context.Context) ([]Project, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	return s.ListProjectsWithOptions(ctx, ListProjectsOptions{})
+}
+
+func (s *Store) ListProjectsWithOptions(ctx context.Context, opts ListProjectsOptions) ([]Project, error) {
+	query := `
 		SELECT id, name, display_name, path, created_at, updated_at
 		FROM projects
 		ORDER BY name
-	`)
+	`
+	args := []any{}
+	if opts.Limit > 0 {
+		query += " LIMIT ? OFFSET ?"
+		args = append(args, opts.Limit, max(opts.Offset, 0))
+	}
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list projects: %w", err)
 	}
@@ -322,6 +338,14 @@ func (s *Store) ListProjects(ctx context.Context) ([]Project, error) {
 	}
 
 	return projects, nil
+}
+
+func (s *Store) CountProjects(ctx context.Context) (int, error) {
+	var count int
+	if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM projects").Scan(&count); err != nil {
+		return 0, fmt.Errorf("count projects: %w", err)
+	}
+	return count, nil
 }
 
 func (s *Store) CreateTask(ctx context.Context, input CreateTaskInput) (Task, error) {

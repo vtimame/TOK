@@ -7,6 +7,7 @@
 import type { Client, RequestConfig, ResponseErrorConfig } from "../.kubb/fetch.ts";
 import type {
   ListProjectsQueryResponse,
+  ListProjectsQueryParams,
   ListProjects400,
   ListProjects500,
 } from "../models/ListProjects.ts";
@@ -22,13 +23,16 @@ function getListProjectsUrl() {
  * @summary List registered projects
  * {@link /api/projects}
  */
-export async function listProjects(config: Partial<RequestConfig> & { client?: Client } = {}) {
+export async function listProjects(
+  { params }: { params?: ListProjectsQueryParams } = {},
+  config: Partial<RequestConfig> & { client?: Client } = {},
+) {
   const { client: request = fetch, ...requestConfig } = config;
 
   const res = await request<
     ListProjectsQueryResponse,
     ResponseErrorConfig<ListProjects400 | ListProjects500>,
     unknown
-  >({ method: "GET", url: getListProjectsUrl().url.toString(), ...requestConfig });
+  >({ method: "GET", url: getListProjectsUrl().url.toString(), params, ...requestConfig });
   return res.data;
 }

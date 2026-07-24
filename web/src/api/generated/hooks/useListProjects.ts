@@ -7,6 +7,7 @@
 import type { Client, RequestConfig, ResponseErrorConfig } from "../.kubb/fetch.ts";
 import type {
   ListProjectsQueryResponse,
+  ListProjectsQueryParams,
   ListProjects400,
   ListProjects500,
 } from "../models/ListProjects.ts";
@@ -16,18 +17,21 @@ import type {
   UseQueryOptions,
   UseQueryReturnType,
 } from "@tanstack/vue-query";
+import type { MaybeRefOrGetter } from "vue";
 import { listProjects } from "../client/listProjects.ts";
 import { queryOptions, useQuery } from "@tanstack/vue-query";
 import { toValue } from "vue";
 
-export const listProjectsQueryKey = () => [{ url: "/api/projects" }] as const;
+export const listProjectsQueryKey = (params?: MaybeRefOrGetter<ListProjectsQueryParams>) =>
+  [{ url: "/api/projects" }, ...(params ? [params] : [])] as const;
 
 export type ListProjectsQueryKey = ReturnType<typeof listProjectsQueryKey>;
 
 export function listProjectsQueryOptions(
+  { params }: { params?: MaybeRefOrGetter<ListProjectsQueryParams> } = {},
   config: Partial<RequestConfig> & { client?: Client } = {},
 ) {
-  const queryKey = listProjectsQueryKey();
+  const queryKey = listProjectsQueryKey(params);
   return queryOptions<
     ListProjectsQueryResponse,
     ResponseErrorConfig<ListProjects400 | ListProjects500>,
@@ -36,7 +40,10 @@ export function listProjectsQueryOptions(
   >({
     queryKey,
     queryFn: async ({ signal }) => {
-      return listProjects({ ...config, signal: config.signal ?? signal });
+      return listProjects(toValue({ params: toValue(params) }), {
+        ...config,
+        signal: config.signal ?? signal,
+      });
     },
   });
 }
@@ -51,6 +58,7 @@ export function useListProjects<
   TQueryData = ListProjectsQueryResponse,
   TQueryKey extends QueryKey = ListProjectsQueryKey,
 >(
+  { params }: { params?: MaybeRefOrGetter<ListProjectsQueryParams> } = {},
   options: {
     query?: Partial<
       UseQueryOptions<
@@ -69,11 +77,11 @@ export function useListProjects<
   const queryKey =
     (resolvedOptions && "queryKey" in resolvedOptions
       ? toValue(resolvedOptions.queryKey)
-      : undefined) ?? listProjectsQueryKey();
+      : undefined) ?? listProjectsQueryKey(params);
 
   const query = useQuery(
     {
-      ...listProjectsQueryOptions(config),
+      ...listProjectsQueryOptions({ params }, config),
       ...resolvedOptions,
       queryKey,
     } as unknown as UseQueryOptions<

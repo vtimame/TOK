@@ -11,7 +11,19 @@ import type { ProjectOutput } from "./ProjectOutput.ts";
  */
 export type ProjectListResponse = {
   /**
+   * @type integer
+   */
+  limit: number;
+  /**
+   * @type integer
+   */
+  offset: number;
+  /**
    * @type array,null
    */
   projects: ProjectOutput[] | null;
+  /**
+   * @type integer
+   */
+  total: number;
 };

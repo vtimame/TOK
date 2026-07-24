@@ -36,11 +36,14 @@ const draft = reactive({
   notes: "",
 });
 
-const projectsQuery = useListProjects({
-  query: {
-    select: (response: ProjectListResponse) => (response.projects ?? []).map(projectFromApi),
+const projectsQuery = useListProjects(
+  { params: { limit: "100", offset: "0" } },
+  {
+    query: {
+      select: (response: ProjectListResponse) => (response.projects ?? []).map(projectFromApi),
+    },
   },
-});
+);
 const projects = computed(() => projectsQuery.data.value ?? []);
 const selectedProject = computed(() => {
   const queryProject = typeof route.query.project === "string" ? route.query.project : "";

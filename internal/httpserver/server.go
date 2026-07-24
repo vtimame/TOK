@@ -88,7 +88,7 @@ func (s *Server) Handler() http.Handler {
 func registerRoutes(s *fuego.Server, a *api) {
 	fuego.Get(s, "/api/health", a.health, operation("getHealth", "System", "Show local TOK UI API health")...)
 
-	fuego.Get(s, "/api/projects", a.listProjects, operation("listProjects", "Projects", "List registered projects")...)
+	fuego.Get(s, "/api/projects", a.listProjects, append(operation("listProjects", "Projects", "List registered projects"), option.Query("limit", "Maximum projects to return"), option.Query("offset", "Projects to skip before returning results"))...)
 	fuego.Post(s, "/api/projects", a.createProject, append(operation("createProject", "Projects", "Register a project"), jsonBody()...)...)
 	fuego.Get(s, "/api/projects/{project}", a.showProject, operation("showProject", "Projects", "Show a project")...)
 
@@ -125,11 +125,23 @@ func (a *api) health(_ fuego.ContextNoBody) (HealthOutput, error) {
 }
 
 func (a *api) listProjects(ctx fuego.ContextNoBody) (ProjectListResponse, error) {
-	projects, err := a.store.ListProjects(ctx.Context())
+	limit, err := positiveIntQuery(ctx, "limit", 25, 100)
 	if err != nil {
 		return ProjectListResponse{}, err
 	}
-	out := ProjectListResponse{Projects: make([]ProjectOutput, 0, len(projects))}
+	offset, err := nonNegativeIntQuery(ctx, "offset", 0)
+	if err != nil {
+		return ProjectListResponse{}, err
+	}
+	total, err := a.store.CountProjects(ctx.Context())
+	if err != nil {
+		return ProjectListResponse{}, err
+	}
+	projects, err := a.store.ListProjectsWithOptions(ctx.Context(), storage.ListProjectsOptions{Limit: limit, Offset: offset})
+	if err != nil {
+		return ProjectListResponse{}, err
+	}
+	out := ProjectListResponse{Projects: make([]ProjectOutput, 0, len(projects)), Total: total, Limit: limit, Offset: offset}
 	for _, project := range projects {
 		projectOut, err := a.projectOutput(ctx.Context(), project)
 		if err != nil {
@@ -138,6 +150,33 @@ func (a *api) listProjects(ctx fuego.ContextNoBody) (ProjectListResponse, error)
 		out.Projects = append(out.Projects, projectOut)
 	}
 	return out, nil
+}
+
+func positiveIntQuery(ctx fuego.ContextNoBody, name string, defaultValue, maxValue int) (int, error) {
+	value := strings.TrimSpace(ctx.QueryParam(name))
+	if value == "" {
+		return defaultValue, nil
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return 0, badRequest(fmt.Sprintf("%s must be a positive integer", name))
+	}
+	if maxValue > 0 && parsed > maxValue {
+		return maxValue, nil
+	}
+	return parsed, nil
+}
+
+func nonNegativeIntQuery(ctx fuego.ContextNoBody, name string, defaultValue int) (int, error) {
+	value := strings.TrimSpace(ctx.QueryParam(name))
+	if value == "" {
+		return defaultValue, nil
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < 0 {
+		return 0, badRequest(fmt.Sprintf("%s must be a non-negative integer", name))
+	}
+	return parsed, nil
 }
 
 func (a *api) createProject(ctx fuego.ContextWithBody[CreateProjectInput]) (ProjectResponse, error) {

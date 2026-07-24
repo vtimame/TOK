@@ -7,6 +7,19 @@
 import type { HTTPError } from "./HTTPError.ts";
 import type { ProjectListResponse } from "./ProjectListResponse.ts";
 
+export type ListProjectsQueryParams = {
+  /**
+   * @description Maximum projects to return
+   * @type string | undefined
+   */
+  limit?: string;
+  /**
+   * @description Projects to skip before returning results
+   * @type string | undefined
+   */
+  offset?: string;
+};
+
 /**
  * @description OK
  */
@@ -26,5 +39,6 @@ export type ListProjectsQueryResponse = ListProjects200;
 
 export type ListProjectsQuery = {
   Response: ListProjects200;
+  QueryParams: ListProjectsQueryParams;
   Errors: ListProjects400 | ListProjects500;
 };

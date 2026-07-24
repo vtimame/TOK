@@ -37,6 +37,9 @@ func TestServerListsProjectsAndExposesOpenAPI(t *testing.T) {
 	if len(projects.Projects) != 1 || projects.Projects[0].Name != "tok" || projects.Projects[0].DisplayName != "TOK" {
 		t.Fatalf("unexpected projects output: %+v", projects)
 	}
+	if projects.Total != 1 || projects.Limit != 25 || projects.Offset != 0 {
+		t.Fatalf("unexpected projects pagination: %+v", projects)
+	}
 
 	specRes := doJSON(t, handler, http.MethodGet, "/swagger/openapi.json", nil)
 	defer specRes.Body.Close()
@@ -91,9 +94,10 @@ func TestServerListsProjectsAndExposesOpenAPI(t *testing.T) {
 		}
 	}
 	for schemaName, fields := range map[string][]string{
-		"ProjectOutput": {"tasks_count", "task_counts", "agents"},
-		"TaskCounts":    {"total", "open", "in_progress", "blocked", "done", "ready"},
-		"TaskOutput":    {"agents"},
+		"ProjectListResponse": {"projects", "total", "limit", "offset"},
+		"ProjectOutput":       {"tasks_count", "task_counts", "agents"},
+		"TaskCounts":          {"total", "open", "in_progress", "blocked", "done", "ready"},
+		"TaskOutput":          {"agents"},
 	} {
 		props := openAPISchemaProperties(t, spec.Components.Schemas[schemaName])
 		for _, field := range fields {
@@ -110,6 +114,37 @@ func TestServerListsProjectsAndExposesOpenAPI(t *testing.T) {
 	createTask := spec.Paths["/api/projects/{project}/tasks"]["post"]
 	if createTask.RequestBody == nil || !slices.Contains(createTask.RequestBody.ContentTypes(), "application/json") {
 		t.Fatalf("create task request body should be application/json, got %+v", createTask.RequestBody)
+	}
+}
+
+func TestServerPaginatesProjects(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+
+	for _, name := range []string{"alpha", "bravo", "charlie", "delta"} {
+		if _, err := store.CreateProject(ctx, storage.CreateProjectInput{
+			Name:        name,
+			DisplayName: strings.ToUpper(name),
+			Path:        t.TempDir(),
+		}); err != nil {
+			t.Fatalf("CreateProject(%q) returned error: %v", name, err)
+		}
+	}
+
+	handler := newTestHandler(t, store)
+	res := doJSON(t, handler, http.MethodGet, "/api/projects?limit=2&offset=1", nil)
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/projects?limit=2&offset=1 status = %d", res.StatusCode)
+	}
+	var projects ProjectListResponse
+	decodeJSON(t, res, &projects)
+
+	if projects.Total != 4 || projects.Limit != 2 || projects.Offset != 1 {
+		t.Fatalf("unexpected pagination metadata: %+v", projects)
+	}
+	if got := projectNames(projects.Projects); !slices.Equal(got, []string{"bravo", "charlie"}) {
+		t.Fatalf("unexpected paged projects: %v", got)
 	}
 }
 
@@ -394,6 +429,14 @@ func assertSingleAgent(t *testing.T, agents []ActorOutput, id int64, name string
 	if agents[0].ID != id || agents[0].Kind != "agent" || agents[0].Name != name {
 		t.Fatalf("unexpected agent: %+v", agents[0])
 	}
+}
+
+func projectNames(projects []ProjectOutput) []string {
+	names := make([]string, 0, len(projects))
+	for _, project := range projects {
+		names = append(names, project.Name)
+	}
+	return names
 }
 
 func assertTaskCounts(t *testing.T, got, want TaskCounts) {

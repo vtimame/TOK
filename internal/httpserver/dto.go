@@ -28,6 +28,9 @@ type CreateTaskInput struct {
 
 type ProjectListResponse struct {
 	Projects []ProjectOutput `json:"projects"`
+	Total    int             `json:"total"`
+	Limit    int             `json:"limit"`
+	Offset   int             `json:"offset"`
 }
 
 type ProjectResponse struct {

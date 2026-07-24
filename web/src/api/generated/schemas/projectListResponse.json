@@ -1,6 +1,8 @@
 {
   "description": "ProjectListResponse schema",
   "properties": {
+    "limit": { "type": "integer" },
+    "offset": { "type": "integer" },
     "projects": {
       "items": {
         "properties": {
@@ -53,9 +55,10 @@
         "x-readme-ref-name": "ProjectOutput"
       },
       "type": ["array", "null"]
-    }
+    },
+    "total": { "type": "integer" }
   },
-  "required": ["projects"],
+  "required": ["limit", "offset", "projects", "total"],
   "type": "object",
   "x-readme-ref-name": "ProjectListResponse"
 }

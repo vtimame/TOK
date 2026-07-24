@@ -88,6 +88,7 @@ export type {
   ListProjects400,
   ListProjects500,
   ListProjectsQuery,
+  ListProjectsQueryParams,
   ListProjectsQueryResponse,
 } from "./ListProjects.ts";
 export type {

@@ -104,6 +104,7 @@ export type {
   ListProjects400,
   ListProjects500,
   ListProjectsQuery,
+  ListProjectsQueryParams,
   ListProjectsQueryResponse,
 } from "./models/ListProjects.ts";
 export type {

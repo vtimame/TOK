@@ -15,15 +15,27 @@ import { useUpdateProjectIndex } from "@/api/generated/hooks/useUpdateProjectInd
 import { toastApiError } from "@/api/axios.ts";
 import { toast } from "vue-sonner";
 import { computed } from "vue";
+import { ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight } from "@lucide/vue";
 
 const props = defineProps<{
   projects: Project[];
+  total: number;
+  limit: number;
+  offset: number;
+  page: number;
+  pageCount: number;
+  pageSize: number;
   loading?: boolean;
   error?: boolean;
 }>();
 
 const emits = defineEmits<{
   create: [];
+  firstPage: [];
+  previousPage: [];
+  nextPage: [];
+  lastPage: [];
+  "update:pageSize": [value: number];
 }>();
 
 const updateIndexMutation = useUpdateProjectIndex({
@@ -51,16 +63,25 @@ const totals = computed(() =>
     { ready: 0, blocked: 0, done: 0, total: 0 },
   ),
 );
+const pageSizes = [10, 25, 50, 100];
+const currentFrom = computed(() => (props.total === 0 ? 0 : props.offset + 1));
+const currentTo = computed(() => Math.min(props.offset + props.projects.length, props.total));
+const canGoPrevious = computed(() => props.offset > 0 && !props.loading);
+const canGoNext = computed(() => props.offset + props.limit < props.total && !props.loading);
 
 function showUnavailable(action: string) {
   toast(action, {
     description: "The project API does not support this action yet.",
   });
 }
+
+function updatePageSize(event: Event) {
+  emits("update:pageSize", Number((event.target as HTMLSelectElement).value));
+}
 </script>
 
 <template>
-  <Table container-class="h-full min-h-0 custom-scrollbar">
+  <Table container-class="max-h-full min-h-0 custom-scrollbar">
     <TableHeader class="sticky top-0 z-10 bg-card shadow-[0_1px_0_hsl(var(--border))]">
       <TableRow>
         <TableHead class="w-16 pl-4">ID</TableHead>
@@ -109,14 +130,80 @@ function showUnavailable(action: string) {
     <TableFooter class="sticky bottom-0 z-10 bg-muted shadow-[0_-1px_0_hsl(var(--border))]">
       <TableRow>
         <TableCell colspan="3">
-          {{ props.projects.length }} {{ props.projects.length === 1 ? "project" : "projects" }}
+          Page totals
         </TableCell>
-        <TableCell class="text-right text-muted-foreground">Totals</TableCell>
+        <TableCell class="text-right text-muted-foreground">This page</TableCell>
         <TableCell class="text-right">{{ totals.ready }}</TableCell>
         <TableCell class="text-right">{{ totals.blocked }}</TableCell>
         <TableCell class="text-right">{{ totals.done }}</TableCell>
         <TableCell class="text-right font-medium">{{ totals.total }}</TableCell>
         <TableCell />
+      </TableRow>
+      <TableRow>
+        <TableCell colspan="9">
+          <div class="flex flex-wrap items-center justify-between gap-3 py-1">
+            <div class="text-sm text-muted-foreground">
+              Showing {{ currentFrom }}-{{ currentTo }} of {{ props.total }} projects
+            </div>
+
+            <div class="flex items-center gap-3">
+              <label class="flex items-center gap-2 text-sm text-muted-foreground">
+                Rows
+                <select
+                  class="h-8 rounded-md border bg-background px-2 text-sm text-foreground"
+                  :value="props.pageSize"
+                  :disabled="props.loading"
+                  @change="updatePageSize"
+                >
+                  <option v-for="size in pageSizes" :key="size" :value="size">{{ size }}</option>
+                </select>
+              </label>
+
+              <div class="text-sm text-muted-foreground">
+                Page {{ props.page }} of {{ props.pageCount }}
+              </div>
+
+              <div class="flex items-center gap-1">
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  :disabled="!canGoPrevious"
+                  aria-label="First page"
+                  @click="emits('firstPage')"
+                >
+                  <ChevronsLeft />
+                </Button>
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  :disabled="!canGoPrevious"
+                  aria-label="Previous page"
+                  @click="emits('previousPage')"
+                >
+                  <ChevronLeft />
+                </Button>
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  :disabled="!canGoNext"
+                  aria-label="Next page"
+                  @click="emits('nextPage')"
+                >
+                  <ChevronRight />
+                </Button>
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  :disabled="!canGoNext"
+                  aria-label="Last page"
+                  @click="emits('lastPage')"
+                >
+                  <ChevronsRight />
+                </Button>
+              </div>
+            </div>
+          </div>
+        </TableCell>
       </TableRow>
     </TableFooter>
   </Table>

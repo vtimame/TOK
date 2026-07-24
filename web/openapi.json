@@ -186,6 +186,12 @@
       "ProjectListResponse": {
         "description": "ProjectListResponse schema",
         "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          },
           "projects": {
             "items": {
               "$ref": "#/components/schemas/ProjectOutput"
@@ -194,10 +200,16 @@
               "array",
               "null"
             ]
+          },
+          "total": {
+            "type": "integer"
           }
         },
         "required": [
-          "projects"
+          "limit",
+          "offset",
+          "projects",
+          "total"
         ],
         "type": "object"
       },
@@ -574,6 +586,24 @@
       "get": {
         "description": "List registered projects.",
         "operationId": "listProjects",
+        "parameters": [
+          {
+            "description": "Maximum projects to return",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Projects to skip before returning results",
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {

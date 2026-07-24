@@ -1,23 +1,39 @@
 import type { CreateProjectInput } from "@/api/generated/models/CreateProjectInput.ts";
+import type { ListProjectsQueryParams } from "@/api/generated/models/ListProjects.ts";
 import type { ProjectListResponse } from "@/api/generated/models/ProjectListResponse.ts";
 import { listProjectsQueryKey, useListProjects } from "@/api/generated/hooks/useListProjects.ts";
 import { useCreateProject } from "@/api/generated/hooks/useCreateProject.ts";
 import type { Project } from "@/components/pages/projects";
 import { projectFromApi } from "@/api/mappers.ts";
 import { useQueryClient } from "@tanstack/vue-query";
+import type { MaybeRefOrGetter } from "vue";
 
 export type ProjectDraft = CreateProjectInput;
+export type ProjectsPage = {
+  projects: Project[];
+  total: number;
+  limit: number;
+  offset: number;
+};
 
 export const projectQueryKeys = {
   all: listProjectsQueryKey,
 };
 
-export function useProjectsQuery() {
-  return useListProjects<Project[]>({
-    query: {
-      select: (response: ProjectListResponse) => (response.projects ?? []).map(projectFromApi),
+export function useProjectsQuery(params?: MaybeRefOrGetter<ListProjectsQueryParams>) {
+  return useListProjects<ProjectsPage>(
+    { params },
+    {
+      query: {
+        select: (response: ProjectListResponse) => ({
+          projects: (response.projects ?? []).map(projectFromApi),
+          total: response.total,
+          limit: response.limit,
+          offset: response.offset,
+        }),
+      },
     },
-  });
+  );
 }
 
 export function useCreateProjectMutation() {

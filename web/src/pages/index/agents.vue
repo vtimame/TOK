@@ -6,7 +6,7 @@ import { actorDisplayName, agentIconValue } from "@/api/mappers.ts";
 import { useTitle } from "@vueuse/core";
 import { computed } from "vue";
 
-const projectsQuery = useListProjects();
+const projectsQuery = useListProjects({ params: { limit: "100", offset: "0" } });
 const projects = computed(() => projectsQuery.data.value?.projects ?? []);
 const selectedProject = computed(() => projects.value[0]?.name || "");
 const tasksQuery = useListProjectTasks({ project: selectedProject });
