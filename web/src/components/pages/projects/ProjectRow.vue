@@ -29,24 +29,23 @@ const status = computed(() => {
   if (props.project.taskCounts.blocked > 0) return "Blocked";
   if (props.project.taskCounts.in_progress > 0) return "In progress";
   if (props.project.taskCounts.ready > 0) return "Ready";
-  if (props.project.taskCounts.done === props.project.taskCounts.total && props.project.taskCounts.total > 0) {
+  if (
+    props.project.taskCounts.done === props.project.taskCounts.total &&
+    props.project.taskCounts.total > 0
+  ) {
     return "Done";
   }
   return "Open";
 });
-
-function openTasks() {
-  router.push({ path: "/tasks", query: { projectId: String(props.project.id) } });
-}
 </script>
 
 <template>
-  <TableRow class="cursor-pointer" @click="openTasks">
+  <TableRow class="cursor-pointer" @click="router.push(`/projects/${props.project.name}`)">
     <TableCell class="text-muted-foreground pl-4">#{{ project.id }}</TableCell>
     <TableCell class="font-medium">
       {{ project.displayName }}
     </TableCell>
-    <TableCell class="max-w-[22rem] truncate text-muted-foreground">{{ project.path }}</TableCell>
+    <TableCell class="max-w-88 truncate text-muted-foreground">{{ project.path }}</TableCell>
     <TableCell>
       <span class="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
         {{ status }}

@@ -59,6 +59,29 @@ func tokCommandSpec() *commandSpec {
 					{Name: "show", Summary: "Show a registered project", Usage: "tok project show <name> [--json]", Flags: []flagSpec{
 						{Name: "--json", Summary: "Print JSON output"},
 					}},
+					{
+						Name:    "instruction",
+						Summary: "Manage project-scoped agent instructions",
+						Usage:   "tok project instruction <command>",
+						Children: []*commandSpec{
+							{Name: "add", Summary: "Add a project instruction", Usage: "tok project instruction add --project <name> --title <title> --body <text> [--priority <priority>] [--json]", Flags: []flagSpec{
+								projectFlag(),
+								{Name: "--title", ValueName: "<title>", Summary: "Instruction title"},
+								{Name: "--body", ValueName: "<text>", Summary: "Instruction body"},
+								{Name: "--priority", ValueName: "<priority>", Summary: "Instruction priority", ValueChoices: instructionPriorityChoices()},
+								{Name: "--json", Summary: "Print JSON output"},
+							}},
+							{Name: "list", Summary: "List project instructions", Usage: "tok project instruction list --project <name> [--include-disabled] [--json]", Flags: []flagSpec{
+								projectFlag(),
+								{Name: "--include-disabled", Summary: "Include disabled instructions"},
+								{Name: "--json", Summary: "Print JSON output"},
+							}},
+							{Name: "show", Summary: "Show a project instruction", Usage: "tok project instruction show --project <name> <instruction-id> [--json]", Flags: []flagSpec{projectFlag(), {Name: "--json", Summary: "Print JSON output"}}},
+							{Name: "enable", Summary: "Enable a project instruction", Usage: "tok project instruction enable --project <name> <instruction-id> [--json]", Flags: []flagSpec{projectFlag(), {Name: "--json", Summary: "Print JSON output"}}},
+							{Name: "disable", Summary: "Disable a project instruction", Usage: "tok project instruction disable --project <name> <instruction-id> [--json]", Flags: []flagSpec{projectFlag(), {Name: "--json", Summary: "Print JSON output"}}},
+							{Name: "remove", Summary: "Remove a project instruction", Usage: "tok project instruction remove --project <name> <instruction-id> [--json]", Flags: []flagSpec{projectFlag(), {Name: "--json", Summary: "Print JSON output"}}},
+						},
+					},
 				},
 			},
 			{
@@ -214,6 +237,10 @@ func projectFlag() flagSpec {
 
 func taskStatusChoices() []string {
 	return []string{"open", "in_progress", "blocked", "done"}
+}
+
+func instructionPriorityChoices() []string {
+	return []string{"critical", "high", "normal", "low"}
 }
 
 func findCommandSpec(path []string) (*commandSpec, bool) {

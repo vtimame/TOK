@@ -99,8 +99,14 @@ func registerRoutes(s *fuego.Server, a *api) {
 	fuego.Get(s, "/api/projects/{project}", a.showProject, operation("showProject", "Projects", "Show a project")...)
 	fuego.Patch(s, "/api/projects/{project}", a.updateProject, append(operation("updateProject", "Projects", "Update a project"), jsonBody()...)...)
 	fuego.Delete(s, "/api/projects/{project}", a.deleteProject, operation("deleteProject", "Projects", "Delete a project")...)
+	fuego.Get(s, "/api/projects/{project}/instructions", a.listProjectInstructions, append(operation("listProjectInstructions", "Projects", "List project instructions"), option.Query("includeDisabled", "Include disabled instructions"))...)
+	fuego.Post(s, "/api/projects/{project}/instructions", a.createProjectInstruction, append(operation("createProjectInstruction", "Projects", "Create a project instruction"), jsonBody()...)...)
+	fuego.Get(s, "/api/projects/{project}/instructions/{id}", a.showProjectInstruction, operation("showProjectInstruction", "Projects", "Show a project instruction")...)
+	fuego.Post(s, "/api/projects/{project}/instructions/{id}/enable", a.enableProjectInstruction, operation("enableProjectInstruction", "Projects", "Enable a project instruction")...)
+	fuego.Post(s, "/api/projects/{project}/instructions/{id}/disable", a.disableProjectInstruction, operation("disableProjectInstruction", "Projects", "Disable a project instruction")...)
+	fuego.Delete(s, "/api/projects/{project}/instructions/{id}", a.deleteProjectInstruction, operation("deleteProjectInstruction", "Projects", "Delete a project instruction")...)
 
-	fuego.Get(s, "/api/projects/{project}/tasks", a.listTasks, append(operation("listProjectTasks", "Tasks", "List project tasks"), option.Query("status", "Optional task status filter"))...)
+	fuego.Get(s, "/api/projects/{project}/tasks", a.listTasks, append(operation("listProjectTasks", "Tasks", "List project tasks"), option.Query("limit", "Maximum tasks to return"), option.Query("offset", "Tasks to skip before returning results"), option.Query("status", "Optional task status filter"))...)
 	fuego.Post(s, "/api/projects/{project}/tasks", a.createTask, append(operation("createTask", "Tasks", "Create a project task"), jsonBody()...)...)
 	fuego.Get(s, "/api/projects/{project}/tasks/ready", a.readyTasks, operation("listReadyTasks", "Tasks", "List ready project tasks")...)
 	fuego.Post(s, "/api/projects/{project}/tasks/claim", a.claimTask, append(operation("claimTask", "Tasks", "Claim the next ready task or a specific ready task"), jsonBody()...)...)
@@ -283,6 +289,21 @@ func nonNegativeIntQuery(ctx fuego.ContextNoBody, name string, defaultValue int)
 	return parsed, nil
 }
 
+func boolQuery(ctx fuego.ContextNoBody, name string, defaultValue bool) (bool, error) {
+	value := strings.TrimSpace(strings.ToLower(ctx.QueryParam(name)))
+	if value == "" {
+		return defaultValue, nil
+	}
+	switch value {
+	case "1", "true", "yes", "on":
+		return true, nil
+	case "0", "false", "no", "off":
+		return false, nil
+	default:
+		return false, badRequest(fmt.Sprintf("%s must be a boolean", name))
+	}
+}
+
 func (a *api) createProject(ctx fuego.ContextWithBody[CreateProjectInput]) (ProjectResponse, error) {
 	body, err := ctx.Body()
 	if err != nil {
@@ -372,8 +393,103 @@ func (a *api) deleteProject(ctx fuego.ContextNoBody) (ProjectResponse, error) {
 	return ProjectResponse{Project: out}, nil
 }
 
+func (a *api) listProjectInstructions(ctx fuego.ContextNoBody) (ProjectInstructionListResponse, error) {
+	project, err := a.projectByName(ctx.Context(), ctx.PathParam("project"))
+	if err != nil {
+		return ProjectInstructionListResponse{}, err
+	}
+	includeDisabled, err := boolQuery(ctx, "includeDisabled", false)
+	if err != nil {
+		return ProjectInstructionListResponse{}, err
+	}
+	instructions, err := a.store.ListProjectInstructions(ctx.Context(), storage.ListProjectInstructionsOptions{
+		ProjectID:       project.ID,
+		IncludeDisabled: includeDisabled,
+	})
+	if err != nil {
+		return ProjectInstructionListResponse{}, err
+	}
+	return projectInstructionsFromStorage(instructions), nil
+}
+
+func (a *api) createProjectInstruction(ctx fuego.ContextWithBody[ProjectInstructionInput]) (ProjectInstructionResponse, error) {
+	project, err := a.projectByName(ctx.Context(), ctx.PathParam("project"))
+	if err != nil {
+		return ProjectInstructionResponse{}, err
+	}
+	body, err := ctx.Body()
+	if err != nil {
+		return ProjectInstructionResponse{}, err
+	}
+	instruction, err := a.store.CreateProjectInstruction(ctx.Context(), storage.CreateProjectInstructionInput{
+		ProjectID: project.ID,
+		Title:     body.Title,
+		Body:      body.Body,
+		Priority:  body.Priority,
+	})
+	if err != nil {
+		return ProjectInstructionResponse{}, mapProjectInstructionError(err)
+	}
+	return ProjectInstructionResponse{Instruction: projectInstructionFromStorage(instruction)}, nil
+}
+
+func (a *api) showProjectInstruction(ctx fuego.ContextNoBody) (ProjectInstructionResponse, error) {
+	project, instructionID, err := a.projectAndInstructionFromPath(ctx)
+	if err != nil {
+		return ProjectInstructionResponse{}, err
+	}
+	instruction, err := a.store.GetProjectInstruction(ctx.Context(), project.ID, instructionID)
+	if err != nil {
+		return ProjectInstructionResponse{}, mapProjectInstructionError(err)
+	}
+	return ProjectInstructionResponse{Instruction: projectInstructionFromStorage(instruction)}, nil
+}
+
+func (a *api) enableProjectInstruction(ctx fuego.ContextNoBody) (ProjectInstructionResponse, error) {
+	return a.setProjectInstructionEnabled(ctx, true)
+}
+
+func (a *api) disableProjectInstruction(ctx fuego.ContextNoBody) (ProjectInstructionResponse, error) {
+	return a.setProjectInstructionEnabled(ctx, false)
+}
+
+func (a *api) setProjectInstructionEnabled(ctx fuego.ContextNoBody, enabled bool) (ProjectInstructionResponse, error) {
+	project, instructionID, err := a.projectAndInstructionFromPath(ctx)
+	if err != nil {
+		return ProjectInstructionResponse{}, err
+	}
+	instruction, err := a.store.SetProjectInstructionEnabled(ctx.Context(), project.ID, instructionID, enabled)
+	if err != nil {
+		return ProjectInstructionResponse{}, mapProjectInstructionError(err)
+	}
+	return ProjectInstructionResponse{Instruction: projectInstructionFromStorage(instruction)}, nil
+}
+
+func (a *api) deleteProjectInstruction(ctx fuego.ContextNoBody) (ProjectInstructionResponse, error) {
+	project, instructionID, err := a.projectAndInstructionFromPath(ctx)
+	if err != nil {
+		return ProjectInstructionResponse{}, err
+	}
+	instruction, err := a.store.GetProjectInstruction(ctx.Context(), project.ID, instructionID)
+	if err != nil {
+		return ProjectInstructionResponse{}, mapProjectInstructionError(err)
+	}
+	if err := a.store.DeleteProjectInstruction(ctx.Context(), project.ID, instructionID); err != nil {
+		return ProjectInstructionResponse{}, mapProjectInstructionError(err)
+	}
+	return ProjectInstructionResponse{Instruction: projectInstructionFromStorage(instruction)}, nil
+}
+
 func (a *api) listTasks(ctx fuego.ContextNoBody) (TaskListResponse, error) {
 	project, err := a.projectByName(ctx.Context(), ctx.PathParam("project"))
+	if err != nil {
+		return TaskListResponse{}, err
+	}
+	limit, err := positiveIntQuery(ctx, "limit", 25, 100)
+	if err != nil {
+		return TaskListResponse{}, err
+	}
+	offset, err := nonNegativeIntQuery(ctx, "offset", 0)
 	if err != nil {
 		return TaskListResponse{}, err
 	}
@@ -381,16 +497,16 @@ func (a *api) listTasks(ctx fuego.ContextNoBody) (TaskListResponse, error) {
 	if err != nil {
 		return TaskListResponse{}, err
 	}
-	opts := storage.ListTasksOptions{Statuses: statuses}
-	tasks, err := a.store.ListTasksWithOptions(ctx.Context(), project.ID, opts)
-	if err != nil {
-		return TaskListResponse{}, err
-	}
+	opts := storage.ListTasksOptions{Statuses: statuses, Limit: limit, Offset: offset}
 	total, err := a.store.CountTasksWithOptions(ctx.Context(), project.ID, opts)
 	if err != nil {
 		return TaskListResponse{}, err
 	}
-	return a.taskListResponse(ctx.Context(), tasks, total, len(tasks), 0)
+	tasks, err := a.store.ListTasksWithOptions(ctx.Context(), project.ID, opts)
+	if err != nil {
+		return TaskListResponse{}, err
+	}
+	return a.taskListResponse(ctx.Context(), tasks, total, limit, offset)
 }
 
 func (a *api) listAllTasks(ctx fuego.ContextNoBody) (TaskListResponse, error) {
@@ -929,11 +1045,32 @@ func (a *api) taskByID(ctx context.Context, id int64) (storage.Task, error) {
 	return task, err
 }
 
+func (a *api) projectAndInstructionFromPath(ctx fuego.ContextNoBody) (storage.Project, int64, error) {
+	project, err := a.projectByName(ctx.Context(), ctx.PathParam("project"))
+	if err != nil {
+		return storage.Project{}, 0, err
+	}
+	instructionID, err := instructionIDFromPath(ctx.PathParam("id"))
+	if err != nil {
+		return storage.Project{}, 0, err
+	}
+	return project, instructionID, nil
+}
+
 func agentIDFromPath(raw string) (int64, error) {
 	raw = strings.TrimSpace(raw)
 	id, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil || id <= 0 {
 		return 0, badRequest(fmt.Sprintf("invalid agent id: %s", raw))
+	}
+	return id, nil
+}
+
+func instructionIDFromPath(raw string) (int64, error) {
+	raw = strings.TrimSpace(raw)
+	id, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || id <= 0 {
+		return 0, badRequest(fmt.Sprintf("invalid project instruction id: %s", raw))
 	}
 	return id, nil
 }
@@ -989,6 +1126,17 @@ func mapProjectWriteError(err error) error {
 		return fuego.NotFoundError{Title: "Project not found"}
 	case strings.Contains(err.Error(), "UNIQUE"):
 		return fuego.ConflictError{Title: "Project already exists", Detail: err.Error()}
+	default:
+		return err
+	}
+}
+
+func mapProjectInstructionError(err error) error {
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return fuego.NotFoundError{Title: "Project instruction not found"}
+	case strings.Contains(err.Error(), "project instruction"):
+		return badRequest(err.Error())
 	default:
 		return err
 	}

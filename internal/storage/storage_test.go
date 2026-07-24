@@ -20,7 +20,7 @@ func TestInitAppliesEmbeddedMigrations(t *testing.T) {
 		t.Fatalf("second Init returned error: %v", err)
 	}
 
-	for _, table := range []string{"projects", "tasks", "task_events", "context_sources", "index_metadata", "retrieval_documents", "runs", "run_artifacts", "actors", "index_file_manifest", "index_policies"} {
+	for _, table := range []string{"projects", "tasks", "task_events", "context_sources", "index_metadata", "retrieval_documents", "runs", "run_artifacts", "actors", "index_file_manifest", "index_policies", "project_instructions"} {
 		var name string
 		err := store.db.QueryRowContext(ctx, `
 			SELECT name
@@ -36,8 +36,8 @@ func TestInitAppliesEmbeddedMigrations(t *testing.T) {
 	if err := store.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM schema_migrations").Scan(&applied); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if applied != 10 {
-		t.Fatalf("expected 10 applied migrations, got %d", applied)
+	if applied != 11 {
+		t.Fatalf("expected 11 applied migrations, got %d", applied)
 	}
 }
 
@@ -192,6 +192,79 @@ func TestStoreUpdatesAndDeletesProjects(t *testing.T) {
 	}
 	if _, err := store.GetTask(ctx, task.ID); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("GetTask after project delete error = %v, want sql.ErrNoRows", err)
+	}
+}
+
+func TestProjectInstructionsCRUDAndOrdering(t *testing.T) {
+	ctx := context.Background()
+	store := openInitializedTestStore(t)
+
+	project, err := store.CreateProject(ctx, CreateProjectInput{
+		Name:        "tok",
+		DisplayName: "TOK",
+		Path:        "/tmp/tok",
+	})
+	if err != nil {
+		t.Fatalf("CreateProject returned error: %v", err)
+	}
+
+	normal, err := store.CreateProjectInstruction(ctx, CreateProjectInstructionInput{
+		ProjectID: project.ID,
+		Title:     "Use Context7",
+		Body:      "Use Context7 for library documentation.",
+	})
+	if err != nil {
+		t.Fatalf("CreateProjectInstruction normal returned error: %v", err)
+	}
+	critical, err := store.CreateProjectInstruction(ctx, CreateProjectInstructionInput{
+		ProjectID: project.ID,
+		Title:     "Never skip tests",
+		Body:      "Run focused tests before reporting completion.",
+		Priority:  "critical",
+		Source:    "manual",
+	})
+	if err != nil {
+		t.Fatalf("CreateProjectInstruction critical returned error: %v", err)
+	}
+	if normal.Priority != "normal" || normal.Scope != "project" || !normal.Enabled || normal.Source != "manual" {
+		t.Fatalf("unexpected normal instruction defaults: %+v", normal)
+	}
+
+	instructions, err := store.ListProjectInstructions(ctx, ListProjectInstructionsOptions{ProjectID: project.ID})
+	if err != nil {
+		t.Fatalf("ListProjectInstructions returned error: %v", err)
+	}
+	if len(instructions) != 2 || instructions[0].ID != critical.ID || instructions[1].ID != normal.ID {
+		t.Fatalf("unexpected instruction order: %+v", instructions)
+	}
+
+	disabled, err := store.SetProjectInstructionEnabled(ctx, project.ID, critical.ID, false)
+	if err != nil {
+		t.Fatalf("SetProjectInstructionEnabled returned error: %v", err)
+	}
+	if disabled.Enabled {
+		t.Fatalf("expected disabled instruction: %+v", disabled)
+	}
+	enabledOnly, err := store.ListProjectInstructions(ctx, ListProjectInstructionsOptions{ProjectID: project.ID})
+	if err != nil {
+		t.Fatalf("ListProjectInstructions enabled returned error: %v", err)
+	}
+	if len(enabledOnly) != 1 || enabledOnly[0].ID != normal.ID {
+		t.Fatalf("unexpected enabled instructions: %+v", enabledOnly)
+	}
+	withDisabled, err := store.ListProjectInstructions(ctx, ListProjectInstructionsOptions{ProjectID: project.ID, IncludeDisabled: true})
+	if err != nil {
+		t.Fatalf("ListProjectInstructions disabled returned error: %v", err)
+	}
+	if len(withDisabled) != 2 {
+		t.Fatalf("expected disabled instructions in listing: %+v", withDisabled)
+	}
+
+	if err := store.DeleteProjectInstruction(ctx, project.ID, normal.ID); err != nil {
+		t.Fatalf("DeleteProjectInstruction returned error: %v", err)
+	}
+	if _, err := store.GetProjectInstruction(ctx, project.ID, normal.ID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("GetProjectInstruction deleted error = %v, want sql.ErrNoRows", err)
 	}
 }
 

@@ -60,36 +60,42 @@ func TestServerListsProjectsAndExposesOpenAPI(t *testing.T) {
 	}
 
 	expectedOperations := map[string]string{
-		"/api/health GET":                                      "getHealth",
-		"/api/agents GET":                                      "listAgents",
-		"/api/agents POST":                                     "createAgent",
-		"/api/agents/{id} GET":                                 "showAgent",
-		"/api/agents/{id} PATCH":                               "updateAgent",
-		"/api/agents/{id} DELETE":                              "deleteAgent",
-		"/api/projects GET":                                    "listProjects",
-		"/api/projects POST":                                   "createProject",
-		"/api/projects/{project} GET":                          "showProject",
-		"/api/projects/{project} PATCH":                        "updateProject",
-		"/api/projects/{project} DELETE":                       "deleteProject",
-		"/api/projects/{project}/tasks GET":                    "listProjectTasks",
-		"/api/projects/{project}/tasks POST":                   "createTask",
-		"/api/projects/{project}/tasks/ready GET":              "listReadyTasks",
-		"/api/projects/{project}/tasks/claim POST":             "claimTask",
-		"/api/tasks GET":                                       "listTasks",
-		"/api/tasks/{id} GET":                                  "showTask",
-		"/api/tasks/{id}/comment POST":                         "commentTask",
-		"/api/tasks/{id}/progress POST":                        "progressTask",
-		"/api/tasks/{id}/block POST":                           "blockTask",
-		"/api/tasks/{id}/unblock POST":                         "unblockTask",
-		"/api/tasks/{id}/done POST":                            "completeTask",
-		"/api/index GET":                                       "listIndexStatus",
-		"/api/index/update POST":                               "updateAllProjectIndexes",
-		"/api/projects/{project}/index GET":                    "getProjectIndexStatus",
-		"/api/projects/{project}/index/update POST":            "updateProjectIndex",
-		"/api/projects/{project}/index/ignore GET":             "getProjectIndexIgnorePolicy",
-		"/api/projects/{project}/index/ignore/refresh POST":    "refreshProjectIndexIgnorePolicy",
-		"/api/projects/{project}/index/ignore/patterns POST":   "addProjectIndexIgnorePattern",
-		"/api/projects/{project}/index/ignore/patterns DELETE": "removeProjectIndexIgnorePattern",
+		"/api/health GET":                                        "getHealth",
+		"/api/agents GET":                                        "listAgents",
+		"/api/agents POST":                                       "createAgent",
+		"/api/agents/{id} GET":                                   "showAgent",
+		"/api/agents/{id} PATCH":                                 "updateAgent",
+		"/api/agents/{id} DELETE":                                "deleteAgent",
+		"/api/projects GET":                                      "listProjects",
+		"/api/projects POST":                                     "createProject",
+		"/api/projects/{project} GET":                            "showProject",
+		"/api/projects/{project} PATCH":                          "updateProject",
+		"/api/projects/{project} DELETE":                         "deleteProject",
+		"/api/projects/{project}/instructions GET":               "listProjectInstructions",
+		"/api/projects/{project}/instructions POST":              "createProjectInstruction",
+		"/api/projects/{project}/instructions/{id} GET":          "showProjectInstruction",
+		"/api/projects/{project}/instructions/{id}/enable POST":  "enableProjectInstruction",
+		"/api/projects/{project}/instructions/{id}/disable POST": "disableProjectInstruction",
+		"/api/projects/{project}/instructions/{id} DELETE":       "deleteProjectInstruction",
+		"/api/projects/{project}/tasks GET":                      "listProjectTasks",
+		"/api/projects/{project}/tasks POST":                     "createTask",
+		"/api/projects/{project}/tasks/ready GET":                "listReadyTasks",
+		"/api/projects/{project}/tasks/claim POST":               "claimTask",
+		"/api/tasks GET":                                         "listTasks",
+		"/api/tasks/{id} GET":                                    "showTask",
+		"/api/tasks/{id}/comment POST":                           "commentTask",
+		"/api/tasks/{id}/progress POST":                          "progressTask",
+		"/api/tasks/{id}/block POST":                             "blockTask",
+		"/api/tasks/{id}/unblock POST":                           "unblockTask",
+		"/api/tasks/{id}/done POST":                              "completeTask",
+		"/api/index GET":                                         "listIndexStatus",
+		"/api/index/update POST":                                 "updateAllProjectIndexes",
+		"/api/projects/{project}/index GET":                      "getProjectIndexStatus",
+		"/api/projects/{project}/index/update POST":              "updateProjectIndex",
+		"/api/projects/{project}/index/ignore GET":               "getProjectIndexIgnorePolicy",
+		"/api/projects/{project}/index/ignore/refresh POST":      "refreshProjectIndexIgnorePolicy",
+		"/api/projects/{project}/index/ignore/patterns POST":     "addProjectIndexIgnorePattern",
+		"/api/projects/{project}/index/ignore/patterns DELETE":   "removeProjectIndexIgnorePattern",
 	}
 	for key, expected := range expectedOperations {
 		path, method, _ := strings.Cut(key, " ")
@@ -102,28 +108,32 @@ func TestServerListsProjectsAndExposesOpenAPI(t *testing.T) {
 		}
 	}
 
-	for _, name := range []string{"AgentListResponse", "AgentResponse", "CreateAgentResponse", "AgentOutput", "AgentProjectOutput", "CreateAgentInput", "UpdateAgentInput", "ProjectListResponse", "ProjectResponse", "TaskListResponse", "TaskResponse", "TaskShowResponse", "TaskProject", "TaskEventResponse", "TaskDependencyOutput", "CreateTaskInput", "UpdateProjectInput", "ClaimTaskInput", "TaskDoneInput", "IndexResponse", "IndexListResponse", "IndexIgnorePolicyResponse", "IndexIgnorePatternInput"} {
+	for _, name := range []string{"AgentListResponse", "AgentResponse", "CreateAgentResponse", "AgentOutput", "AgentProjectOutput", "CreateAgentInput", "UpdateAgentInput", "ProjectListResponse", "ProjectResponse", "ProjectInstructionListResponse", "ProjectInstructionResponse", "ProjectInstructionOutput", "ProjectInstructionInput", "TaskListResponse", "TaskResponse", "TaskShowResponse", "TaskProject", "TaskEventResponse", "TaskDependencyOutput", "CreateTaskInput", "UpdateProjectInput", "ClaimTaskInput", "TaskDoneInput", "IndexResponse", "IndexListResponse", "IndexIgnorePolicyResponse", "IndexIgnorePatternInput"} {
 		if _, ok := spec.Components.Schemas[name]; !ok {
 			t.Fatalf("openapi spec missing schema %s", name)
 		}
 	}
 	for schemaName, fields := range map[string][]string{
-		"ProjectListResponse":       {"projects", "total", "limit", "offset"},
-		"TaskListResponse":          {"tasks", "total", "limit", "offset"},
-		"ProjectOutput":             {"tasks_count", "task_counts", "agents"},
-		"TaskCounts":                {"total", "open", "in_progress", "blocked", "done", "ready"},
-		"TaskOutput":                {"project", "agents"},
-		"TaskProject":               {"id", "name", "display_name"},
-		"TaskShowResponse":          {"dependencies"},
-		"AgentListResponse":         {"agents"},
-		"AgentResponse":             {"agent"},
-		"CreateAgentResponse":       {"agent", "token"},
-		"AgentOutput":               {"projects", "tasks_count", "events_count", "last_activity_at"},
-		"AgentProjectOutput":        {"display_name", "tasks_count", "events_count", "last_activity_at"},
-		"IndexResponse":             {"state", "path_exists", "indexed_chunks", "last_error"},
-		"IndexListResponse":         {"indexes", "total"},
-		"IndexIgnorePolicyResponse": {"project_name", "ignore_patterns", "seeded_from_gitignore"},
-		"IndexIgnorePatternInput":   {"pattern"},
+		"ProjectListResponse":            {"projects", "total", "limit", "offset"},
+		"ProjectInstructionListResponse": {"instructions"},
+		"ProjectInstructionResponse":     {"instruction"},
+		"ProjectInstructionOutput":       {"id", "project_id", "title", "body", "priority", "enabled", "source"},
+		"ProjectInstructionInput":        {"title", "body", "priority"},
+		"TaskListResponse":               {"tasks", "total", "limit", "offset"},
+		"ProjectOutput":                  {"tasks_count", "task_counts", "agents"},
+		"TaskCounts":                     {"total", "open", "in_progress", "blocked", "done", "ready"},
+		"TaskOutput":                     {"project", "agents"},
+		"TaskProject":                    {"id", "name", "display_name"},
+		"TaskShowResponse":               {"dependencies"},
+		"AgentListResponse":              {"agents"},
+		"AgentResponse":                  {"agent"},
+		"CreateAgentResponse":            {"agent", "token"},
+		"AgentOutput":                    {"projects", "tasks_count", "events_count", "last_activity_at"},
+		"AgentProjectOutput":             {"display_name", "tasks_count", "events_count", "last_activity_at"},
+		"IndexResponse":                  {"state", "path_exists", "indexed_chunks", "last_error"},
+		"IndexListResponse":              {"indexes", "total"},
+		"IndexIgnorePolicyResponse":      {"project_name", "ignore_patterns", "seeded_from_gitignore"},
+		"IndexIgnorePatternInput":        {"pattern"},
 	} {
 		props := openAPISchemaProperties(t, spec.Components.Schemas[schemaName])
 		for _, field := range fields {
@@ -144,6 +154,10 @@ func TestServerListsProjectsAndExposesOpenAPI(t *testing.T) {
 	updateProject := spec.Paths["/api/projects/{project}"]["patch"]
 	if updateProject.RequestBody == nil || !slices.Contains(updateProject.RequestBody.ContentTypes(), "application/json") {
 		t.Fatalf("update project request body should be application/json, got %+v", updateProject.RequestBody)
+	}
+	createInstruction := spec.Paths["/api/projects/{project}/instructions"]["post"]
+	if createInstruction.RequestBody == nil || !slices.Contains(createInstruction.RequestBody.ContentTypes(), "application/json") {
+		t.Fatalf("create instruction request body should be application/json, got %+v", createInstruction.RequestBody)
 	}
 	createAgent := spec.Paths["/api/agents"]["post"]
 	if createAgent.RequestBody == nil || !slices.Contains(createAgent.RequestBody.ContentTypes(), "application/json") {
@@ -369,6 +383,90 @@ func TestServerUpdatesAndDeletesProjects(t *testing.T) {
 	}
 }
 
+func TestServerManagesProjectInstructions(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+
+	if _, err := store.CreateProject(ctx, storage.CreateProjectInput{
+		Name:        "tok",
+		DisplayName: "TOK",
+		Path:        t.TempDir(),
+	}); err != nil {
+		t.Fatalf("CreateProject returned error: %v", err)
+	}
+	handler := newTestHandler(t, store)
+
+	createRes := doJSON(t, handler, http.MethodPost, "/api/projects/tok/instructions", ProjectInstructionInput{
+		Title:    "Use Context7",
+		Body:     "Use Context7 for library documentation.",
+		Priority: "high",
+	})
+	defer createRes.Body.Close()
+	if createRes.StatusCode != http.StatusOK {
+		t.Fatalf("create instruction status = %d", createRes.StatusCode)
+	}
+	var created ProjectInstructionResponse
+	decodeJSON(t, createRes, &created)
+	if created.Instruction.ID == 0 || created.Instruction.Title != "Use Context7" || created.Instruction.Priority != "high" || !created.Instruction.Enabled {
+		t.Fatalf("unexpected created instruction: %+v", created)
+	}
+
+	listRes := doJSON(t, handler, http.MethodGet, "/api/projects/tok/instructions", nil)
+	defer listRes.Body.Close()
+	if listRes.StatusCode != http.StatusOK {
+		t.Fatalf("list instructions status = %d", listRes.StatusCode)
+	}
+	var listed ProjectInstructionListResponse
+	decodeJSON(t, listRes, &listed)
+	if len(listed.Instructions) != 1 || listed.Instructions[0].ID != created.Instruction.ID {
+		t.Fatalf("unexpected listed instructions: %+v", listed)
+	}
+
+	disableRes := doJSON(t, handler, http.MethodPost, "/api/projects/tok/instructions/"+jsonNumber(created.Instruction.ID)+"/disable", nil)
+	defer disableRes.Body.Close()
+	if disableRes.StatusCode != http.StatusOK {
+		t.Fatalf("disable instruction status = %d", disableRes.StatusCode)
+	}
+	var disabled ProjectInstructionResponse
+	decodeJSON(t, disableRes, &disabled)
+	if disabled.Instruction.Enabled {
+		t.Fatalf("expected disabled instruction: %+v", disabled)
+	}
+
+	enabledListRes := doJSON(t, handler, http.MethodGet, "/api/projects/tok/instructions", nil)
+	defer enabledListRes.Body.Close()
+	if enabledListRes.StatusCode != http.StatusOK {
+		t.Fatalf("enabled list instructions status = %d", enabledListRes.StatusCode)
+	}
+	var enabledList ProjectInstructionListResponse
+	decodeJSON(t, enabledListRes, &enabledList)
+	if len(enabledList.Instructions) != 0 {
+		t.Fatalf("disabled instruction appeared in enabled list: %+v", enabledList)
+	}
+
+	includeDisabledRes := doJSON(t, handler, http.MethodGet, "/api/projects/tok/instructions?includeDisabled=true", nil)
+	defer includeDisabledRes.Body.Close()
+	if includeDisabledRes.StatusCode != http.StatusOK {
+		t.Fatalf("include disabled list status = %d", includeDisabledRes.StatusCode)
+	}
+	var includeDisabled ProjectInstructionListResponse
+	decodeJSON(t, includeDisabledRes, &includeDisabled)
+	if len(includeDisabled.Instructions) != 1 || includeDisabled.Instructions[0].Enabled {
+		t.Fatalf("expected disabled instruction in includeDisabled list: %+v", includeDisabled)
+	}
+
+	deleteRes := doJSON(t, handler, http.MethodDelete, "/api/projects/tok/instructions/"+jsonNumber(created.Instruction.ID), nil)
+	defer deleteRes.Body.Close()
+	if deleteRes.StatusCode != http.StatusOK {
+		t.Fatalf("delete instruction status = %d", deleteRes.StatusCode)
+	}
+	var deleted ProjectInstructionResponse
+	decodeJSON(t, deleteRes, &deleted)
+	if deleted.Instruction.ID != created.Instruction.ID {
+		t.Fatalf("unexpected deleted instruction: %+v", deleted)
+	}
+}
+
 func TestServerTaskActionsWriteHumanActorHistory(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
@@ -559,12 +657,26 @@ func TestServerAggregatesAgentsFromTaskHistory(t *testing.T) {
 	}
 	var tasks TaskListResponse
 	decodeJSON(t, tasksRes, &tasks)
-	if len(tasks.Tasks) != 5 {
+	if len(tasks.Tasks) != 5 || tasks.Total != 5 || tasks.Limit != 25 || tasks.Offset != 0 {
 		t.Fatalf("unexpected tasks response: %+v", tasks)
 	}
 	assertSingleAgent(t, tasks.Tasks[0].Agents, agent.Agent.ID, "Codex Backend")
 	if tasks.Tasks[0].Project.ID != project.ID || tasks.Tasks[0].Project.DisplayName != "TOK" {
 		t.Fatalf("unexpected project summary in task list: %+v", tasks.Tasks[0].Project)
+	}
+
+	pagedTasksRes := doJSON(t, handler, http.MethodGet, "/api/projects/tok/tasks?limit=2&offset=1", nil)
+	defer pagedTasksRes.Body.Close()
+	if pagedTasksRes.StatusCode != http.StatusOK {
+		t.Fatalf("paged tasks status = %d", pagedTasksRes.StatusCode)
+	}
+	var pagedTasks TaskListResponse
+	decodeJSON(t, pagedTasksRes, &pagedTasks)
+	if pagedTasks.Total != 5 || pagedTasks.Limit != 2 || pagedTasks.Offset != 1 {
+		t.Fatalf("unexpected paged tasks metadata: %+v", pagedTasks)
+	}
+	if got := taskTitles(pagedTasks.Tasks); !slices.Equal(got, []string{"Wait for renderer", "Wire HTTP client"}) {
+		t.Fatalf("unexpected paged task titles: %v", got)
 	}
 
 	showRes := doJSON(t, handler, http.MethodGet, "/api/tasks/"+jsonNumber(task.ID), nil)

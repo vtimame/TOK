@@ -51,6 +51,20 @@ type ProjectResponse struct {
 	Project ProjectOutput `json:"project"`
 }
 
+type ProjectInstructionListResponse struct {
+	Instructions []ProjectInstructionOutput `json:"instructions"`
+}
+
+type ProjectInstructionResponse struct {
+	Instruction ProjectInstructionOutput `json:"instruction"`
+}
+
+type ProjectInstructionInput struct {
+	Title    string `json:"title,omitempty"`
+	Body     string `json:"body,omitempty"`
+	Priority string `json:"priority,omitempty"`
+}
+
 type ProjectOutput struct {
 	ID          int64         `json:"id"`
 	Name        string        `json:"name"`
@@ -61,6 +75,19 @@ type ProjectOutput struct {
 	Agents      []ActorOutput `json:"agents"`
 	CreatedAt   string        `json:"created_at"`
 	UpdatedAt   string        `json:"updated_at"`
+}
+
+type ProjectInstructionOutput struct {
+	ID        int64  `json:"id"`
+	ProjectID int64  `json:"project_id"`
+	Scope     string `json:"scope"`
+	Title     string `json:"title"`
+	Body      string `json:"body"`
+	Priority  string `json:"priority"`
+	Enabled   bool   `json:"enabled"`
+	Source    string `json:"source"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 type TaskCounts struct {
@@ -235,6 +262,29 @@ func projectFromStorage(project storage.Project, taskCounts TaskCounts, agents [
 		Agents:      agents,
 		CreatedAt:   project.CreatedAt,
 		UpdatedAt:   project.UpdatedAt,
+	}
+}
+
+func projectInstructionsFromStorage(instructions []storage.ProjectInstruction) ProjectInstructionListResponse {
+	out := ProjectInstructionListResponse{Instructions: make([]ProjectInstructionOutput, 0, len(instructions))}
+	for _, instruction := range instructions {
+		out.Instructions = append(out.Instructions, projectInstructionFromStorage(instruction))
+	}
+	return out
+}
+
+func projectInstructionFromStorage(instruction storage.ProjectInstruction) ProjectInstructionOutput {
+	return ProjectInstructionOutput{
+		ID:        instruction.ID,
+		ProjectID: instruction.ProjectID,
+		Scope:     instruction.Scope,
+		Title:     instruction.Title,
+		Body:      instruction.Body,
+		Priority:  instruction.Priority,
+		Enabled:   instruction.Enabled,
+		Source:    instruction.Source,
+		CreatedAt: instruction.CreatedAt,
+		UpdatedAt: instruction.UpdatedAt,
 	}
 }
 

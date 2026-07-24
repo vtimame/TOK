@@ -1,0 +1,10 @@
+{
+  "description": "ProjectInstructionInput schema",
+  "properties": {
+    "body": { "type": "string" },
+    "priority": { "type": "string" },
+    "title": { "type": "string" }
+  },
+  "type": "object",
+  "x-readme-ref-name": "ProjectInstructionInput"
+}

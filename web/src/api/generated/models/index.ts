@@ -69,6 +69,15 @@ export type {
 } from "./CreateProject.ts";
 export type { CreateProjectInput } from "./CreateProjectInput.ts";
 export type {
+  CreateProjectInstruction200,
+  CreateProjectInstruction400,
+  CreateProjectInstruction500,
+  CreateProjectInstructionMutation,
+  CreateProjectInstructionMutationRequest,
+  CreateProjectInstructionMutationResponse,
+  CreateProjectInstructionPathParams,
+} from "./CreateProjectInstruction.ts";
+export type {
   CreateTask200,
   CreateTask400,
   CreateTask500,
@@ -94,6 +103,30 @@ export type {
   DeleteProjectMutationResponse,
   DeleteProjectPathParams,
 } from "./DeleteProject.ts";
+export type {
+  DeleteProjectInstruction200,
+  DeleteProjectInstruction400,
+  DeleteProjectInstruction500,
+  DeleteProjectInstructionMutation,
+  DeleteProjectInstructionMutationResponse,
+  DeleteProjectInstructionPathParams,
+} from "./DeleteProjectInstruction.ts";
+export type {
+  DisableProjectInstruction200,
+  DisableProjectInstruction400,
+  DisableProjectInstruction500,
+  DisableProjectInstructionMutation,
+  DisableProjectInstructionMutationResponse,
+  DisableProjectInstructionPathParams,
+} from "./DisableProjectInstruction.ts";
+export type {
+  EnableProjectInstruction200,
+  EnableProjectInstruction400,
+  EnableProjectInstruction500,
+  EnableProjectInstructionMutation,
+  EnableProjectInstructionMutationResponse,
+  EnableProjectInstructionPathParams,
+} from "./EnableProjectInstruction.ts";
 export type { ErrorItem } from "./ErrorItem.ts";
 export type {
   GetHealth200,
@@ -139,6 +172,15 @@ export type {
   ListIndexStatusQueryResponse,
 } from "./ListIndexStatus.ts";
 export type {
+  ListProjectInstructions200,
+  ListProjectInstructions400,
+  ListProjectInstructions500,
+  ListProjectInstructionsPathParams,
+  ListProjectInstructionsQuery,
+  ListProjectInstructionsQueryParams,
+  ListProjectInstructionsQueryResponse,
+} from "./ListProjectInstructions.ts";
+export type {
   ListProjectTasks200,
   ListProjectTasks400,
   ListProjectTasks500,
@@ -180,6 +222,10 @@ export type {
   ProgressTaskMutationResponse,
   ProgressTaskPathParams,
 } from "./ProgressTask.ts";
+export type { ProjectInstructionInput } from "./ProjectInstructionInput.ts";
+export type { ProjectInstructionListResponse } from "./ProjectInstructionListResponse.ts";
+export type { ProjectInstructionOutput } from "./ProjectInstructionOutput.ts";
+export type { ProjectInstructionResponse } from "./ProjectInstructionResponse.ts";
 export type { ProjectListResponse } from "./ProjectListResponse.ts";
 export type { ProjectOutput } from "./ProjectOutput.ts";
 export type { ProjectResponse } from "./ProjectResponse.ts";
@@ -216,6 +262,14 @@ export type {
   ShowProjectQuery,
   ShowProjectQueryResponse,
 } from "./ShowProject.ts";
+export type {
+  ShowProjectInstruction200,
+  ShowProjectInstruction400,
+  ShowProjectInstruction500,
+  ShowProjectInstructionPathParams,
+  ShowProjectInstructionQuery,
+  ShowProjectInstructionQueryResponse,
+} from "./ShowProjectInstruction.ts";
 export type {
   ShowTask200,
   ShowTask400,

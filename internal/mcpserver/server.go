@@ -9,6 +9,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	contextpkg "s26.sh/tok/internal/context"
 	"s26.sh/tok/internal/retrieval"
 	"s26.sh/tok/internal/storage"
 )
@@ -115,6 +116,10 @@ func (s *service) addTools(server *mcp.Server) {
 		Name:        "search",
 		Description: "Search indexed project files.",
 	}, s.search)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "context_build",
+		Description: "Build a structured TOK context package for a task.",
+	}, s.contextBuild)
 }
 
 type emptyInput struct{}
@@ -167,6 +172,13 @@ type searchInput struct {
 	Limit   int    `json:"limit,omitempty" jsonschema:"optional positive result limit"`
 }
 
+type contextBuildInput struct {
+	Project string `json:"project" jsonschema:"project name"`
+	TaskID  int64  `json:"task_id" jsonschema:"task id"`
+	Limit   int    `json:"limit,omitempty" jsonschema:"optional positive retrieval result limit"`
+	Query   string `json:"query,omitempty" jsonschema:"optional retrieval query override"`
+}
+
 type projectListOutput struct {
 	Projects []ProjectOutput `json:"projects"`
 }
@@ -213,6 +225,20 @@ type searchOutput struct {
 	Results []SearchResultOutput `json:"results"`
 }
 
+type contextBuildOutput struct {
+	ContractVersion     string                     `json:"contract_version"`
+	Project             ProjectOutput              `json:"project"`
+	Task                TaskOutput                 `json:"task"`
+	RetrievalLimit      int                        `json:"retrieval_limit"`
+	ProjectInstructions []ProjectInstructionOutput `json:"project_instructions"`
+	Dependencies        []TaskDependencyOutput     `json:"dependencies"`
+	Blockers            []TaskDependencyOutput     `json:"blockers"`
+	Events              []TaskEventOutput          `json:"events"`
+	RetrievalResults    []SearchResultOutput       `json:"retrieval_results"`
+	RepositoryState     RepositoryStateOutput      `json:"repository_state"`
+	SuggestedCommands   []string                   `json:"suggested_commands"`
+}
+
 type ProjectOutput struct {
 	ID          int64  `json:"id"`
 	Name        string `json:"name"`
@@ -220,6 +246,19 @@ type ProjectOutput struct {
 	Path        string `json:"path"`
 	CreatedAt   string `json:"created_at"`
 	UpdatedAt   string `json:"updated_at"`
+}
+
+type ProjectInstructionOutput struct {
+	ID        int64  `json:"id"`
+	ProjectID int64  `json:"project_id"`
+	Scope     string `json:"scope"`
+	Title     string `json:"title"`
+	Body      string `json:"body"`
+	Priority  string `json:"priority"`
+	Enabled   bool   `json:"enabled"`
+	Source    string `json:"source"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 type TaskOutput struct {
@@ -232,6 +271,23 @@ type TaskOutput struct {
 	Notes              string `json:"notes"`
 	CreatedAt          string `json:"created_at"`
 	UpdatedAt          string `json:"updated_at"`
+}
+
+type TaskDependencyOutput struct {
+	ID            int64  `json:"id"`
+	EdgeType      string `json:"edge_type"`
+	BlockerTaskID int64  `json:"blocker_task_id"`
+	BlockedTaskID int64  `json:"blocked_task_id"`
+	CreatedAt     string `json:"created_at"`
+}
+
+type RepositoryStateOutput struct {
+	Available   bool     `json:"available"`
+	Branch      string   `json:"branch"`
+	Head        string   `json:"head"`
+	Status      []string `json:"status"`
+	DiffSummary []string `json:"diff_summary"`
+	Error       string   `json:"error"`
 }
 
 type ActorOutput struct {
@@ -501,6 +557,31 @@ func (s *service) search(ctx context.Context, _ *mcp.CallToolRequest, input sear
 	return nil, out, nil
 }
 
+func (s *service) contextBuild(ctx context.Context, _ *mcp.CallToolRequest, input contextBuildInput) (*mcp.CallToolResult, contextBuildOutput, error) {
+	project, err := s.projectByName(ctx, input.Project)
+	if err != nil {
+		return nil, contextBuildOutput{}, err
+	}
+	task, err := s.taskByID(ctx, input.TaskID)
+	if err != nil {
+		return nil, contextBuildOutput{}, err
+	}
+	limit := input.Limit
+	if limit < 0 {
+		return nil, contextBuildOutput{}, fmt.Errorf("invalid context retrieval limit: %d", input.Limit)
+	}
+	pkg, err := contextpkg.NewBuilder(s.store, s.retrieval).Build(ctx, contextpkg.BuildInput{
+		Project:        project,
+		Task:           task,
+		RetrievalLimit: limit,
+		Query:          input.Query,
+	})
+	if err != nil {
+		return nil, contextBuildOutput{}, err
+	}
+	return nil, contextOutputFromPackage(pkg), nil
+}
+
 func (s *service) projectByName(ctx context.Context, name string) (storage.Project, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -593,6 +674,88 @@ func taskEventFromStorage(event storage.TaskEvent) TaskEventOutput {
 		ToStatus:   event.ToStatus,
 		Actor:      actorFromSnapshot(event.ActorID, event.ActorKind, event.ActorName),
 		CreatedAt:  event.CreatedAt,
+	}
+}
+
+func projectInstructionFromStorage(instruction storage.ProjectInstruction) ProjectInstructionOutput {
+	return ProjectInstructionOutput{
+		ID:        instruction.ID,
+		ProjectID: instruction.ProjectID,
+		Scope:     instruction.Scope,
+		Title:     instruction.Title,
+		Body:      instruction.Body,
+		Priority:  instruction.Priority,
+		Enabled:   instruction.Enabled,
+		Source:    instruction.Source,
+		CreatedAt: instruction.CreatedAt,
+		UpdatedAt: instruction.UpdatedAt,
+	}
+}
+
+func taskDependencyFromStorage(dependency storage.TaskDependency) TaskDependencyOutput {
+	return TaskDependencyOutput{
+		ID:            dependency.ID,
+		EdgeType:      dependency.EdgeType,
+		BlockerTaskID: dependency.BlockerTaskID,
+		BlockedTaskID: dependency.BlockedTaskID,
+		CreatedAt:     dependency.CreatedAt,
+	}
+}
+
+func searchResultFromRetrieval(result retrieval.SearchResult) SearchResultOutput {
+	return SearchResultOutput{
+		Path:       result.Path,
+		Score:      result.Score,
+		Line:       result.Line,
+		LineStart:  result.LineStart,
+		LineEnd:    result.LineEnd,
+		Snippet:    result.Snippet,
+		Excerpt:    result.Excerpt,
+		Provenance: result.Provenance,
+	}
+}
+
+func contextOutputFromPackage(pkg contextpkg.Package) contextBuildOutput {
+	instructions := make([]ProjectInstructionOutput, 0, len(pkg.ProjectInstructions))
+	for _, instruction := range pkg.ProjectInstructions {
+		instructions = append(instructions, projectInstructionFromStorage(instruction))
+	}
+	dependencies := make([]TaskDependencyOutput, 0, len(pkg.Dependencies))
+	for _, dependency := range pkg.Dependencies {
+		dependencies = append(dependencies, taskDependencyFromStorage(dependency))
+	}
+	blockers := make([]TaskDependencyOutput, 0, len(pkg.Blockers))
+	for _, blocker := range pkg.Blockers {
+		blockers = append(blockers, taskDependencyFromStorage(blocker))
+	}
+	events := make([]TaskEventOutput, 0, len(pkg.Events))
+	for _, event := range pkg.Events {
+		events = append(events, taskEventFromStorage(event))
+	}
+	results := make([]SearchResultOutput, 0, len(pkg.Results))
+	for _, result := range pkg.Results {
+		results = append(results, searchResultFromRetrieval(result))
+	}
+
+	return contextBuildOutput{
+		ContractVersion:     pkg.ContractVersion,
+		Project:             projectFromStorage(pkg.Project),
+		Task:                taskFromStorage(pkg.Task),
+		RetrievalLimit:      pkg.RetrievalLimit,
+		ProjectInstructions: instructions,
+		Dependencies:        dependencies,
+		Blockers:            blockers,
+		Events:              events,
+		RetrievalResults:    results,
+		RepositoryState: RepositoryStateOutput{
+			Available:   pkg.Git.Available,
+			Branch:      pkg.Git.Branch,
+			Head:        pkg.Git.Head,
+			Status:      pkg.Git.Status,
+			DiffSummary: pkg.Git.DiffSummary,
+			Error:       pkg.Git.Error,
+		},
+		SuggestedCommands: pkg.SuggestedCommands,
 	}
 }
 

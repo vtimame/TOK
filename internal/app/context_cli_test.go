@@ -46,6 +46,16 @@ func TestCLIContextBuild(t *testing.T) {
 	if err := indexCLI.Run(ctx, []string{"index", "update", "--project", "tok"}); err != nil {
 		t.Fatalf("index update returned error: %v", err)
 	}
+	instructionCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	if err := instructionCLI.Run(ctx, []string{
+		"project", "instruction", "add",
+		"--project", "tok",
+		"--title", "Документация библиотек",
+		"--body", "Используй Context7 для поиска документации библиотек.",
+		"--priority", "high",
+	}); err != nil {
+		t.Fatalf("project instruction add returned error: %v", err)
+	}
 
 	var contextOut bytes.Buffer
 	contextCLI := newProjectTestCLI(dataDir, &contextOut)
@@ -69,6 +79,9 @@ func TestCLIContextBuild(t *testing.T) {
 		"## Project",
 		"name: tok",
 		"display_name: TOK",
+		"## Project Instructions",
+		"priority: high title: Документация библиотек",
+		"Используй Context7 для поиска документации библиотек.",
 		"## Task Dependencies",
 		"blocker_task_id: " + strconv.FormatInt(blockerID, 10) + " blocked_task_id: " + strconv.FormatInt(taskID, 10),
 		"## Task Events",
@@ -150,6 +163,9 @@ func TestCLIContextBuild(t *testing.T) {
 	}
 	if len(packageJSON.Dependencies) != 1 || packageJSON.Dependencies[0].BlockerTaskID != blockerID || packageJSON.Dependencies[0].BlockedTaskID != taskID {
 		t.Fatalf("unexpected context package JSON dependencies: %+v", packageJSON.Dependencies)
+	}
+	if len(packageJSON.ProjectInstructions) != 1 || packageJSON.ProjectInstructions[0].Title != "Документация библиотек" || packageJSON.ProjectInstructions[0].Priority != "high" {
+		t.Fatalf("unexpected context package JSON project instructions: %+v", packageJSON.ProjectInstructions)
 	}
 	if len(packageJSON.Blockers) != 1 || packageJSON.Blockers[0].BlockerTaskID != blockerID {
 		t.Fatalf("unexpected context package JSON blockers: %+v", packageJSON.Blockers)

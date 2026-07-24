@@ -81,7 +81,7 @@ useTitle("Projects");
   <div v-else class="mx-auto flex h-svh w-full max-w-5xl flex-col gap-4 overflow-hidden px-4 py-18">
     <div class="flex shrink-0 items-center justify-between">
       <div class="text-2xl font-bold">Projects</div>
-      <Button @click="createProject">New project</Button>
+      <Button @click="createProject" size="sm">New project</Button>
     </div>
 
     <ProjectDialog

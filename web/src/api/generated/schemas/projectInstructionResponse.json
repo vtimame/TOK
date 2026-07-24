@@ -1,0 +1,36 @@
+{
+  "description": "ProjectInstructionResponse schema",
+  "properties": {
+    "instruction": {
+      "properties": {
+        "body": { "type": "string" },
+        "created_at": { "type": "string" },
+        "enabled": { "type": "boolean" },
+        "id": { "format": "int64", "type": "integer" },
+        "priority": { "type": "string" },
+        "project_id": { "format": "int64", "type": "integer" },
+        "scope": { "type": "string" },
+        "source": { "type": "string" },
+        "title": { "type": "string" },
+        "updated_at": { "type": "string" }
+      },
+      "required": [
+        "body",
+        "created_at",
+        "enabled",
+        "id",
+        "priority",
+        "project_id",
+        "scope",
+        "source",
+        "title",
+        "updated_at"
+      ],
+      "type": "object",
+      "x-readme-ref-name": "ProjectInstructionOutput"
+    }
+  },
+  "required": ["instruction"],
+  "type": "object",
+  "x-readme-ref-name": "ProjectInstructionResponse"
+}

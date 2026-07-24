@@ -55,6 +55,15 @@ func TestBuilderBuildsDeterministicTextPackage(t *testing.T) {
 	if _, err := retrieval.NewService(store).IndexProject(ctx, project); err != nil {
 		t.Fatalf("IndexProject returned error: %v", err)
 	}
+	instruction, err := store.CreateProjectInstruction(ctx, storage.CreateProjectInstructionInput{
+		ProjectID: project.ID,
+		Title:     "Документация библиотек",
+		Body:      "Используй Context7 для поиска документации библиотек.",
+		Priority:  "high",
+	})
+	if err != nil {
+		t.Fatalf("CreateProjectInstruction returned error: %v", err)
+	}
 
 	builder := NewBuilder(store, retrieval.NewService(store))
 	builder.git = fixedGitInspector{state: GitState{
@@ -88,6 +97,9 @@ func TestBuilderBuildsDeterministicTextPackage(t *testing.T) {
 	if len(pkg.SuggestedCommands) != 4 {
 		t.Fatalf("unexpected suggested commands: %+v", pkg.SuggestedCommands)
 	}
+	if len(pkg.ProjectInstructions) != 1 || pkg.ProjectInstructions[0].ID != instruction.ID {
+		t.Fatalf("unexpected project instructions: %+v", pkg.ProjectInstructions)
+	}
 
 	text := pkg.RenderText()
 	for _, want := range []string{
@@ -105,6 +117,9 @@ func TestBuilderBuildsDeterministicTextPackage(t *testing.T) {
 		"repository_available: true",
 		"## Project",
 		"name: tok",
+		"## Project Instructions",
+		"priority: high title: Документация библиотек",
+		"Используй Context7 для поиска документации библиотек.",
 		"## Task Dependencies",
 		fmt.Sprintf("blocker_task_id: %d blocked_task_id: %d role: blocker", blocker.ID, task.ID),
 		"## Task Events",

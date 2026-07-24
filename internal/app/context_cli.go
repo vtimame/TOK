@@ -233,16 +233,17 @@ func writeContextPackage(path, text string) error {
 }
 
 type contextPackageOutput struct {
-	ContractVersion   string                  `json:"contract_version"`
-	Project           projectOutput           `json:"project"`
-	Task              readyTaskOutput         `json:"task"`
-	RetrievalLimit    int                     `json:"retrieval_limit"`
-	Dependencies      []taskDependencyOutput  `json:"dependencies"`
-	Blockers          []taskDependencyOutput  `json:"blockers"`
-	Events            []taskEventOutput       `json:"events"`
-	RetrievalResults  []retrievalResultOutput `json:"retrieval_results"`
-	RepositoryState   repositoryStateOutput   `json:"repository_state"`
-	SuggestedCommands []string                `json:"suggested_commands"`
+	ContractVersion     string                     `json:"contract_version"`
+	Project             projectOutput              `json:"project"`
+	Task                readyTaskOutput            `json:"task"`
+	RetrievalLimit      int                        `json:"retrieval_limit"`
+	ProjectInstructions []projectInstructionOutput `json:"project_instructions"`
+	Dependencies        []taskDependencyOutput     `json:"dependencies"`
+	Blockers            []taskDependencyOutput     `json:"blockers"`
+	Events              []taskEventOutput          `json:"events"`
+	RetrievalResults    []retrievalResultOutput    `json:"retrieval_results"`
+	RepositoryState     repositoryStateOutput      `json:"repository_state"`
+	SuggestedCommands   []string                   `json:"suggested_commands"`
 }
 
 type projectOutput struct {
@@ -315,6 +316,10 @@ func contextPackageOutputFromPackage(pkg contextpkg.Package) contextPackageOutpu
 			Provenance: result.Provenance,
 		})
 	}
+	instructions := make([]projectInstructionOutput, 0, len(pkg.ProjectInstructions))
+	for _, instruction := range pkg.ProjectInstructions {
+		instructions = append(instructions, projectInstructionOutputFromStorage(instruction))
+	}
 
 	return contextPackageOutput{
 		ContractVersion: pkg.ContractVersion,
@@ -326,12 +331,13 @@ func contextPackageOutputFromPackage(pkg contextpkg.Package) contextPackageOutpu
 			CreatedAt:   pkg.Project.CreatedAt,
 			UpdatedAt:   pkg.Project.UpdatedAt,
 		},
-		Task:             taskOutputFromStorage(pkg.Task),
-		RetrievalLimit:   pkg.RetrievalLimit,
-		Dependencies:     dependencies,
-		Blockers:         blockers,
-		Events:           events,
-		RetrievalResults: results,
+		Task:                taskOutputFromStorage(pkg.Task),
+		RetrievalLimit:      pkg.RetrievalLimit,
+		ProjectInstructions: instructions,
+		Dependencies:        dependencies,
+		Blockers:            blockers,
+		Events:              events,
+		RetrievalResults:    results,
 		RepositoryState: repositoryStateOutput{
 			Available:   pkg.Git.Available,
 			Branch:      pkg.Git.Branch,

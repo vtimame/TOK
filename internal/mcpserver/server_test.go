@@ -33,6 +33,15 @@ func TestServerToolsClaimTaskWithAgentAttribution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTask returned error: %v", err)
 	}
+	instruction, err := store.CreateProjectInstruction(ctx, storage.CreateProjectInstructionInput{
+		ProjectID: project.ID,
+		Title:     "Use Context7",
+		Body:      "Use Context7 for library documentation.",
+		Priority:  "high",
+	})
+	if err != nil {
+		t.Fatalf("CreateProjectInstruction returned error: %v", err)
+	}
 
 	server, err := New(Config{
 		Store:   store,
@@ -100,6 +109,28 @@ func TestServerToolsClaimTaskWithAgentAttribution(t *testing.T) {
 	}
 	if shown.Events[1].Actor == nil || shown.Events[1].Actor.ID != createdAgent.Agent.ID || shown.Events[1].Actor.Name != "Codex MCP" {
 		t.Fatalf("claimed event missing agent attribution: %+v", shown.Events[1])
+	}
+
+	contextResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "context_build",
+		Arguments: map[string]any{
+			"project": "tok",
+			"task_id": task.ID,
+		},
+	})
+	if err != nil {
+		t.Fatalf("context_build returned error: %v", err)
+	}
+	if contextResult.IsError {
+		t.Fatalf("context_build returned tool error: %+v", contextResult)
+	}
+	var contextPackage contextBuildOutput
+	decodeStructured(t, contextResult.StructuredContent, &contextPackage)
+	if contextPackage.Project.Name != "tok" || contextPackage.Task.ID != task.ID {
+		t.Fatalf("unexpected context_build metadata: %+v", contextPackage)
+	}
+	if len(contextPackage.ProjectInstructions) != 1 || contextPackage.ProjectInstructions[0].ID != instruction.ID || contextPackage.ProjectInstructions[0].Title != "Use Context7" {
+		t.Fatalf("context_build missing project instruction: %+v", contextPackage.ProjectInstructions)
 	}
 }
 

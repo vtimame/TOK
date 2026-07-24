@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -124,6 +125,84 @@ func TestCLIProjectAddDefaultsDisplayNameToName(t *testing.T) {
 
 	if !strings.Contains(out.String(), "display_name: tok") {
 		t.Fatalf("expected display_name to default to name:\n%s", out.String())
+	}
+}
+
+func TestCLIProjectInstructionLifecycle(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	projectDir := t.TempDir()
+
+	projectCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	if err := projectCLI.Run(ctx, []string{"project", "add", projectDir, "--name", "tok"}); err != nil {
+		t.Fatalf("project add returned error: %v", err)
+	}
+
+	var addOut bytes.Buffer
+	addCLI := newProjectTestCLI(dataDir, &addOut)
+	if err := addCLI.Run(ctx, []string{
+		"project", "instruction", "add",
+		"--project", "tok",
+		"--title", "Use Context7",
+		"--body", "Use Context7 for library documentation.",
+		"--priority", "high",
+		"--json",
+	}); err != nil {
+		t.Fatalf("project instruction add returned error: %v", err)
+	}
+	var added projectInstructionOutput
+	if err := json.Unmarshal(addOut.Bytes(), &added); err != nil {
+		t.Fatalf("parse instruction add JSON: %v\n%s", err, addOut.String())
+	}
+	if added.ID == 0 || added.Scope != "project" || added.Title != "Use Context7" || added.Priority != "high" || !added.Enabled {
+		t.Fatalf("unexpected added instruction: %+v", added)
+	}
+
+	var listOut bytes.Buffer
+	listCLI := newProjectTestCLI(dataDir, &listOut)
+	if err := listCLI.Run(ctx, []string{"project", "instruction", "list", "--project", "tok"}); err != nil {
+		t.Fatalf("project instruction list returned error: %v", err)
+	}
+	for _, want := range []string{"id | priority | enabled | title", "high", "true", "Use Context7"} {
+		if !strings.Contains(listOut.String(), want) {
+			t.Fatalf("instruction list output missing %q:\n%s", want, listOut.String())
+		}
+	}
+
+	disableCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	if err := disableCLI.Run(ctx, []string{"project", "instruction", "disable", "--project", "tok", fmt.Sprintf("%d", added.ID)}); err != nil {
+		t.Fatalf("project instruction disable returned error: %v", err)
+	}
+
+	var enabledListOut bytes.Buffer
+	enabledListCLI := newProjectTestCLI(dataDir, &enabledListOut)
+	if err := enabledListCLI.Run(ctx, []string{"project", "instruction", "list", "--project", "tok", "--json"}); err != nil {
+		t.Fatalf("project instruction enabled list returned error: %v", err)
+	}
+	var enabled []projectInstructionOutput
+	if err := json.Unmarshal(enabledListOut.Bytes(), &enabled); err != nil {
+		t.Fatalf("parse enabled instruction list JSON: %v\n%s", err, enabledListOut.String())
+	}
+	if len(enabled) != 0 {
+		t.Fatalf("disabled instruction appeared in enabled list: %+v", enabled)
+	}
+
+	var disabledListOut bytes.Buffer
+	disabledListCLI := newProjectTestCLI(dataDir, &disabledListOut)
+	if err := disabledListCLI.Run(ctx, []string{"project", "instruction", "list", "--project", "tok", "--include-disabled", "--json"}); err != nil {
+		t.Fatalf("project instruction disabled list returned error: %v", err)
+	}
+	var disabled []projectInstructionOutput
+	if err := json.Unmarshal(disabledListOut.Bytes(), &disabled); err != nil {
+		t.Fatalf("parse disabled instruction list JSON: %v\n%s", err, disabledListOut.String())
+	}
+	if len(disabled) != 1 || disabled[0].Enabled {
+		t.Fatalf("expected disabled instruction in include-disabled list: %+v", disabled)
+	}
+
+	removeCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	if err := removeCLI.Run(ctx, []string{"project", "instruction", "remove", "--project", "tok", fmt.Sprintf("%d", added.ID)}); err != nil {
+		t.Fatalf("project instruction remove returned error: %v", err)
 	}
 }
 

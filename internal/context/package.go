@@ -21,6 +21,7 @@ const (
 type Store interface {
 	ListTaskEvents(ctx stdctx.Context, taskID int64) ([]storage.TaskEvent, error)
 	ListTaskDependencies(ctx stdctx.Context, projectID, taskID int64) ([]storage.TaskDependency, error)
+	ListProjectInstructions(ctx stdctx.Context, opts storage.ListProjectInstructionsOptions) ([]storage.ProjectInstruction, error)
 }
 
 type Builder struct {
@@ -37,16 +38,17 @@ type BuildInput struct {
 }
 
 type Package struct {
-	ContractVersion   string
-	Project           storage.Project
-	Task              storage.Task
-	RetrievalLimit    int
-	Dependencies      []storage.TaskDependency
-	Blockers          []storage.TaskDependency
-	Events            []storage.TaskEvent
-	Results           []retrieval.SearchResult
-	Git               GitState
-	SuggestedCommands []string
+	ContractVersion     string
+	Project             storage.Project
+	Task                storage.Task
+	RetrievalLimit      int
+	Dependencies        []storage.TaskDependency
+	Blockers            []storage.TaskDependency
+	Events              []storage.TaskEvent
+	ProjectInstructions []storage.ProjectInstruction
+	Results             []retrieval.SearchResult
+	Git                 GitState
+	SuggestedCommands   []string
 }
 
 type GitInspector interface {
@@ -95,6 +97,10 @@ func (b *Builder) Build(ctx stdctx.Context, input BuildInput) (Package, error) {
 	if err != nil {
 		return Package{}, err
 	}
+	instructions, err := b.store.ListProjectInstructions(ctx, storage.ListProjectInstructionsOptions{ProjectID: input.Project.ID})
+	if err != nil {
+		return Package{}, err
+	}
 
 	query := strings.TrimSpace(input.Query)
 	if query == "" {
@@ -107,16 +113,17 @@ func (b *Builder) Build(ctx stdctx.Context, input BuildInput) (Package, error) {
 	}
 
 	return Package{
-		ContractVersion:   HandoffContractV0,
-		Project:           input.Project,
-		Task:              input.Task,
-		RetrievalLimit:    input.RetrievalLimit,
-		Dependencies:      dependencies,
-		Blockers:          blockersForTask(input.Task.ID, dependencies),
-		Events:            events,
-		Results:           results,
-		Git:               b.git.Inspect(ctx, input.Project.Path),
-		SuggestedCommands: suggestedCommands(input.Project, input.Task),
+		ContractVersion:     HandoffContractV0,
+		Project:             input.Project,
+		Task:                input.Task,
+		RetrievalLimit:      input.RetrievalLimit,
+		Dependencies:        dependencies,
+		Blockers:            blockersForTask(input.Task.ID, dependencies),
+		Events:              events,
+		ProjectInstructions: instructions,
+		Results:             results,
+		Git:                 b.git.Inspect(ctx, input.Project.Path),
+		SuggestedCommands:   suggestedCommands(input.Project, input.Task),
 	}, nil
 }
 
@@ -158,6 +165,22 @@ func (p Package) RenderText() string {
 	fmt.Fprintf(&out, "path: %s\n", p.Project.Path)
 	fmt.Fprintf(&out, "created_at: %s\n", p.Project.CreatedAt)
 	fmt.Fprintf(&out, "updated_at: %s\n\n", p.Project.UpdatedAt)
+
+	out.WriteString("## Project Instructions\n")
+	if len(p.ProjectInstructions) == 0 {
+		out.WriteString("none\n\n")
+	} else {
+		for _, instruction := range p.ProjectInstructions {
+			fmt.Fprintf(&out, "- id: %d priority: %s title: %s\n", instruction.ID, instruction.Priority, instruction.Title)
+			fmt.Fprintf(&out, "  scope: %s\n", instruction.Scope)
+			fmt.Fprintf(&out, "  source: %s\n", instruction.Source)
+			out.WriteString("  body:\n")
+			for _, line := range strings.Split(instruction.Body, "\n") {
+				fmt.Fprintf(&out, "    %s\n", line)
+			}
+		}
+		out.WriteString("\n")
+	}
 
 	out.WriteString("## Task Dependencies\n")
 	if len(p.Dependencies) == 0 {

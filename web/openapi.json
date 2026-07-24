@@ -415,6 +415,100 @@
         ],
         "type": "object"
       },
+      "ProjectInstructionInput": {
+        "description": "ProjectInstructionInput schema",
+        "properties": {
+          "body": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ProjectInstructionListResponse": {
+        "description": "ProjectInstructionListResponse schema",
+        "properties": {
+          "instructions": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectInstructionOutput"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "instructions"
+        ],
+        "type": "object"
+      },
+      "ProjectInstructionOutput": {
+        "properties": {
+          "body": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "priority": {
+            "type": "string"
+          },
+          "project_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "body",
+          "created_at",
+          "enabled",
+          "id",
+          "priority",
+          "project_id",
+          "scope",
+          "source",
+          "title",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "ProjectInstructionResponse": {
+        "description": "ProjectInstructionResponse schema",
+        "properties": {
+          "instruction": {
+            "$ref": "#/components/schemas/ProjectInstructionOutput"
+          }
+        },
+        "required": [
+          "instruction"
+        ],
+        "type": "object"
+      },
       "ProjectListResponse": {
         "description": "ProjectListResponse schema",
         "properties": {
@@ -2134,11 +2228,476 @@
         ]
       }
     },
+    "/api/projects/{project}/instructions": {
+      "get": {
+        "description": "List project instructions.",
+        "operationId": "listProjectInstructions",
+        "parameters": [
+          {
+            "description": "Include disabled instructions",
+            "in": "query",
+            "name": "includeDisabled",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectInstructionListResponse"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectInstructionListResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Bad Request _(validation or deserialization error)_"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Internal Server Error _(panics)_"
+          }
+        },
+        "summary": "List project instructions",
+        "tags": [
+          "Projects"
+        ]
+      },
+      "post": {
+        "description": "Create a project instruction.",
+        "operationId": "createProjectInstruction",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectInstructionInput"
+              }
+            }
+          },
+          "description": "Request body for httpserver.ProjectInstructionInput",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectInstructionResponse"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectInstructionResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Bad Request _(validation or deserialization error)_"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Internal Server Error _(panics)_"
+          }
+        },
+        "summary": "Create a project instruction",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/projects/{project}/instructions/{id}": {
+      "delete": {
+        "description": "Delete a project instruction.",
+        "operationId": "deleteProjectInstruction",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectInstructionResponse"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectInstructionResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Bad Request _(validation or deserialization error)_"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Internal Server Error _(panics)_"
+          }
+        },
+        "summary": "Delete a project instruction",
+        "tags": [
+          "Projects"
+        ]
+      },
+      "get": {
+        "description": "Show a project instruction.",
+        "operationId": "showProjectInstruction",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectInstructionResponse"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectInstructionResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Bad Request _(validation or deserialization error)_"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Internal Server Error _(panics)_"
+          }
+        },
+        "summary": "Show a project instruction",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/projects/{project}/instructions/{id}/disable": {
+      "post": {
+        "description": "Disable a project instruction.",
+        "operationId": "disableProjectInstruction",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectInstructionResponse"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectInstructionResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Bad Request _(validation or deserialization error)_"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Internal Server Error _(panics)_"
+          }
+        },
+        "summary": "Disable a project instruction",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/projects/{project}/instructions/{id}/enable": {
+      "post": {
+        "description": "Enable a project instruction.",
+        "operationId": "enableProjectInstruction",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectInstructionResponse"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectInstructionResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Bad Request _(validation or deserialization error)_"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Internal Server Error _(panics)_"
+          }
+        },
+        "summary": "Enable a project instruction",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
     "/api/projects/{project}/tasks": {
       "get": {
         "description": "List project tasks.",
         "operationId": "listProjectTasks",
         "parameters": [
+          {
+            "description": "Maximum tasks to return",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Tasks to skip before returning results",
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "type": "string"
+            }
+          },
           {
             "description": "Optional task status filter",
             "in": "query",

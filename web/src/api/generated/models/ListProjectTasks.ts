@@ -16,6 +16,16 @@ export type ListProjectTasksPathParams = {
 
 export type ListProjectTasksQueryParams = {
   /**
+   * @description Maximum tasks to return
+   * @type string | undefined
+   */
+  limit?: string;
+  /**
+   * @description Tasks to skip before returning results
+   * @type string | undefined
+   */
+  offset?: string;
+  /**
    * @description Optional task status filter
    * @type string | undefined
    */
