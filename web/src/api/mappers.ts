@@ -1,5 +1,6 @@
 import type { ActorOutput } from "@/api/generated/models/ActorOutput.ts";
 import type { ProjectOutput } from "@/api/generated/models/ProjectOutput.ts";
+import type { TaskDependencyOutput } from "@/api/generated/models/TaskDependencyOutput.ts";
 import type { TaskEventOutput } from "@/api/generated/models/TaskEventOutput.ts";
 import type { TaskOutput } from "@/api/generated/models/TaskOutput.ts";
 import type { Project } from "@/components/pages/projects";
@@ -30,6 +31,15 @@ export type TaskEvent = {
     name: string;
     icon: string;
   };
+};
+
+export type TaskDependency = {
+  id: number;
+  edgeType: string;
+  blockerTaskId: number;
+  blockedTaskId: number;
+  role: string;
+  createdAt: string;
 };
 
 export function projectFromApi(project: ProjectOutput): Project {
@@ -77,6 +87,17 @@ export function taskEventFromApi(event: TaskEventOutput): TaskEvent {
           icon: agentIconValue(event.actor.name),
         }
       : undefined,
+  };
+}
+
+export function taskDependencyFromApi(dependency: TaskDependencyOutput): TaskDependency {
+  return {
+    id: dependency.id,
+    edgeType: dependency.edge_type,
+    blockerTaskId: dependency.blocker_task_id,
+    blockedTaskId: dependency.blocked_task_id,
+    role: dependency.role,
+    createdAt: dependency.created_at,
   };
 }
 

@@ -164,6 +164,7 @@ export type {
 } from "./models/ShowTask.ts";
 export type { TaskBlockInput } from "./models/TaskBlockInput.ts";
 export type { TaskCounts } from "./models/TaskCounts.ts";
+export type { TaskDependencyOutput } from "./models/TaskDependencyOutput.ts";
 export type { TaskDoneInput } from "./models/TaskDoneInput.ts";
 export type { TaskEventOutput } from "./models/TaskEventOutput.ts";
 export type { TaskEventResponse } from "./models/TaskEventResponse.ts";

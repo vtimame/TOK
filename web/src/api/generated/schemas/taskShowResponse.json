@@ -1,6 +1,22 @@
 {
   "description": "TaskShowResponse schema",
   "properties": {
+    "dependencies": {
+      "items": {
+        "properties": {
+          "blocked_task_id": { "format": "int64", "type": "integer" },
+          "blocker_task_id": { "format": "int64", "type": "integer" },
+          "created_at": { "type": "string" },
+          "edge_type": { "type": "string" },
+          "id": { "format": "int64", "type": "integer" },
+          "role": { "type": "string" }
+        },
+        "required": ["blocked_task_id", "blocker_task_id", "created_at", "edge_type", "id", "role"],
+        "type": "object",
+        "x-readme-ref-name": "TaskDependencyOutput"
+      },
+      "type": ["array", "null"]
+    },
     "events": {
       "items": {
         "properties": {
@@ -69,7 +85,7 @@
       "x-readme-ref-name": "TaskOutput"
     }
   },
-  "required": ["events", "task"],
+  "required": ["dependencies", "events", "task"],
   "type": "object",
   "x-readme-ref-name": "TaskShowResponse"
 }

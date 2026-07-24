@@ -318,6 +318,40 @@
         ],
         "type": "object"
       },
+      "TaskDependencyOutput": {
+        "properties": {
+          "blocked_task_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "blocker_task_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "edge_type": {
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "role": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "blocked_task_id",
+          "blocker_task_id",
+          "created_at",
+          "edge_type",
+          "id",
+          "role"
+        ],
+        "type": "object"
+      },
       "TaskDoneInput": {
         "description": "TaskDoneInput schema",
         "properties": {
@@ -494,6 +528,15 @@
       "TaskShowResponse": {
         "description": "TaskShowResponse schema",
         "properties": {
+          "dependencies": {
+            "items": {
+              "$ref": "#/components/schemas/TaskDependencyOutput"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "events": {
             "items": {
               "$ref": "#/components/schemas/TaskEventOutput"
@@ -508,6 +551,7 @@
           }
         },
         "required": [
+          "dependencies",
           "events",
           "task"
         ],

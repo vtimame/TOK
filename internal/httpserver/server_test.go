@@ -91,7 +91,7 @@ func TestServerListsProjectsAndExposesOpenAPI(t *testing.T) {
 		}
 	}
 
-	for _, name := range []string{"ProjectListResponse", "ProjectResponse", "TaskListResponse", "TaskResponse", "TaskShowResponse", "TaskEventResponse", "CreateTaskInput", "UpdateProjectInput", "ClaimTaskInput", "TaskDoneInput", "IndexResponse"} {
+	for _, name := range []string{"ProjectListResponse", "ProjectResponse", "TaskListResponse", "TaskResponse", "TaskShowResponse", "TaskEventResponse", "TaskDependencyOutput", "CreateTaskInput", "UpdateProjectInput", "ClaimTaskInput", "TaskDoneInput", "IndexResponse"} {
 		if _, ok := spec.Components.Schemas[name]; !ok {
 			t.Fatalf("openapi spec missing schema %s", name)
 		}
@@ -102,6 +102,7 @@ func TestServerListsProjectsAndExposesOpenAPI(t *testing.T) {
 		"ProjectOutput":       {"tasks_count", "task_counts", "agents"},
 		"TaskCounts":          {"total", "open", "in_progress", "blocked", "done", "ready"},
 		"TaskOutput":          {"agents"},
+		"TaskShowResponse":    {"dependencies"},
 	} {
 		props := openAPISchemaProperties(t, spec.Components.Schemas[schemaName])
 		for _, field := range fields {
@@ -470,6 +471,9 @@ func TestServerAggregatesAgentsFromTaskHistory(t *testing.T) {
 	var shown TaskShowResponse
 	decodeJSON(t, showRes, &shown)
 	assertSingleAgent(t, shown.Task.Agents, agent.Agent.ID, "Codex Backend")
+	if len(shown.Dependencies) != 1 || shown.Dependencies[0].Role != "blocks" {
+		t.Fatalf("unexpected task dependencies: %+v", shown.Dependencies)
+	}
 }
 
 func newTestHandler(t *testing.T, store *storage.Store) http.Handler {

@@ -4,6 +4,7 @@
  * Do not edit manually.
  */
 
+import type { TaskDependencyOutput } from "./TaskDependencyOutput.ts";
 import type { TaskEventOutput } from "./TaskEventOutput.ts";
 import type { TaskOutput } from "./TaskOutput.ts";
 
@@ -11,6 +12,10 @@ import type { TaskOutput } from "./TaskOutput.ts";
  * @description TaskShowResponse schema
  */
 export type TaskShowResponse = {
+  /**
+   * @type array,null
+   */
+  dependencies: TaskDependencyOutput[] | null;
   /**
    * @type array,null
    */

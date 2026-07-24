@@ -76,8 +76,9 @@ type TaskResponse struct {
 }
 
 type TaskShowResponse struct {
-	Task   TaskOutput        `json:"task"`
-	Events []TaskEventOutput `json:"events"`
+	Task         TaskOutput             `json:"task"`
+	Events       []TaskEventOutput      `json:"events"`
+	Dependencies []TaskDependencyOutput `json:"dependencies"`
 }
 
 type ClaimTaskInput struct {
@@ -128,6 +129,15 @@ type TaskEventOutput struct {
 	CreatedAt  string       `json:"created_at"`
 }
 
+type TaskDependencyOutput struct {
+	ID            int64  `json:"id"`
+	EdgeType      string `json:"edge_type"`
+	BlockerTaskID int64  `json:"blocker_task_id"`
+	BlockedTaskID int64  `json:"blocked_task_id"`
+	Role          string `json:"role"`
+	CreatedAt     string `json:"created_at"`
+}
+
 type ActorOutput struct {
 	ID   int64  `json:"id"`
 	Kind string `json:"kind"`
@@ -165,13 +175,17 @@ func tasksFromStorage(tasks []storage.Task, agents map[int64][]ActorOutput) Task
 	return out
 }
 
-func taskShowFromStorage(task storage.Task, events []storage.TaskEvent) TaskShowResponse {
+func taskShowFromStorage(task storage.Task, events []storage.TaskEvent, dependencies []storage.TaskDependency) TaskShowResponse {
 	out := TaskShowResponse{
-		Task:   taskFromStorage(task, agentsFromEvents(events)),
-		Events: make([]TaskEventOutput, 0, len(events)),
+		Task:         taskFromStorage(task, agentsFromEvents(events)),
+		Events:       make([]TaskEventOutput, 0, len(events)),
+		Dependencies: make([]TaskDependencyOutput, 0, len(dependencies)),
 	}
 	for _, event := range events {
 		out.Events = append(out.Events, taskEventFromStorage(event))
+	}
+	for _, dependency := range dependencies {
+		out.Dependencies = append(out.Dependencies, taskDependencyFromStorage(task.ID, dependency))
 	}
 	return out
 }
@@ -226,6 +240,24 @@ func taskEventFromStorage(event storage.TaskEvent) TaskEventOutput {
 		ToStatus:   event.ToStatus,
 		Actor:      actorFromSnapshot(event.ActorID, event.ActorKind, event.ActorName),
 		CreatedAt:  event.CreatedAt,
+	}
+}
+
+func taskDependencyFromStorage(taskID int64, dependency storage.TaskDependency) TaskDependencyOutput {
+	role := ""
+	if dependency.BlockedTaskID == taskID {
+		role = "blocked_by"
+	}
+	if dependency.BlockerTaskID == taskID {
+		role = "blocks"
+	}
+	return TaskDependencyOutput{
+		ID:            dependency.ID,
+		EdgeType:      dependency.EdgeType,
+		BlockerTaskID: dependency.BlockerTaskID,
+		BlockedTaskID: dependency.BlockedTaskID,
+		Role:          role,
+		CreatedAt:     dependency.CreatedAt,
 	}
 }
 

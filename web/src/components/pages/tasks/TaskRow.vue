@@ -4,10 +4,12 @@ import type { Task } from "@/components/pages/tasks";
 import { statusLabel, statusTone } from "@/api/mappers.ts";
 import { TableCell, TableRow } from "@/components/ui/table";
 import { computed } from "vue";
+import { useRouter } from "vue-router";
 
 const props = defineProps<{
   task: Task;
 }>();
+const router = useRouter();
 
 const updatedAt = computed(() => {
   if (!props.task.updatedAt) return "";
@@ -18,10 +20,14 @@ const updatedAt = computed(() => {
     minute: "2-digit",
   }).format(new Date(props.task.updatedAt));
 });
+
+function openTask() {
+  router.push({ path: `/tasks/${props.task.id}`, query: { projectId: String(props.task.projectId) } });
+}
 </script>
 
 <template>
-  <TableRow>
+  <TableRow class="cursor-pointer" @click="openTask">
     <TableCell class="text-muted-foreground pl-4">#{{ task.id }}</TableCell>
     <TableCell class="min-w-[18rem] font-medium">
       <div class="truncate">{{ task.title }}</div>

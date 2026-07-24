@@ -421,7 +421,11 @@ func (a *api) showTask(ctx fuego.ContextNoBody) (TaskShowResponse, error) {
 	if err != nil {
 		return TaskShowResponse{}, err
 	}
-	return taskShowFromStorage(task, events), nil
+	dependencies, err := a.store.ListTaskDependencies(ctx.Context(), task.ProjectID, task.ID)
+	if err != nil {
+		return TaskShowResponse{}, err
+	}
+	return taskShowFromStorage(task, events, dependencies), nil
 }
 
 func (a *api) claimTask(ctx fuego.ContextWithBody[ClaimTaskInput]) (TaskResponse, error) {

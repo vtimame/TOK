@@ -34,6 +34,7 @@ const statusOptions = [
 const selectedProjectId = ref(routeProjectId());
 const selectedStatuses = ref<string[]>([]);
 const showTaskDialog = ref(false);
+const hasTaskRoute = computed(() => "id" in route.params);
 
 const pageSize = ref(25);
 const page = ref(1);
@@ -132,7 +133,9 @@ useTitle("Tasks");
 </script>
 
 <template>
-  <div class="mx-auto flex h-svh w-full max-w-5xl flex-col gap-4 overflow-hidden px-4 py-18">
+  <RouterView v-if="hasTaskRoute" />
+
+  <div v-else class="mx-auto flex h-svh w-full max-w-5xl flex-col gap-4 overflow-hidden px-4 py-18">
     <div class="flex shrink-0 items-center justify-between">
       <div class="text-2xl font-bold">Tasks</div>
       <div class="flex items-center gap-x-2">
