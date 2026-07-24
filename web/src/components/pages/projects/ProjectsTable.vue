@@ -11,11 +11,19 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useUpdateProjectIndex } from "@/api/generated/hooks/useUpdateProjectIndex.ts";
 import { toastApiError } from "@/api/axios.ts";
 import { toast } from "vue-sonner";
 import { computed } from "vue";
 import { ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight } from "@lucide/vue";
+import type { AcceptableValue } from "reka-ui";
 
 const props = defineProps<{
   projects: Project[];
@@ -63,8 +71,9 @@ function showUnavailable(action: string) {
   });
 }
 
-function updatePageSize(event: Event) {
-  emits("update:pageSize", Number((event.target as HTMLSelectElement).value));
+function updatePageSize(value: AcceptableValue) {
+  if (value === null) return;
+  emits("update:pageSize", Number(value));
 }
 </script>
 
@@ -126,14 +135,20 @@ function updatePageSize(event: Event) {
             <div class="flex items-center gap-3">
               <label class="flex items-center gap-2 text-sm text-muted-foreground">
                 Rows
-                <select
-                  class="h-8 rounded-md border bg-background px-2 text-sm text-foreground"
-                  :value="props.pageSize"
+                <Select
+                  :model-value="String(props.pageSize)"
                   :disabled="props.loading"
-                  @change="updatePageSize"
+                  @update:model-value="updatePageSize"
                 >
-                  <option v-for="size in pageSizes" :key="size" :value="size">{{ size }}</option>
-                </select>
+                  <SelectTrigger class="h-8 w-[76px] bg-background">
+                    <SelectValue :placeholder="String(props.pageSize)" />
+                  </SelectTrigger>
+                  <SelectContent side="top">
+                    <SelectItem v-for="size in pageSizes" :key="size" :value="String(size)">
+                      {{ size }}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
               </label>
 
               <div class="text-sm text-muted-foreground">
