@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -178,6 +179,32 @@ func TestCLIVersionPrintsBuildInfo(t *testing.T) {
 	}
 }
 
+func TestCLIVersionPrintsJSON(t *testing.T) {
+	var out bytes.Buffer
+	cli := NewCLI(&out, &bytes.Buffer{}, VersionInfo{
+		Version: "test",
+		Commit:  "abc123",
+		Date:    "2026-07-23T00:00:00Z",
+	})
+
+	if err := cli.Run(context.Background(), []string{"version", "--json"}); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	var got struct {
+		Name    string `json:"name"`
+		Version string `json:"version"`
+		Commit  string `json:"commit"`
+		BuiltAt string `json:"built_at"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("parse version JSON: %v\n%s", err, out.String())
+	}
+	if got.Name != "tok" || got.Version != "test" || got.Commit != "abc123" || got.BuiltAt != "2026-07-23T00:00:00Z" {
+		t.Fatalf("unexpected version JSON: %+v", got)
+	}
+}
+
 func TestCLIUnknownCommandReturnsUsageError(t *testing.T) {
 	cli := NewCLI(&bytes.Buffer{}, &bytes.Buffer{}, VersionInfo{})
 
@@ -218,6 +245,38 @@ func TestCLIConfigPathsPrintsResolvedDataDir(t *testing.T) {
 	got := out.String()
 	if !strings.Contains(got, "data_dir: /tmp/tok-data") {
 		t.Fatalf("unexpected config paths output:\n%s", got)
+	}
+}
+
+func TestCLIConfigPathsPrintsJSON(t *testing.T) {
+	var out bytes.Buffer
+	cli := NewCLI(&out, &bytes.Buffer{}, VersionInfo{})
+	cli.loadCfg = func(path string) (config.Config, error) {
+		if path != "/tmp/tok.yaml" {
+			t.Fatalf("unexpected config path: %s", path)
+		}
+		return config.Config{
+			DataDir: "/tmp/tok-data",
+			Log: config.LogConfig{
+				Level:  "info",
+				Format: "json",
+			},
+		}, nil
+	}
+
+	if err := cli.Run(context.Background(), []string{"--config", "/tmp/tok.yaml", "config", "paths", "--json"}); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	var got struct {
+		DataDir      string `json:"data_dir"`
+		DatabasePath string `json:"database_path"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("parse config paths JSON: %v\n%s", err, out.String())
+	}
+	if got.DataDir != "/tmp/tok-data" || got.DatabasePath != storage.DatabasePath("/tmp/tok-data") {
+		t.Fatalf("unexpected config paths JSON: %+v", got)
 	}
 }
 
@@ -270,5 +329,38 @@ func TestCLIInitInitializesRuntimeDatabase(t *testing.T) {
 	got := out.String()
 	if !strings.Contains(got, "initialized database: "+dbPath) {
 		t.Fatalf("unexpected init output:\n%s", got)
+	}
+}
+
+func TestCLIInitPrintsJSON(t *testing.T) {
+	dataDir := t.TempDir()
+	var out bytes.Buffer
+	cli := NewCLI(&out, &bytes.Buffer{}, VersionInfo{})
+	cli.loadCfg = func(string) (config.Config, error) {
+		return config.Config{
+			DataDir: dataDir,
+			Log: config.LogConfig{
+				Level:  "info",
+				Format: "json",
+			},
+		}, nil
+	}
+
+	if err := cli.Run(context.Background(), []string{"init", "--json"}); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	var got struct {
+		DataDir      string `json:"data_dir"`
+		DatabasePath string `json:"database_path"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("parse init JSON: %v\n%s", err, out.String())
+	}
+	if got.DataDir != dataDir || got.DatabasePath != storage.DatabasePath(dataDir) {
+		t.Fatalf("unexpected init JSON: %+v", got)
+	}
+	if _, err := os.Stat(got.DatabasePath); err != nil {
+		t.Fatalf("expected initialized database at %s: %v", got.DatabasePath, err)
 	}
 }

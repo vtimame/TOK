@@ -37,6 +37,32 @@ func TestCLIUserSetNameAndShow(t *testing.T) {
 			t.Fatalf("user show output missing %q:\n%s", want, showOut.String())
 		}
 	}
+
+	var setJSONOut bytes.Buffer
+	setJSONCLI := newIdentityTestCLI(dataDir, &setJSONOut)
+	if err := setJSONCLI.Run(ctx, []string{"user", "set-name", "JSON Operator", "--json"}); err != nil {
+		t.Fatalf("user set-name --json returned error: %v", err)
+	}
+	var setJSON userActorOutput
+	if err := json.Unmarshal(setJSONOut.Bytes(), &setJSON); err != nil {
+		t.Fatalf("parse user set-name JSON: %v\n%s", err, setJSONOut.String())
+	}
+	if setJSON.ID == 0 || setJSON.Kind != "human" || setJSON.DisplayName != "JSON Operator" {
+		t.Fatalf("unexpected user set-name JSON: %+v", setJSON)
+	}
+
+	var showJSONOut bytes.Buffer
+	showJSONCLI := newIdentityTestCLI(dataDir, &showJSONOut)
+	if err := showJSONCLI.Run(ctx, []string{"user", "show", "--json"}); err != nil {
+		t.Fatalf("user show --json returned error: %v", err)
+	}
+	var showJSON resolvedUserOutput
+	if err := json.Unmarshal(showJSONOut.Bytes(), &showJSON); err != nil {
+		t.Fatalf("parse user show JSON: %v\n%s", err, showJSONOut.String())
+	}
+	if showJSON.DisplayName != "JSON Operator" || showJSON.Source != "explicit" {
+		t.Fatalf("unexpected user show JSON: %+v", showJSON)
+	}
 }
 
 func TestCLIAgentAddListAndRevoke(t *testing.T) {
@@ -58,6 +84,22 @@ func TestCLIAgentAddListAndRevoke(t *testing.T) {
 		t.Fatalf("agent add should not print token hash:\n%s", addOutput)
 	}
 
+	var addJSONOut bytes.Buffer
+	addJSONCLI := newIdentityTestCLI(dataDir, &addJSONOut)
+	if err := addJSONCLI.Run(ctx, []string{"agent", "add", "Codex Backend", "--json"}); err != nil {
+		t.Fatalf("agent add --json returned error: %v", err)
+	}
+	var addedJSON createdAgentCLIOutput
+	if err := json.Unmarshal(addJSONOut.Bytes(), &addedJSON); err != nil {
+		t.Fatalf("parse agent add JSON: %v\n%s", err, addJSONOut.String())
+	}
+	if addedJSON.Agent.ID == 0 || addedJSON.Agent.Name != "Codex Backend" || addedJSON.Agent.Status != "active" || !strings.HasPrefix(addedJSON.Token, "tok_agent_") {
+		t.Fatalf("unexpected agent add JSON: %+v", addedJSON)
+	}
+	if strings.Contains(addJSONOut.String(), "sha256:") {
+		t.Fatalf("agent add JSON should not print token hash:\n%s", addJSONOut.String())
+	}
+
 	var listOut bytes.Buffer
 	listCLI := newIdentityTestCLI(dataDir, &listOut)
 	if err := listCLI.Run(ctx, []string{"agent", "list"}); err != nil {
@@ -73,6 +115,22 @@ func TestCLIAgentAddListAndRevoke(t *testing.T) {
 		t.Fatalf("agent list should not print token material:\n%s", listOutput)
 	}
 
+	var listJSONOut bytes.Buffer
+	listJSONCLI := newIdentityTestCLI(dataDir, &listJSONOut)
+	if err := listJSONCLI.Run(ctx, []string{"agent", "list", "--json"}); err != nil {
+		t.Fatalf("agent list --json returned error: %v", err)
+	}
+	var listedJSON []agentCLIOutput
+	if err := json.Unmarshal(listJSONOut.Bytes(), &listedJSON); err != nil {
+		t.Fatalf("parse agent list JSON: %v\n%s", err, listJSONOut.String())
+	}
+	if len(listedJSON) != 2 || listedJSON[0].Name != "Codex Designer" || listedJSON[1].Name != "Codex Backend" {
+		t.Fatalf("unexpected agent list JSON: %+v", listedJSON)
+	}
+	if strings.Contains(listJSONOut.String(), "tok_agent_") || strings.Contains(listJSONOut.String(), "sha256:") {
+		t.Fatalf("agent list JSON should not print token material:\n%s", listJSONOut.String())
+	}
+
 	var revokeOut bytes.Buffer
 	revokeCLI := newIdentityTestCLI(dataDir, &revokeOut)
 	if err := revokeCLI.Run(ctx, []string{"agent", "revoke", "1"}); err != nil {
@@ -82,6 +140,19 @@ func TestCLIAgentAddListAndRevoke(t *testing.T) {
 		if !strings.Contains(revokeOut.String(), want) {
 			t.Fatalf("agent revoke output missing %q:\n%s", want, revokeOut.String())
 		}
+	}
+
+	var revokeJSONOut bytes.Buffer
+	revokeJSONCLI := newIdentityTestCLI(dataDir, &revokeJSONOut)
+	if err := revokeJSONCLI.Run(ctx, []string{"agent", "revoke", strconv.FormatInt(addedJSON.Agent.ID, 10), "--json"}); err != nil {
+		t.Fatalf("agent revoke --json returned error: %v", err)
+	}
+	var revokedJSON agentCLIOutput
+	if err := json.Unmarshal(revokeJSONOut.Bytes(), &revokedJSON); err != nil {
+		t.Fatalf("parse agent revoke JSON: %v\n%s", err, revokeJSONOut.String())
+	}
+	if revokedJSON.ID != addedJSON.Agent.ID || revokedJSON.Status != "revoked" || revokedJSON.RevokedAt == "" {
+		t.Fatalf("unexpected agent revoke JSON: %+v", revokedJSON)
 	}
 }
 

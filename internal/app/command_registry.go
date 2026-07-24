@@ -33,14 +33,14 @@ func tokCommandSpec() *commandSpec {
 			{Name: "--log-level", ValueName: "<level>", Summary: "Override configured log level", ValueChoices: []string{"debug", "info", "warn", "error"}},
 		},
 		Children: []*commandSpec{
-			{Name: "version", Summary: "Print build version information", Usage: "tok version"},
-			{Name: "init", Summary: "Initialize local runtime storage", Usage: "tok init"},
+			{Name: "version", Summary: "Print build version information", Usage: "tok version [--json]", Flags: []flagSpec{{Name: "--json", Summary: "Print JSON output"}}},
+			{Name: "init", Summary: "Initialize local runtime storage", Usage: "tok init [--json]", Flags: []flagSpec{{Name: "--json", Summary: "Print JSON output"}}},
 			{
 				Name:    "config",
 				Summary: "Inspect runtime configuration",
 				Usage:   "tok config <command>",
 				Children: []*commandSpec{
-					{Name: "paths", Summary: "Print resolved runtime paths", Usage: "tok config paths"},
+					{Name: "paths", Summary: "Print resolved runtime paths", Usage: "tok config paths [--json]", Flags: []flagSpec{{Name: "--json", Summary: "Print JSON output"}}},
 				},
 			},
 			{
@@ -89,12 +89,13 @@ func tokCommandSpec() *commandSpec {
 				Summary: "Create and update project tasks",
 				Usage:   "tok task <command>",
 				Children: []*commandSpec{
-					{Name: "create", Summary: "Create a task", Usage: "tok task create --project <name> --title <title> [--description <text>] [--acceptance-criteria <text>] [--notes <text>]", Flags: []flagSpec{
+					{Name: "create", Summary: "Create a task", Usage: "tok task create --project <name> --title <title> [--description <text>] [--acceptance-criteria <text>] [--notes <text>] [--json]", Flags: []flagSpec{
 						projectFlag(),
 						{Name: "--title", ValueName: "<title>", Summary: "Task title"},
 						{Name: "--description", ValueName: "<text>", Summary: "Task description"},
 						{Name: "--acceptance-criteria", ValueName: "<text>", Summary: "Acceptance criteria"},
 						{Name: "--notes", ValueName: "<text>", Summary: "Initial notes"},
+						{Name: "--json", Summary: "Print JSON output"},
 					}},
 					{Name: "list", Summary: "List project tasks", Usage: "tok task list --project <name> [--status <status>] [--json]", Flags: []flagSpec{
 						projectFlag(),
@@ -102,19 +103,19 @@ func tokCommandSpec() *commandSpec {
 						{Name: "--json", Summary: "Print JSON output"},
 					}},
 					{Name: "show", Summary: "Show task details and events", Usage: "tok task show <task-id> [--json]", Flags: []flagSpec{{Name: "--json", Summary: "Print JSON output"}}},
-					{Name: "status", Summary: "Set task status directly", Usage: "tok task status <task-id> <status>", ValuesByKey: map[string][]string{"status": taskStatusChoices()}},
-					{Name: "done", Summary: "Complete an in-progress task", Usage: "tok task done <task-id> --note <text>", Flags: []flagSpec{{Name: "--note", ValueName: "<text>", Summary: "Completion note"}}},
-					{Name: "comment", Summary: "Add a task comment", Usage: "tok task comment <task-id> --body <text>", Flags: []flagSpec{{Name: "--body", ValueName: "<text>", Summary: "Comment body"}}},
-					{Name: "progress", Summary: "Record task progress", Usage: "tok task progress <task-id> --body <text>", Flags: []flagSpec{{Name: "--body", ValueName: "<text>", Summary: "Progress note"}}},
-					{Name: "block", Summary: "Block a task", Usage: "tok task block <task-id> --reason <text>", Flags: []flagSpec{{Name: "--reason", ValueName: "<text>", Summary: "Blocker reason"}}},
-					{Name: "unblock", Summary: "Unblock a task", Usage: "tok task unblock <task-id> --note <text>", Flags: []flagSpec{{Name: "--note", ValueName: "<text>", Summary: "Unblock note"}}},
+					{Name: "status", Summary: "Set task status directly", Usage: "tok task status <task-id> <status> [--json]", Flags: []flagSpec{{Name: "--json", Summary: "Print JSON output"}}, ValuesByKey: map[string][]string{"status": taskStatusChoices()}},
+					{Name: "done", Summary: "Complete an in-progress task", Usage: "tok task done <task-id> --note <text> [--json]", Flags: []flagSpec{{Name: "--note", ValueName: "<text>", Summary: "Completion note"}, {Name: "--json", Summary: "Print JSON output"}}},
+					{Name: "comment", Summary: "Add a task comment", Usage: "tok task comment <task-id> --body <text> [--json]", Flags: []flagSpec{{Name: "--body", ValueName: "<text>", Summary: "Comment body"}, {Name: "--json", Summary: "Print JSON output"}}},
+					{Name: "progress", Summary: "Record task progress", Usage: "tok task progress <task-id> --body <text> [--json]", Flags: []flagSpec{{Name: "--body", ValueName: "<text>", Summary: "Progress note"}, {Name: "--json", Summary: "Print JSON output"}}},
+					{Name: "block", Summary: "Block a task", Usage: "tok task block <task-id> --reason <text> [--json]", Flags: []flagSpec{{Name: "--reason", ValueName: "<text>", Summary: "Blocker reason"}, {Name: "--json", Summary: "Print JSON output"}}},
+					{Name: "unblock", Summary: "Unblock a task", Usage: "tok task unblock <task-id> --note <text> [--json]", Flags: []flagSpec{{Name: "--note", ValueName: "<text>", Summary: "Unblock note"}, {Name: "--json", Summary: "Print JSON output"}}},
 					{
 						Name:    "dependency",
 						Summary: "Manage task dependencies",
 						Usage:   "tok task dependency <command>",
 						Children: []*commandSpec{
-							{Name: "add", Summary: "Add a task dependency", Usage: "tok task dependency add [--type blocks] <blocker-task-id> <blocked-task-id>", Flags: []flagSpec{{Name: "--type", ValueName: "<type>", Summary: "Dependency type", ValueChoices: []string{"blocks"}}}},
-							{Name: "remove", Summary: "Remove a task dependency", Usage: "tok task dependency remove [--type blocks] <blocker-task-id> <blocked-task-id>", Flags: []flagSpec{{Name: "--type", ValueName: "<type>", Summary: "Dependency type", ValueChoices: []string{"blocks"}}}},
+							{Name: "add", Summary: "Add a task dependency", Usage: "tok task dependency add [--type blocks] <blocker-task-id> <blocked-task-id> [--json]", Flags: []flagSpec{{Name: "--type", ValueName: "<type>", Summary: "Dependency type", ValueChoices: []string{"blocks"}}, {Name: "--json", Summary: "Print JSON output"}}},
+							{Name: "remove", Summary: "Remove a task dependency", Usage: "tok task dependency remove [--type blocks] <blocker-task-id> <blocked-task-id> [--json]", Flags: []flagSpec{{Name: "--type", ValueName: "<type>", Summary: "Dependency type", ValueChoices: []string{"blocks"}}, {Name: "--json", Summary: "Print JSON output"}}},
 						},
 					},
 					{Name: "ready", Summary: "List tasks ready to claim", Usage: "tok task ready --project <name> [--json]", Flags: []flagSpec{projectFlag(), {Name: "--json", Summary: "Print JSON output"}}},
@@ -126,8 +127,8 @@ func tokCommandSpec() *commandSpec {
 				Summary: "Inspect and set the local user profile",
 				Usage:   "tok user <command>",
 				Children: []*commandSpec{
-					{Name: "show", Summary: "Show resolved local user", Usage: "tok user show"},
-					{Name: "set-name", Summary: "Set local display name", Usage: "tok user set-name <display-name>"},
+					{Name: "show", Summary: "Show resolved local user", Usage: "tok user show [--json]", Flags: []flagSpec{{Name: "--json", Summary: "Print JSON output"}}},
+					{Name: "set-name", Summary: "Set local display name", Usage: "tok user set-name <display-name> [--json]", Flags: []flagSpec{{Name: "--json", Summary: "Print JSON output"}}},
 				},
 			},
 			{
@@ -135,9 +136,9 @@ func tokCommandSpec() *commandSpec {
 				Summary: "Manage local agent identities and tokens",
 				Usage:   "tok agent <command>",
 				Children: []*commandSpec{
-					{Name: "add", Summary: "Create an agent identity", Usage: "tok agent add <name>"},
-					{Name: "list", Summary: "List agent identities", Usage: "tok agent list"},
-					{Name: "revoke", Summary: "Revoke an agent token", Usage: "tok agent revoke <agent-id>"},
+					{Name: "add", Summary: "Create an agent identity", Usage: "tok agent add <name> [--json]", Flags: []flagSpec{{Name: "--json", Summary: "Print JSON output"}}},
+					{Name: "list", Summary: "List agent identities", Usage: "tok agent list [--json]", Flags: []flagSpec{{Name: "--json", Summary: "Print JSON output"}}},
+					{Name: "revoke", Summary: "Revoke an agent token", Usage: "tok agent revoke <agent-id> [--json]", Flags: []flagSpec{{Name: "--json", Summary: "Print JSON output"}}},
 				},
 			},
 			{

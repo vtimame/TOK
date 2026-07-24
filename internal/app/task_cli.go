@@ -69,12 +69,19 @@ type taskCreateOptions struct {
 	description        string
 	acceptanceCriteria string
 	notes              string
+	json               bool
 }
 
 type taskListOptions struct {
 	projectName string
 	status      string
 	json        bool
+}
+
+type taskStatusOptions struct {
+	taskID int64
+	status string
+	json   bool
 }
 
 func (c *CLI) runTaskCreate(ctx context.Context, store *storage.Store, args []string) error {
@@ -105,6 +112,9 @@ func (c *CLI) runTaskCreate(ctx context.Context, store *storage.Store, args []st
 		return err
 	}
 
+	if createOpts.json {
+		return printTaskJSON(c.out, task)
+	}
 	printTask(c.out, task)
 	return nil
 }
@@ -172,11 +182,7 @@ func (c *CLI) runTaskShow(ctx context.Context, store *storage.Store, args []stri
 }
 
 func (c *CLI) runTaskStatus(ctx context.Context, store *storage.Store, args []string) error {
-	if len(args) != 2 {
-		return &UsageError{Message: "task status requires a task id and status", Code: 2}
-	}
-
-	taskID, err := parseTaskID(args[0])
+	statusOpts, err := parseTaskStatusOptions(args)
 	if err != nil {
 		return err
 	}
@@ -186,14 +192,17 @@ func (c *CLI) runTaskStatus(ctx context.Context, store *storage.Store, args []st
 		return err
 	}
 
-	task, err := store.UpdateTaskStatusByActor(ctx, taskID, args[1], actor)
+	task, err := store.UpdateTaskStatusByActor(ctx, statusOpts.taskID, statusOpts.status, actor)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("task not found: %d", taskID)
+			return fmt.Errorf("task not found: %d", statusOpts.taskID)
 		}
 		return err
 	}
 
+	if statusOpts.json {
+		return printTaskJSON(c.out, task)
+	}
 	printTask(c.out, task)
 	return nil
 }
@@ -201,6 +210,7 @@ func (c *CLI) runTaskStatus(ctx context.Context, store *storage.Store, args []st
 type taskDoneOptions struct {
 	taskID int64
 	note   string
+	json   bool
 }
 
 type taskShowOptions struct {
@@ -230,6 +240,9 @@ func (c *CLI) runTaskDone(ctx context.Context, store *storage.Store, args []stri
 		return err
 	}
 
+	if doneOpts.json {
+		return printTaskJSON(c.out, task)
+	}
 	printTask(c.out, task)
 	return nil
 }
@@ -237,6 +250,7 @@ func (c *CLI) runTaskDone(ctx context.Context, store *storage.Store, args []stri
 type taskCommentOptions struct {
 	taskID int64
 	body   string
+	json   bool
 }
 
 func (c *CLI) runTaskComment(ctx context.Context, store *storage.Store, args []string) error {
@@ -258,6 +272,9 @@ func (c *CLI) runTaskComment(ctx context.Context, store *storage.Store, args []s
 		return err
 	}
 
+	if commentOpts.json {
+		return printTaskEventJSON(c.out, event)
+	}
 	printTaskEvent(c.out, event)
 	return nil
 }
@@ -281,6 +298,9 @@ func (c *CLI) runTaskProgress(ctx context.Context, store *storage.Store, args []
 		return err
 	}
 
+	if progressOpts.json {
+		return printTaskEventJSON(c.out, event)
+	}
 	printTaskEvent(c.out, event)
 	return nil
 }
@@ -307,6 +327,9 @@ func (c *CLI) runTaskBlock(ctx context.Context, store *storage.Store, args []str
 		return err
 	}
 
+	if blockOpts.json {
+		return printTaskJSON(c.out, task)
+	}
 	printTask(c.out, task)
 	return nil
 }
@@ -333,6 +356,9 @@ func (c *CLI) runTaskUnblock(ctx context.Context, store *storage.Store, args []s
 		return err
 	}
 
+	if unblockOpts.json {
+		return printTaskJSON(c.out, task)
+	}
 	printTask(c.out, task)
 	return nil
 }
@@ -353,6 +379,9 @@ func (c *CLI) runTaskDependency(ctx context.Context, store *storage.Store, args 
 		if err != nil {
 			return err
 		}
+		if dependencyOpts.json {
+			return printTaskDependencyJSON(c.out, dependency)
+		}
 		printTaskDependency(c.out, dependency)
 		return nil
 	case "remove":
@@ -361,6 +390,9 @@ func (c *CLI) runTaskDependency(ctx context.Context, store *storage.Store, args 
 				return fmt.Errorf("task dependency not found: %d blocks %d", dependencyOpts.blockerTaskID, dependencyOpts.blockedTaskID)
 			}
 			return err
+		}
+		if dependencyOpts.json {
+			return printTaskDependencyRemovedJSON(c.out, dependencyOpts)
 		}
 		fmt.Fprintf(c.out, "removed dependency: %d blocks %d\n", dependencyOpts.blockerTaskID, dependencyOpts.blockedTaskID)
 		return nil
@@ -506,6 +538,8 @@ func parseTaskCreateOptions(args []string) (taskCreateOptions, error) {
 			opts.notes = args[i]
 		case strings.HasPrefix(arg, "--notes="):
 			opts.notes = strings.TrimPrefix(arg, "--notes=")
+		case arg == "--json":
+			opts.json = true
 		default:
 			return taskCreateOptions{}, &UsageError{Message: fmt.Sprintf("unknown task create option %q", arg), Code: 2}
 		}
@@ -574,6 +608,7 @@ type taskDependencyOptions struct {
 	edgeType      string
 	blockerTaskID int64
 	blockedTaskID int64
+	json          bool
 }
 
 func parseTaskDependencyOptions(args []string) (taskDependencyOptions, error) {
@@ -594,6 +629,8 @@ func parseTaskDependencyOptions(args []string) (taskDependencyOptions, error) {
 			if opts.edgeType == "" {
 				return taskDependencyOptions{}, &UsageError{Message: "--type requires a value", Code: 2}
 			}
+		case arg == "--json":
+			opts.json = true
 		case strings.HasPrefix(arg, "-"):
 			return taskDependencyOptions{}, &UsageError{Message: fmt.Sprintf("unknown task dependency option %q", arg), Code: 2}
 		default:
@@ -700,6 +737,42 @@ func parseTaskClaimOptions(args []string) (taskClaimOptions, error) {
 	return opts, nil
 }
 
+func parseTaskStatusOptions(args []string) (taskStatusOptions, error) {
+	var opts taskStatusOptions
+
+	for _, arg := range args {
+		switch {
+		case arg == "--json":
+			opts.json = true
+		case strings.HasPrefix(arg, "-"):
+			return taskStatusOptions{}, &UsageError{Message: fmt.Sprintf("unknown task status option %q", arg), Code: 2}
+		default:
+			if opts.taskID == 0 {
+				taskID, err := parseTaskID(arg)
+				if err != nil {
+					return taskStatusOptions{}, err
+				}
+				opts.taskID = taskID
+				continue
+			}
+			if opts.status == "" {
+				opts.status = strings.TrimSpace(arg)
+				continue
+			}
+			return taskStatusOptions{}, &UsageError{Message: "task status accepts exactly task id and status", Code: 2}
+		}
+	}
+
+	if opts.taskID == 0 || opts.status == "" {
+		return taskStatusOptions{}, &UsageError{Message: "task status requires a task id and status", Code: 2}
+	}
+	if !validTaskStatusOption(opts.status) {
+		return taskStatusOptions{}, &UsageError{Message: fmt.Sprintf("invalid task status %q", opts.status), Code: 2}
+	}
+
+	return opts, nil
+}
+
 func parseTaskShowOptions(args []string) (taskShowOptions, error) {
 	var opts taskShowOptions
 
@@ -734,13 +807,10 @@ func parseTaskDoneOptions(args []string) (taskDoneOptions, error) {
 		return taskDoneOptions{}, &UsageError{Message: "task done requires a task id", Code: 2}
 	}
 
-	taskID, err := parseTaskID(args[0])
-	if err != nil {
-		return taskDoneOptions{}, err
-	}
-
+	var taskID int64
 	var note string
-	for i := 1; i < len(args); i++ {
+	var jsonOutput bool
+	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		switch {
 		case arg == "--note":
@@ -754,17 +824,31 @@ func parseTaskDoneOptions(args []string) (taskDoneOptions, error) {
 			if note == "" {
 				return taskDoneOptions{}, &UsageError{Message: "--note requires a value", Code: 2}
 			}
-		default:
+		case arg == "--json":
+			jsonOutput = true
+		case strings.HasPrefix(arg, "-"):
 			return taskDoneOptions{}, &UsageError{Message: fmt.Sprintf("unknown task done option %q", arg), Code: 2}
+		default:
+			if taskID != 0 {
+				return taskDoneOptions{}, &UsageError{Message: "task done accepts exactly one task id", Code: 2}
+			}
+			id, err := parseTaskID(arg)
+			if err != nil {
+				return taskDoneOptions{}, err
+			}
+			taskID = id
 		}
 	}
 
+	if taskID == 0 {
+		return taskDoneOptions{}, &UsageError{Message: "task done requires a task id", Code: 2}
+	}
 	note = strings.TrimSpace(note)
 	if note == "" {
 		return taskDoneOptions{}, &UsageError{Message: "task done requires --note", Code: 2}
 	}
 
-	return taskDoneOptions{taskID: taskID, note: note}, nil
+	return taskDoneOptions{taskID: taskID, note: note, json: jsonOutput}, nil
 }
 
 func parseRequiredProjectOption(args []string, command string) (string, error) {
@@ -806,13 +890,10 @@ func parseTaskNoteOptions(args []string, command, flag string) (taskCommentOptio
 		return taskCommentOptions{}, &UsageError{Message: command + " requires a task id", Code: 2}
 	}
 
-	taskID, err := parseTaskID(args[0])
-	if err != nil {
-		return taskCommentOptions{}, err
-	}
-
+	var taskID int64
 	var body string
-	for i := 1; i < len(args); i++ {
+	var jsonOutput bool
+	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		switch {
 		case arg == flag:
@@ -826,17 +907,31 @@ func parseTaskNoteOptions(args []string, command, flag string) (taskCommentOptio
 			if body == "" {
 				return taskCommentOptions{}, &UsageError{Message: flag + " requires a value", Code: 2}
 			}
-		default:
+		case arg == "--json":
+			jsonOutput = true
+		case strings.HasPrefix(arg, "-"):
 			return taskCommentOptions{}, &UsageError{Message: fmt.Sprintf("unknown %s option %q", command, arg), Code: 2}
+		default:
+			if taskID != 0 {
+				return taskCommentOptions{}, &UsageError{Message: command + " accepts exactly one task id", Code: 2}
+			}
+			id, err := parseTaskID(arg)
+			if err != nil {
+				return taskCommentOptions{}, err
+			}
+			taskID = id
 		}
 	}
 
+	if taskID == 0 {
+		return taskCommentOptions{}, &UsageError{Message: command + " requires a task id", Code: 2}
+	}
 	body = strings.TrimSpace(body)
 	if body == "" {
 		return taskCommentOptions{}, &UsageError{Message: command + " requires " + flag, Code: 2}
 	}
 
-	return taskCommentOptions{taskID: taskID, body: body}, nil
+	return taskCommentOptions{taskID: taskID, body: body, json: jsonOutput}, nil
 }
 
 func getProjectForTask(ctx context.Context, store *storage.Store, name string) (storage.Project, error) {
@@ -953,6 +1048,12 @@ func printReadyTasksJSON(out io.Writer, tasks []storage.Task) error {
 	return printTasksJSON(out, tasks)
 }
 
+func printTaskJSON(out io.Writer, task storage.Task) error {
+	encoder := json.NewEncoder(out)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(taskOutputFromStorage(task))
+}
+
 func printTasksJSON(out io.Writer, tasks []storage.Task) error {
 	readyTasks := make([]readyTaskOutput, 0, len(tasks))
 	for _, task := range tasks {
@@ -965,24 +1066,41 @@ func printTasksJSON(out io.Writer, tasks []storage.Task) error {
 }
 
 func printClaimedTaskJSON(out io.Writer, task storage.Task) error {
+	return printTaskJSON(out, task)
+}
+
+func printTaskEventJSON(out io.Writer, event storage.TaskEvent) error {
 	encoder := json.NewEncoder(out)
 	encoder.SetIndent("", "  ")
-	return encoder.Encode(taskOutputFromStorage(task))
+	return encoder.Encode(taskEventOutputFromStorage(event))
+}
+
+func printTaskDependencyJSON(out io.Writer, dependency storage.TaskDependency) error {
+	encoder := json.NewEncoder(out)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(taskDependencyOutputFromStorage(dependency))
+}
+
+func printTaskDependencyRemovedJSON(out io.Writer, dependency taskDependencyOptions) error {
+	encoder := json.NewEncoder(out)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(struct {
+		Removed       bool   `json:"removed"`
+		EdgeType      string `json:"edge_type"`
+		BlockerTaskID int64  `json:"blocker_task_id"`
+		BlockedTaskID int64  `json:"blocked_task_id"`
+	}{
+		Removed:       true,
+		EdgeType:      dependency.edgeType,
+		BlockerTaskID: dependency.blockerTaskID,
+		BlockedTaskID: dependency.blockedTaskID,
+	})
 }
 
 func printTaskShowJSON(out io.Writer, task storage.Task, events []storage.TaskEvent) error {
 	eventOutputs := make([]taskEventOutput, 0, len(events))
 	for _, event := range events {
-		eventOutputs = append(eventOutputs, taskEventOutput{
-			ID:         event.ID,
-			TaskID:     event.TaskID,
-			Type:       event.Type,
-			Body:       event.Body,
-			FromStatus: event.FromStatus,
-			ToStatus:   event.ToStatus,
-			Actor:      actorOutputFromSnapshot(event.ActorID, event.ActorKind, event.ActorName),
-			CreatedAt:  event.CreatedAt,
-		})
+		eventOutputs = append(eventOutputs, taskEventOutputFromStorage(event))
 	}
 
 	encoder := json.NewEncoder(out)
@@ -1015,6 +1133,19 @@ func taskOutputFromStorage(task storage.Task) readyTaskOutput {
 		Notes:              task.Notes,
 		CreatedAt:          task.CreatedAt,
 		UpdatedAt:          task.UpdatedAt,
+	}
+}
+
+func taskEventOutputFromStorage(event storage.TaskEvent) taskEventOutput {
+	return taskEventOutput{
+		ID:         event.ID,
+		TaskID:     event.TaskID,
+		Type:       event.Type,
+		Body:       event.Body,
+		FromStatus: event.FromStatus,
+		ToStatus:   event.ToStatus,
+		Actor:      actorOutputFromSnapshot(event.ActorID, event.ActorKind, event.ActorName),
+		CreatedAt:  event.CreatedAt,
 	}
 }
 

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -85,8 +86,7 @@ func (c *CLI) Run(ctx context.Context, args []string) error {
 		c.printHelp()
 		return nil
 	case "version", "-v", "--version":
-		c.printVersion()
-		return nil
+		return c.runVersion(opts.args[1:])
 	case "init":
 		return c.runInit(ctx, opts)
 	case "config":
@@ -187,6 +187,10 @@ func (c *CLI) runInit(ctx context.Context, opts runtimeOptions) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	jsonOutput, err := parseNoArgJSONOption(opts.args[1:], "init")
+	if err != nil {
+		return err
+	}
 
 	cfg, logger, store, err := c.runtimeStore(ctx, opts)
 	if err != nil {
@@ -196,6 +200,9 @@ func (c *CLI) runInit(ctx context.Context, opts runtimeOptions) error {
 
 	dbPath := storage.DatabasePath(cfg.DataDir)
 	logger.Debug().Str("database", dbPath).Msg("initialized runtime database")
+	if jsonOutput {
+		return printInitJSON(c.out, cfg.DataDir, dbPath)
+	}
 	fmt.Fprintf(c.out, "initialized database: %s\n", dbPath)
 	return nil
 }
@@ -232,11 +239,18 @@ func (c *CLI) runConfig(ctx context.Context, opts runtimeOptions) error {
 
 	switch opts.args[1] {
 	case "paths":
+		jsonOutput, err := parseNoArgJSONOption(opts.args[2:], "config paths")
+		if err != nil {
+			return err
+		}
 		cfg, logger, err := c.runtime(opts)
 		if err != nil {
 			return err
 		}
 		logger.Debug().Str("data_dir", cfg.DataDir).Msg("resolved runtime paths")
+		if jsonOutput {
+			return printConfigPathsJSON(c.out, cfg.DataDir, storage.DatabasePath(cfg.DataDir))
+		}
 		fmt.Fprintf(c.out, "data_dir: %s\n", cfg.DataDir)
 		return nil
 	default:
@@ -267,6 +281,67 @@ func (c *CLI) printCommandHelp(path []string) error {
 	return nil
 }
 
-func (c *CLI) printVersion() {
+func (c *CLI) runVersion(args []string) error {
+	jsonOutput, err := parseNoArgJSONOption(args, "version")
+	if err != nil {
+		return err
+	}
+	if jsonOutput {
+		return printVersionJSON(c.out, c.version)
+	}
 	fmt.Fprintf(c.out, "%s %s\ncommit: %s\nbuilt: %s\n", commandName, c.version.Version, c.version.Commit, c.version.Date)
+	return nil
+}
+
+func parseNoArgJSONOption(args []string, command string) (bool, error) {
+	var jsonOutput bool
+	for _, arg := range args {
+		switch arg {
+		case "--json":
+			jsonOutput = true
+		default:
+			return false, &UsageError{Message: fmt.Sprintf("unknown %s option %q", command, arg), Code: 2}
+		}
+	}
+	return jsonOutput, nil
+}
+
+func printVersionJSON(out io.Writer, version VersionInfo) error {
+	encoder := json.NewEncoder(out)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(struct {
+		Name    string `json:"name"`
+		Version string `json:"version"`
+		Commit  string `json:"commit"`
+		BuiltAt string `json:"built_at"`
+	}{
+		Name:    commandName,
+		Version: version.Version,
+		Commit:  version.Commit,
+		BuiltAt: version.Date,
+	})
+}
+
+func printInitJSON(out io.Writer, dataDir, databasePath string) error {
+	encoder := json.NewEncoder(out)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(struct {
+		DataDir      string `json:"data_dir"`
+		DatabasePath string `json:"database_path"`
+	}{
+		DataDir:      dataDir,
+		DatabasePath: databasePath,
+	})
+}
+
+func printConfigPathsJSON(out io.Writer, dataDir, databasePath string) error {
+	encoder := json.NewEncoder(out)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(struct {
+		DataDir      string `json:"data_dir"`
+		DatabasePath string `json:"database_path"`
+	}{
+		DataDir:      dataDir,
+		DatabasePath: databasePath,
+	})
 }

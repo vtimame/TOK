@@ -260,6 +260,36 @@ func TestCLITaskDependencyReadyAndClaimFlow(t *testing.T) {
 		t.Fatalf("unexpected dependency remove output:\n%s", removeOut.String())
 	}
 
+	var depJSONOut bytes.Buffer
+	depJSONCLI := newProjectTestCLI(dataDir, &depJSONOut)
+	if err := depJSONCLI.Run(ctx, []string{"task", "dependency", "add", strconv.FormatInt(blockerID, 10), strconv.FormatInt(blockedID, 10), "--json"}); err != nil {
+		t.Fatalf("task dependency add --json returned error: %v", err)
+	}
+	var dependencyJSON taskDependencyOutput
+	if err := json.Unmarshal(depJSONOut.Bytes(), &dependencyJSON); err != nil {
+		t.Fatalf("parse dependency add JSON: %v\n%s", err, depJSONOut.String())
+	}
+	if dependencyJSON.EdgeType != "blocks" || dependencyJSON.BlockerTaskID != blockerID || dependencyJSON.BlockedTaskID != blockedID {
+		t.Fatalf("unexpected dependency add JSON: %+v", dependencyJSON)
+	}
+
+	var removeJSONOut bytes.Buffer
+	removeJSONCLI := newProjectTestCLI(dataDir, &removeJSONOut)
+	if err := removeJSONCLI.Run(ctx, []string{"task", "dependency", "remove", strconv.FormatInt(blockerID, 10), strconv.FormatInt(blockedID, 10), "--json"}); err != nil {
+		t.Fatalf("task dependency remove --json returned error: %v", err)
+	}
+	var removedJSON struct {
+		Removed       bool   `json:"removed"`
+		EdgeType      string `json:"edge_type"`
+		BlockerTaskID int64  `json:"blocker_task_id"`
+		BlockedTaskID int64  `json:"blocked_task_id"`
+	}
+	if err := json.Unmarshal(removeJSONOut.Bytes(), &removedJSON); err != nil {
+		t.Fatalf("parse dependency remove JSON: %v\n%s", err, removeJSONOut.String())
+	}
+	if !removedJSON.Removed || removedJSON.EdgeType != "blocks" || removedJSON.BlockerTaskID != blockerID || removedJSON.BlockedTaskID != blockedID {
+		t.Fatalf("unexpected dependency remove JSON: %+v", removedJSON)
+	}
 }
 
 func TestCLITaskClaimFlow(t *testing.T) {
@@ -316,6 +346,109 @@ func TestCLITaskClaimFlow(t *testing.T) {
 	err = emptyCLI.Run(ctx, []string{"task", "claim", "--project", "tok"})
 	if err == nil || !strings.Contains(err.Error(), "no ready tasks for project: tok") {
 		t.Fatalf("expected empty ready queue error, got %v", err)
+	}
+}
+
+func TestCLITaskMutationJSONOutputs(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	projectDir := t.TempDir()
+
+	projectCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	if err := projectCLI.Run(ctx, []string{"project", "add", projectDir, "--name", "tok"}); err != nil {
+		t.Fatalf("project add returned error: %v", err)
+	}
+
+	var createOut bytes.Buffer
+	createCLI := newProjectTestCLI(dataDir, &createOut)
+	if err := createCLI.Run(ctx, []string{"task", "create", "--project", "tok", "--title", "JSON task", "--json"}); err != nil {
+		t.Fatalf("task create --json returned error: %v", err)
+	}
+	var created readyTaskOutput
+	if err := json.Unmarshal(createOut.Bytes(), &created); err != nil {
+		t.Fatalf("parse task create JSON: %v\n%s", err, createOut.String())
+	}
+	if created.ID == 0 || created.Status != "open" || created.Title != "JSON task" {
+		t.Fatalf("unexpected task create JSON: %+v", created)
+	}
+
+	var statusOut bytes.Buffer
+	statusCLI := newProjectTestCLI(dataDir, &statusOut)
+	if err := statusCLI.Run(ctx, []string{"task", "status", strconv.FormatInt(created.ID, 10), "in_progress", "--json"}); err != nil {
+		t.Fatalf("task status --json returned error: %v", err)
+	}
+	var statusTask readyTaskOutput
+	if err := json.Unmarshal(statusOut.Bytes(), &statusTask); err != nil {
+		t.Fatalf("parse task status JSON: %v\n%s", err, statusOut.String())
+	}
+	if statusTask.ID != created.ID || statusTask.Status != "in_progress" {
+		t.Fatalf("unexpected task status JSON: %+v", statusTask)
+	}
+
+	var commentOut bytes.Buffer
+	commentCLI := newProjectTestCLI(dataDir, &commentOut)
+	if err := commentCLI.Run(ctx, []string{"task", "comment", strconv.FormatInt(created.ID, 10), "--body", "JSON comment.", "--json"}); err != nil {
+		t.Fatalf("task comment --json returned error: %v", err)
+	}
+	var comment taskEventOutput
+	if err := json.Unmarshal(commentOut.Bytes(), &comment); err != nil {
+		t.Fatalf("parse task comment JSON: %v\n%s", err, commentOut.String())
+	}
+	if comment.TaskID != created.ID || comment.Type != "commented" || comment.Body != "JSON comment." {
+		t.Fatalf("unexpected task comment JSON: %+v", comment)
+	}
+
+	var progressOut bytes.Buffer
+	progressCLI := newProjectTestCLI(dataDir, &progressOut)
+	if err := progressCLI.Run(ctx, []string{"task", "progress", strconv.FormatInt(created.ID, 10), "--body", "JSON progress.", "--json"}); err != nil {
+		t.Fatalf("task progress --json returned error: %v", err)
+	}
+	var progress taskEventOutput
+	if err := json.Unmarshal(progressOut.Bytes(), &progress); err != nil {
+		t.Fatalf("parse task progress JSON: %v\n%s", err, progressOut.String())
+	}
+	if progress.TaskID != created.ID || progress.Type != "progress" || progress.Body != "JSON progress." {
+		t.Fatalf("unexpected task progress JSON: %+v", progress)
+	}
+
+	var doneOut bytes.Buffer
+	doneCLI := newProjectTestCLI(dataDir, &doneOut)
+	if err := doneCLI.Run(ctx, []string{"task", "done", strconv.FormatInt(created.ID, 10), "--note", "JSON done.", "--json"}); err != nil {
+		t.Fatalf("task done --json returned error: %v", err)
+	}
+	var doneTask readyTaskOutput
+	if err := json.Unmarshal(doneOut.Bytes(), &doneTask); err != nil {
+		t.Fatalf("parse task done JSON: %v\n%s", err, doneOut.String())
+	}
+	if doneTask.ID != created.ID || doneTask.Status != "done" {
+		t.Fatalf("unexpected task done JSON: %+v", doneTask)
+	}
+
+	blockedID := createTaskForTest(t, ctx, dataDir, "tok", "Blockable")
+	var blockOut bytes.Buffer
+	blockCLI := newProjectTestCLI(dataDir, &blockOut)
+	if err := blockCLI.Run(ctx, []string{"task", "block", strconv.FormatInt(blockedID, 10), "--reason", "JSON block.", "--json"}); err != nil {
+		t.Fatalf("task block --json returned error: %v", err)
+	}
+	var blocked readyTaskOutput
+	if err := json.Unmarshal(blockOut.Bytes(), &blocked); err != nil {
+		t.Fatalf("parse task block JSON: %v\n%s", err, blockOut.String())
+	}
+	if blocked.ID != blockedID || blocked.Status != "blocked" {
+		t.Fatalf("unexpected task block JSON: %+v", blocked)
+	}
+
+	var unblockOut bytes.Buffer
+	unblockCLI := newProjectTestCLI(dataDir, &unblockOut)
+	if err := unblockCLI.Run(ctx, []string{"task", "unblock", strconv.FormatInt(blockedID, 10), "--note", "JSON unblock.", "--json"}); err != nil {
+		t.Fatalf("task unblock --json returned error: %v", err)
+	}
+	var unblocked readyTaskOutput
+	if err := json.Unmarshal(unblockOut.Bytes(), &unblocked); err != nil {
+		t.Fatalf("parse task unblock JSON: %v\n%s", err, unblockOut.String())
+	}
+	if unblocked.ID != blockedID || unblocked.Status != "open" {
+		t.Fatalf("unexpected task unblock JSON: %+v", unblocked)
 	}
 }
 

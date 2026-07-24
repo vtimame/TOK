@@ -3,8 +3,10 @@ package app
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/user"
 	"strings"
@@ -15,6 +17,11 @@ import (
 type resolvedUserDisplayName struct {
 	Name   string
 	Source string
+}
+
+type userOptions struct {
+	name string
+	json bool
 }
 
 func (c *CLI) runUser(ctx context.Context, opts runtimeOptions) error {
@@ -48,8 +55,9 @@ func (c *CLI) runUser(ctx context.Context, opts runtimeOptions) error {
 }
 
 func (c *CLI) runUserShow(ctx context.Context, store *storage.Store, args []string) error {
-	if len(args) > 0 {
-		return &UsageError{Message: "user show does not accept arguments", Code: 2}
+	jsonOutput, err := parseNoArgJSONOption(args, "user show")
+	if err != nil {
+		return err
 	}
 
 	resolved, err := resolveLocalUserDisplayName(ctx, store)
@@ -57,27 +65,55 @@ func (c *CLI) runUserShow(ctx context.Context, store *storage.Store, args []stri
 		return err
 	}
 
+	if jsonOutput {
+		return printResolvedUserJSON(c.out, resolved)
+	}
 	fmt.Fprintf(c.out, "display_name: %s\n", resolved.Name)
 	fmt.Fprintf(c.out, "source: %s\n", resolved.Source)
 	return nil
 }
 
 func (c *CLI) runUserSetName(ctx context.Context, store *storage.Store, args []string) error {
-	if len(args) != 1 {
-		return &UsageError{Message: "user set-name requires a display name", Code: 2}
-	}
-
-	actor, err := store.SetLocalHuman(ctx, args[0])
+	setOpts, err := parseUserSetNameOptions(args)
 	if err != nil {
 		return err
 	}
 
+	actor, err := store.SetLocalHuman(ctx, setOpts.name)
+	if err != nil {
+		return err
+	}
+
+	if setOpts.json {
+		return printUserActorJSON(c.out, actor)
+	}
 	fmt.Fprintf(c.out, "id: %d\n", actor.ID)
 	fmt.Fprintf(c.out, "kind: %s\n", actor.Kind)
 	fmt.Fprintf(c.out, "display_name: %s\n", actor.Name)
 	fmt.Fprintf(c.out, "created_at: %s\n", actor.CreatedAt)
 	fmt.Fprintf(c.out, "updated_at: %s\n", actor.UpdatedAt)
 	return nil
+}
+
+func parseUserSetNameOptions(args []string) (userOptions, error) {
+	var opts userOptions
+	for _, arg := range args {
+		switch {
+		case arg == "--json":
+			opts.json = true
+		case strings.HasPrefix(arg, "-"):
+			return userOptions{}, &UsageError{Message: fmt.Sprintf("unknown user set-name option %q", arg), Code: 2}
+		default:
+			if opts.name != "" {
+				return userOptions{}, &UsageError{Message: "user set-name accepts exactly one display name", Code: 2}
+			}
+			opts.name = strings.TrimSpace(arg)
+		}
+	}
+	if opts.name == "" {
+		return userOptions{}, &UsageError{Message: "user set-name requires a display name", Code: 2}
+	}
+	return opts, nil
 }
 
 func resolveLocalUserDisplayName(ctx context.Context, store *storage.Store) (resolvedUserDisplayName, error) {
@@ -117,4 +153,38 @@ func currentLocalHumanActor(ctx context.Context, store *storage.Store) (storage.
 		return storage.ActorRef{}, err
 	}
 	return storage.ActorRefFromActor(actor), nil
+}
+
+type resolvedUserOutput struct {
+	DisplayName string `json:"display_name"`
+	Source      string `json:"source"`
+}
+
+type userActorOutput struct {
+	ID          int64  `json:"id"`
+	Kind        string `json:"kind"`
+	DisplayName string `json:"display_name"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
+}
+
+func printResolvedUserJSON(out io.Writer, resolved resolvedUserDisplayName) error {
+	encoder := json.NewEncoder(out)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(resolvedUserOutput{
+		DisplayName: resolved.Name,
+		Source:      resolved.Source,
+	})
+}
+
+func printUserActorJSON(out io.Writer, actor storage.Actor) error {
+	encoder := json.NewEncoder(out)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(userActorOutput{
+		ID:          actor.ID,
+		Kind:        actor.Kind,
+		DisplayName: actor.Name,
+		CreatedAt:   actor.CreatedAt,
+		UpdatedAt:   actor.UpdatedAt,
+	})
 }
