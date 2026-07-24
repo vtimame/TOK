@@ -141,6 +141,13 @@ func tokCommandSpec() *commandSpec {
 				Children: []*commandSpec{
 					{Name: "update", Summary: "Update one or all project indexes", Usage: "tok index update (--project <name> | --all) [--json]", Flags: []flagSpec{projectFlag(), {Name: "--all", Summary: "Update all projects"}, {Name: "--json", Summary: "Print JSON output"}}},
 					{Name: "status", Summary: "Show one or all project index states", Usage: "tok index status (--project <name> | --all) [--json]", Flags: []flagSpec{projectFlag(), {Name: "--all", Summary: "Show all projects"}, {Name: "--json", Summary: "Print JSON output"}}},
+					{Name: "watch", Summary: "Watch projects and update indexes after file changes", Usage: "tok index watch [--project <name>] [--debounce <duration>] [--registry-interval <duration>] [--no-initial-index] [--quiet]", Flags: []flagSpec{
+						projectFlag(),
+						{Name: "--debounce", ValueName: "<duration>", Summary: "Delay rebuild until changes settle"},
+						{Name: "--registry-interval", ValueName: "<duration>", Summary: "How often to refresh project registry from DB"},
+						{Name: "--no-initial-index", Summary: "Do not index newly watched/restored projects immediately"},
+						{Name: "--quiet", Summary: "Print only warnings and errors"},
+					}},
 					{
 						Name:    "ignore",
 						Summary: "Inspect and edit project index ignore policy",

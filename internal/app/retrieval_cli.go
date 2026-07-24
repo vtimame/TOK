@@ -3,14 +3,17 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/pterm/pterm"
 
+	"s26.sh/tok/internal/indexwatch"
 	"s26.sh/tok/internal/retrieval"
 	"s26.sh/tok/internal/storage"
 )
@@ -37,6 +40,8 @@ func (c *CLI) runIndex(ctx context.Context, opts runtimeOptions) error {
 		return c.runIndexUpdate(ctx, store, opts.args[2:])
 	case "status":
 		return c.runIndexStatus(ctx, store, opts.args[2:])
+	case "watch":
+		return c.runIndexWatch(ctx, store, opts.args[2:])
 	case "ignore":
 		return c.runIndexIgnore(ctx, store, opts.args[2:])
 	default:
@@ -44,6 +49,185 @@ func (c *CLI) runIndex(ctx context.Context, opts runtimeOptions) error {
 			Message: fmt.Sprintf("unknown index command %q\n\nRun '%s help' for usage.", opts.args[1], commandName),
 			Code:    2,
 		}
+	}
+}
+
+type indexWatchOptions struct {
+	projectName      string
+	debounce         time.Duration
+	registryInterval time.Duration
+	noInitialIndex   bool
+	quiet            bool
+}
+
+func (c *CLI) runIndexWatch(ctx context.Context, store *storage.Store, args []string) error {
+	watchOpts, err := parseIndexWatchOptions(args)
+	if err != nil {
+		return err
+	}
+
+	events := make(chan indexwatch.Event, 256)
+	watchCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	printDone := make(chan struct{})
+	go func() {
+		defer close(printDone)
+		for {
+			select {
+			case <-watchCtx.Done():
+				return
+			case event := <-events:
+				printIndexWatchEvent(c.out, c.err, event, watchOpts.quiet)
+			}
+		}
+	}()
+
+	if !watchOpts.quiet {
+		scope := "all projects"
+		if watchOpts.projectName != "" {
+			scope = "project " + watchOpts.projectName
+		}
+		pterm.Info.WithWriter(c.out).Printfln(
+			"watching %s (debounce=%s, registry_interval=%s)",
+			scope,
+			watchOpts.debounce,
+			watchOpts.registryInterval,
+		)
+	}
+
+	service, err := indexwatch.New(indexwatch.Config{
+		Store:            store,
+		Indexer:          retrieval.NewService(store),
+		Debounce:         watchOpts.debounce,
+		RegistryInterval: watchOpts.registryInterval,
+		ProjectName:      watchOpts.projectName,
+		NoInitialIndex:   watchOpts.noInitialIndex,
+		Events:           events,
+	})
+	if err != nil {
+		return err
+	}
+
+	err = service.Run(watchCtx)
+	cancel()
+	<-printDone
+	if errors.Is(err, context.Canceled) {
+		return nil
+	}
+	return err
+}
+
+func parseIndexWatchOptions(args []string) (indexWatchOptions, error) {
+	opts := indexWatchOptions{
+		debounce:         indexwatch.DefaultDebounce,
+		registryInterval: indexwatch.DefaultRegistryInterval,
+	}
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--project":
+			i++
+			if i >= len(args) {
+				return indexWatchOptions{}, &UsageError{Message: "--project requires a value", Code: 2}
+			}
+			opts.projectName = args[i]
+		case strings.HasPrefix(arg, "--project="):
+			opts.projectName = strings.TrimPrefix(arg, "--project=")
+			if opts.projectName == "" {
+				return indexWatchOptions{}, &UsageError{Message: "--project requires a value", Code: 2}
+			}
+		case arg == "--debounce":
+			i++
+			if i >= len(args) {
+				return indexWatchOptions{}, &UsageError{Message: "--debounce requires a value", Code: 2}
+			}
+			debounce, err := parsePositiveDuration("--debounce", args[i])
+			if err != nil {
+				return indexWatchOptions{}, err
+			}
+			opts.debounce = debounce
+		case strings.HasPrefix(arg, "--debounce="):
+			debounce, err := parsePositiveDuration("--debounce", strings.TrimPrefix(arg, "--debounce="))
+			if err != nil {
+				return indexWatchOptions{}, err
+			}
+			opts.debounce = debounce
+		case arg == "--registry-interval":
+			i++
+			if i >= len(args) {
+				return indexWatchOptions{}, &UsageError{Message: "--registry-interval requires a value", Code: 2}
+			}
+			interval, err := parsePositiveDuration("--registry-interval", args[i])
+			if err != nil {
+				return indexWatchOptions{}, err
+			}
+			opts.registryInterval = interval
+		case strings.HasPrefix(arg, "--registry-interval="):
+			interval, err := parsePositiveDuration("--registry-interval", strings.TrimPrefix(arg, "--registry-interval="))
+			if err != nil {
+				return indexWatchOptions{}, err
+			}
+			opts.registryInterval = interval
+		case arg == "--no-initial-index":
+			opts.noInitialIndex = true
+		case arg == "--quiet":
+			opts.quiet = true
+		default:
+			return indexWatchOptions{}, &UsageError{Message: fmt.Sprintf("unknown index watch option %q", arg), Code: 2}
+		}
+	}
+
+	opts.projectName = strings.TrimSpace(opts.projectName)
+	return opts, nil
+}
+
+func parsePositiveDuration(flagName, value string) (time.Duration, error) {
+	duration, err := time.ParseDuration(value)
+	if err != nil || duration <= 0 {
+		return 0, &UsageError{Message: fmt.Sprintf("invalid %s duration: %s", flagName, value), Code: 2}
+	}
+	return duration, nil
+}
+
+func printIndexWatchEvent(out, errOut io.Writer, event indexwatch.Event, quiet bool) {
+	if quiet && event.Err == nil && event.Type != indexwatch.EventPathMissing {
+		return
+	}
+
+	switch event.Type {
+	case indexwatch.EventProjectWatching:
+		pterm.Info.WithWriter(out).Printfln("watching %s %s", event.ProjectName, event.Path)
+	case indexwatch.EventProjectRemoved:
+		pterm.Warning.WithWriter(out).Printfln("removed %s from watcher", event.ProjectName)
+	case indexwatch.EventPathMissing:
+		pterm.Warning.WithWriter(out).Printfln("path missing for %s: %s", event.ProjectName, event.Path)
+	case indexwatch.EventPathRestored:
+		pterm.Success.WithWriter(out).Printfln("path restored for %s: %s", event.ProjectName, event.Path)
+	case indexwatch.EventIndexQueued:
+		pterm.DefaultBasicText.WithWriter(out).Printfln("queued %s: %s", event.ProjectName, event.Message)
+	case indexwatch.EventIndexStarted:
+		pterm.Info.WithWriter(out).Printfln("indexing %s", event.ProjectName)
+	case indexwatch.EventIndexCompleted:
+		if event.Summary == nil {
+			pterm.Success.WithWriter(out).Printfln("indexed %s", event.ProjectName)
+			return
+		}
+		pterm.Success.WithWriter(out).Printfln(
+			"indexed %s: state=%s documents=%d chunks=%d skipped=%d",
+			event.ProjectName,
+			event.Summary.State,
+			event.Summary.IndexedDocuments,
+			event.Summary.IndexedChunks,
+			event.Summary.SkippedFiles,
+		)
+	case indexwatch.EventIndexFailed, indexwatch.EventWatchError:
+		if event.Err != nil {
+			pterm.Error.WithWriter(errOut).Printfln("%s %s: %v", event.Type, event.ProjectName, event.Err)
+			return
+		}
+		pterm.Error.WithWriter(errOut).Printfln("%s %s", event.Type, event.ProjectName)
 	}
 }
 

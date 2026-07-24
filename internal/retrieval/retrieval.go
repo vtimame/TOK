@@ -652,6 +652,18 @@ func shouldSkipDir(name string) bool {
 	}
 }
 
+func ShouldSkipDirectoryName(name string) bool {
+	return shouldSkipDir(name)
+}
+
+func PathIgnoredByPatterns(ignorePatterns []string, relPath string, isDir bool) (bool, error) {
+	ignoreRules, err := ignoreRulesFromPatterns(ignorePatterns)
+	if err != nil {
+		return false, err
+	}
+	return ignoreRules.Ignore(relPath, isDir), nil
+}
+
 func shouldIndexFile(relPath, name string) bool {
 	if strings.HasPrefix(name, ".env") {
 		return false
