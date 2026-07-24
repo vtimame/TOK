@@ -91,6 +91,8 @@ func registerRoutes(s *fuego.Server, a *api) {
 	fuego.Get(s, "/api/projects", a.listProjects, append(operation("listProjects", "Projects", "List registered projects"), option.Query("limit", "Maximum projects to return"), option.Query("offset", "Projects to skip before returning results"))...)
 	fuego.Post(s, "/api/projects", a.createProject, append(operation("createProject", "Projects", "Register a project"), jsonBody()...)...)
 	fuego.Get(s, "/api/projects/{project}", a.showProject, operation("showProject", "Projects", "Show a project")...)
+	fuego.Patch(s, "/api/projects/{project}", a.updateProject, append(operation("updateProject", "Projects", "Update a project"), jsonBody()...)...)
+	fuego.Delete(s, "/api/projects/{project}", a.deleteProject, operation("deleteProject", "Projects", "Delete a project")...)
 
 	fuego.Get(s, "/api/projects/{project}/tasks", a.listTasks, append(operation("listProjectTasks", "Tasks", "List project tasks"), option.Query("status", "Optional task status filter"))...)
 	fuego.Post(s, "/api/projects/{project}/tasks", a.createTask, append(operation("createTask", "Tasks", "Create a project task"), jsonBody()...)...)
@@ -218,6 +220,54 @@ func (a *api) showProject(ctx fuego.ContextNoBody) (ProjectResponse, error) {
 		return ProjectResponse{}, err
 	}
 	return ProjectResponse{Project: projectOut}, nil
+}
+
+func (a *api) updateProject(ctx fuego.ContextWithBody[UpdateProjectInput]) (ProjectResponse, error) {
+	current, err := a.projectByName(ctx.Context(), ctx.PathParam("project"))
+	if err != nil {
+		return ProjectResponse{}, err
+	}
+	body, err := ctx.Body()
+	if err != nil {
+		return ProjectResponse{}, err
+	}
+	name := strings.TrimSpace(body.Name)
+	displayName := strings.TrimSpace(body.DisplayName)
+	path := strings.TrimSpace(body.Path)
+	if name == "" {
+		name = current.Name
+	}
+	if displayName == "" {
+		displayName = name
+	}
+	if path == "" {
+		path = current.Path
+	}
+
+	project, err := a.store.UpdateProject(ctx.Context(), current.ID, storage.UpdateProjectInput{
+		Name:        name,
+		DisplayName: displayName,
+		Path:        path,
+	})
+	if err != nil {
+		return ProjectResponse{}, mapProjectWriteError(err)
+	}
+	return a.projectResponse(ctx.Context(), project)
+}
+
+func (a *api) deleteProject(ctx fuego.ContextNoBody) (ProjectResponse, error) {
+	project, err := a.projectByName(ctx.Context(), ctx.PathParam("project"))
+	if err != nil {
+		return ProjectResponse{}, err
+	}
+	out, err := a.projectOutput(ctx.Context(), project)
+	if err != nil {
+		return ProjectResponse{}, err
+	}
+	if err := a.store.DeleteProject(ctx.Context(), project.ID); err != nil {
+		return ProjectResponse{}, mapProjectWriteError(err)
+	}
+	return ProjectResponse{Project: out}, nil
 }
 
 func (a *api) listTasks(ctx fuego.ContextNoBody) (TaskListResponse, error) {
@@ -471,6 +521,14 @@ func (a *api) projectOutput(ctx context.Context, project storage.Project) (Proje
 	return projectFromStorage(project, taskCountsFromStorage(tasks, len(readyTasks)), agents), nil
 }
 
+func (a *api) projectResponse(ctx context.Context, project storage.Project) (ProjectResponse, error) {
+	projectOut, err := a.projectOutput(ctx, project)
+	if err != nil {
+		return ProjectResponse{}, err
+	}
+	return ProjectResponse{Project: projectOut}, nil
+}
+
 func (a *api) taskResponse(ctx context.Context, task storage.Task) (TaskResponse, error) {
 	events, err := a.store.ListTaskEvents(ctx, task.ID)
 	if err != nil {
@@ -577,10 +635,14 @@ func resolveLocalUserDisplayName(ctx context.Context, store *storage.Store) (str
 }
 
 func mapProjectWriteError(err error) error {
-	if strings.Contains(err.Error(), "UNIQUE") {
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return fuego.NotFoundError{Title: "Project not found"}
+	case strings.Contains(err.Error(), "UNIQUE"):
 		return fuego.ConflictError{Title: "Project already exists", Detail: err.Error()}
+	default:
+		return err
 	}
-	return err
 }
 
 func mapTaskError(err error) error {

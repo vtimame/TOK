@@ -513,6 +513,21 @@
         ],
         "type": "object"
       },
+      "UpdateProjectInput": {
+        "description": "UpdateProjectInput schema",
+        "properties": {
+          "display_name": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "unknown-interface": {
         "description": "unknown-interface schema"
       }
@@ -724,6 +739,71 @@
       }
     },
     "/api/projects/{project}": {
+      "delete": {
+        "description": "Delete a project.",
+        "operationId": "deleteProject",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectResponse"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Bad Request _(validation or deserialization error)_"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Internal Server Error _(panics)_"
+          }
+        },
+        "summary": "Delete a project",
+        "tags": [
+          "Projects"
+        ]
+      },
       "get": {
         "description": "Show a project.",
         "operationId": "showProject",
@@ -785,6 +865,82 @@
           }
         },
         "summary": "Show a project",
+        "tags": [
+          "Projects"
+        ]
+      },
+      "patch": {
+        "description": "Update a project.",
+        "operationId": "updateProject",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProjectInput"
+              }
+            }
+          },
+          "description": "Request body for httpserver.UpdateProjectInput",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectResponse"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Bad Request _(validation or deserialization error)_"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Internal Server Error _(panics)_"
+          }
+        },
+        "summary": "Update a project",
         "tags": [
           "Projects"
         ]

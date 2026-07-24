@@ -149,6 +149,52 @@ func TestStoreBasicCRUDPaths(t *testing.T) {
 	}
 }
 
+func TestStoreUpdatesAndDeletesProjects(t *testing.T) {
+	ctx := context.Background()
+	store := openInitializedTestStore(t)
+
+	project, err := store.CreateProject(ctx, CreateProjectInput{
+		Name:        "tok",
+		DisplayName: "TOK",
+		Path:        "/tmp/tok",
+	})
+	if err != nil {
+		t.Fatalf("CreateProject returned error: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskInput{
+		ProjectID: project.ID,
+		Title:     "Project-owned task",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask returned error: %v", err)
+	}
+
+	updated, err := store.UpdateProject(ctx, project.ID, UpdateProjectInput{
+		Name:        "tok-renamed",
+		DisplayName: "TOK Renamed",
+		Path:        "/tmp/tok-renamed",
+	})
+	if err != nil {
+		t.Fatalf("UpdateProject returned error: %v", err)
+	}
+	if updated.ID != project.ID || updated.Name != "tok-renamed" || updated.DisplayName != "TOK Renamed" || updated.Path != "/tmp/tok-renamed" {
+		t.Fatalf("unexpected updated project: %+v", updated)
+	}
+	if _, err := store.GetProject(ctx, "tok"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("GetProject old name error = %v, want sql.ErrNoRows", err)
+	}
+
+	if err := store.DeleteProject(ctx, updated.ID); err != nil {
+		t.Fatalf("DeleteProject returned error: %v", err)
+	}
+	if _, err := store.GetProject(ctx, "tok-renamed"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("GetProject deleted error = %v, want sql.ErrNoRows", err)
+	}
+	if _, err := store.GetTask(ctx, task.ID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("GetTask after project delete error = %v, want sql.ErrNoRows", err)
+	}
+}
+
 func TestOpenCreatesDatabaseDirectory(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "nested", DatabaseFileName)

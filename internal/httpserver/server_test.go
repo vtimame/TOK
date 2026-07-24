@@ -64,6 +64,8 @@ func TestServerListsProjectsAndExposesOpenAPI(t *testing.T) {
 		"/api/projects GET":                         "listProjects",
 		"/api/projects POST":                        "createProject",
 		"/api/projects/{project} GET":               "showProject",
+		"/api/projects/{project} PATCH":             "updateProject",
+		"/api/projects/{project} DELETE":            "deleteProject",
 		"/api/projects/{project}/tasks GET":         "listProjectTasks",
 		"/api/projects/{project}/tasks POST":        "createTask",
 		"/api/projects/{project}/tasks/ready GET":   "listReadyTasks",
@@ -88,7 +90,7 @@ func TestServerListsProjectsAndExposesOpenAPI(t *testing.T) {
 		}
 	}
 
-	for _, name := range []string{"ProjectListResponse", "ProjectResponse", "TaskListResponse", "TaskResponse", "TaskShowResponse", "TaskEventResponse", "CreateTaskInput", "ClaimTaskInput", "TaskDoneInput", "IndexResponse"} {
+	for _, name := range []string{"ProjectListResponse", "ProjectResponse", "TaskListResponse", "TaskResponse", "TaskShowResponse", "TaskEventResponse", "CreateTaskInput", "UpdateProjectInput", "ClaimTaskInput", "TaskDoneInput", "IndexResponse"} {
 		if _, ok := spec.Components.Schemas[name]; !ok {
 			t.Fatalf("openapi spec missing schema %s", name)
 		}
@@ -114,6 +116,10 @@ func TestServerListsProjectsAndExposesOpenAPI(t *testing.T) {
 	createTask := spec.Paths["/api/projects/{project}/tasks"]["post"]
 	if createTask.RequestBody == nil || !slices.Contains(createTask.RequestBody.ContentTypes(), "application/json") {
 		t.Fatalf("create task request body should be application/json, got %+v", createTask.RequestBody)
+	}
+	updateProject := spec.Paths["/api/projects/{project}"]["patch"]
+	if updateProject.RequestBody == nil || !slices.Contains(updateProject.RequestBody.ContentTypes(), "application/json") {
+		t.Fatalf("update project request body should be application/json, got %+v", updateProject.RequestBody)
 	}
 }
 
@@ -145,6 +151,58 @@ func TestServerPaginatesProjects(t *testing.T) {
 	}
 	if got := projectNames(projects.Projects); !slices.Equal(got, []string{"bravo", "charlie"}) {
 		t.Fatalf("unexpected paged projects: %v", got)
+	}
+}
+
+func TestServerUpdatesAndDeletesProjects(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+
+	if _, err := store.CreateProject(ctx, storage.CreateProjectInput{
+		Name:        "tok",
+		DisplayName: "TOK",
+		Path:        t.TempDir(),
+	}); err != nil {
+		t.Fatalf("CreateProject returned error: %v", err)
+	}
+	handler := newTestHandler(t, store)
+
+	updateRes := doJSON(t, handler, http.MethodPatch, "/api/projects/tok", map[string]string{
+		"name":         "tok-renamed",
+		"display_name": "TOK Renamed",
+		"path":         t.TempDir(),
+	})
+	defer updateRes.Body.Close()
+	if updateRes.StatusCode != http.StatusOK {
+		t.Fatalf("PATCH /api/projects/tok status = %d", updateRes.StatusCode)
+	}
+	var updated ProjectResponse
+	decodeJSON(t, updateRes, &updated)
+	if updated.Project.Name != "tok-renamed" || updated.Project.DisplayName != "TOK Renamed" {
+		t.Fatalf("unexpected updated project: %+v", updated)
+	}
+
+	oldShowRes := doJSON(t, handler, http.MethodGet, "/api/projects/tok", nil)
+	defer oldShowRes.Body.Close()
+	if oldShowRes.StatusCode != http.StatusNotFound {
+		t.Fatalf("GET old project status = %d", oldShowRes.StatusCode)
+	}
+
+	deleteRes := doJSON(t, handler, http.MethodDelete, "/api/projects/tok-renamed", nil)
+	defer deleteRes.Body.Close()
+	if deleteRes.StatusCode != http.StatusOK {
+		t.Fatalf("DELETE /api/projects/tok-renamed status = %d", deleteRes.StatusCode)
+	}
+	var deleted ProjectResponse
+	decodeJSON(t, deleteRes, &deleted)
+	if deleted.Project.Name != "tok-renamed" {
+		t.Fatalf("unexpected deleted project response: %+v", deleted)
+	}
+
+	showDeletedRes := doJSON(t, handler, http.MethodGet, "/api/projects/tok-renamed", nil)
+	defer showDeletedRes.Body.Close()
+	if showDeletedRes.StatusCode != http.StatusNotFound {
+		t.Fatalf("GET deleted project status = %d", showDeletedRes.StatusCode)
 	}
 }
 

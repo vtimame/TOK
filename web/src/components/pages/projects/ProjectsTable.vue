@@ -12,6 +12,16 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -21,9 +31,10 @@ import {
 import { useUpdateProjectIndex } from "@/api/generated/hooks/useUpdateProjectIndex.ts";
 import { toastApiError } from "@/api/axios.ts";
 import { toast } from "vue-sonner";
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight } from "@lucide/vue";
 import type { AcceptableValue } from "reka-ui";
+import { useDeleteProjectMutation } from "@/api/queries/projects.ts";
 
 const props = defineProps<{
   projects: Project[];
@@ -39,6 +50,7 @@ const props = defineProps<{
 
 const emits = defineEmits<{
   create: [];
+  edit: [project: Project];
   firstPage: [];
   previousPage: [];
   nextPage: [];
@@ -46,6 +58,7 @@ const emits = defineEmits<{
   "update:pageSize": [value: number];
 }>();
 
+const projectToDelete = ref<Project>();
 const updateIndexMutation = useUpdateProjectIndex({
   mutation: {
     onSuccess: (response) => {
@@ -58,6 +71,7 @@ const updateIndexMutation = useUpdateProjectIndex({
     },
   },
 });
+const deleteProjectMutation = useDeleteProjectMutation();
 
 const pageSizes = [10, 25, 50, 100];
 const currentFrom = computed(() => (props.total === 0 ? 0 : props.offset + 1));
@@ -65,19 +79,54 @@ const currentTo = computed(() => Math.min(props.offset + props.projects.length, 
 const canGoPrevious = computed(() => props.offset > 0 && !props.loading);
 const canGoNext = computed(() => props.offset + props.limit < props.total && !props.loading);
 
-function showUnavailable(action: string) {
-  toast(action, {
-    description: "The project API does not support this action yet.",
-  });
-}
-
 function updatePageSize(value: AcceptableValue) {
   if (value === null) return;
   emits("update:pageSize", Number(value));
 }
+
+async function deleteProject() {
+  if (!projectToDelete.value) return;
+  try {
+    const project = projectToDelete.value;
+    await deleteProjectMutation.mutateAsync({ project: project.name });
+    toast("Project deleted", {
+      description: project.displayName,
+    });
+    projectToDelete.value = undefined;
+  } catch (error) {
+    toastApiError(error);
+  }
+}
+
+function updateDeleteDialogOpen(open: boolean) {
+  if (!open) {
+    projectToDelete.value = undefined;
+  }
+}
 </script>
 
 <template>
+  <AlertDialog :open="Boolean(projectToDelete)" @update:open="updateDeleteDialogOpen">
+    <AlertDialogContent>
+      <AlertDialogHeader>
+        <AlertDialogTitle>Delete project?</AlertDialogTitle>
+        <AlertDialogDescription>
+          This will delete {{ projectToDelete?.displayName || "this project" }} and all of its tasks.
+        </AlertDialogDescription>
+      </AlertDialogHeader>
+      <AlertDialogFooter>
+        <AlertDialogCancel :disabled="deleteProjectMutation.isPending.value">Cancel</AlertDialogCancel>
+        <AlertDialogAction
+          class="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+          :disabled="deleteProjectMutation.isPending.value"
+          @click="deleteProject"
+        >
+          Delete project
+        </AlertDialogAction>
+      </AlertDialogFooter>
+    </AlertDialogContent>
+  </AlertDialog>
+
   <Table container-class="max-h-full min-h-0 custom-scrollbar">
     <TableHeader class="sticky top-0 z-10 bg-card shadow-[0_1px_0_hsl(var(--border))]">
       <TableRow>
@@ -93,22 +142,19 @@ function updatePageSize(value: AcceptableValue) {
       </TableRow>
     </TableHeader>
     <TableBody>
-      <TableRow v-if="props.loading">
-        <TableCell colspan="9" class="h-24 text-center text-muted-foreground">
-          Loading projects...
-        </TableCell>
-      </TableRow>
-      <TableRow v-else-if="props.error">
+      <TableRow v-if="props.error">
         <TableCell colspan="9" class="h-24 text-center text-destructive">
           Failed to load projects.
         </TableCell>
       </TableRow>
-      <TableRow v-else-if="props.projects.length === 0">
+      <TableRow v-if="!props.loading && props.projects.length === 0">
         <TableCell colspan="9" class="h-36 text-center">
           <div class="flex flex-col items-center gap-3">
             <div>
               <div class="font-medium">No projects yet</div>
-              <div class="text-sm text-muted-foreground">Create a project to start tracking tasks.</div>
+              <div class="text-sm text-muted-foreground">
+                Create a project to start tracking tasks.
+              </div>
             </div>
             <Button size="sm" @click="emits('create')">Create project</Button>
           </div>
@@ -119,8 +165,8 @@ function updatePageSize(value: AcceptableValue) {
         :key="project.id"
         :project="project"
         :updating-index="updateIndexMutation.isPending.value"
-        @edit="showUnavailable('Rename project')"
-        @delete="showUnavailable('Delete project')"
+        @edit="emits('edit', project)"
+        @delete="projectToDelete = project"
         @update-index="updateIndexMutation.mutate({ project: project.name })"
       />
     </TableBody>

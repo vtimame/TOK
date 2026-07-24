@@ -4,6 +4,7 @@ export type { CommentTaskMutationKey } from "./hooks/useCommentTask.ts";
 export type { CompleteTaskMutationKey } from "./hooks/useCompleteTask.ts";
 export type { CreateProjectMutationKey } from "./hooks/useCreateProject.ts";
 export type { CreateTaskMutationKey } from "./hooks/useCreateTask.ts";
+export type { DeleteProjectMutationKey } from "./hooks/useDeleteProject.ts";
 export type { GetHealthQueryKey } from "./hooks/useGetHealth.ts";
 export type { GetProjectIndexStatusQueryKey } from "./hooks/useGetProjectIndexStatus.ts";
 export type { ListProjectTasksQueryKey } from "./hooks/useListProjectTasks.ts";
@@ -13,6 +14,7 @@ export type { ProgressTaskMutationKey } from "./hooks/useProgressTask.ts";
 export type { ShowProjectQueryKey } from "./hooks/useShowProject.ts";
 export type { ShowTaskQueryKey } from "./hooks/useShowTask.ts";
 export type { UnblockTaskMutationKey } from "./hooks/useUnblockTask.ts";
+export type { UpdateProjectMutationKey } from "./hooks/useUpdateProject.ts";
 export type { UpdateProjectIndexMutationKey } from "./hooks/useUpdateProjectIndex.ts";
 export type { ActorOutput } from "./models/ActorOutput.ts";
 export type {
@@ -71,6 +73,14 @@ export type {
   CreateTaskPathParams,
 } from "./models/CreateTask.ts";
 export type { CreateTaskInput } from "./models/CreateTaskInput.ts";
+export type {
+  DeleteProject200,
+  DeleteProject400,
+  DeleteProject500,
+  DeleteProjectMutation,
+  DeleteProjectMutationResponse,
+  DeleteProjectPathParams,
+} from "./models/DeleteProject.ts";
 export type { ErrorItem } from "./models/ErrorItem.ts";
 export type {
   GetHealth200,
@@ -165,6 +175,15 @@ export type {
 } from "./models/UnblockTask.ts";
 export type { UnknownInterface } from "./models/UnknownInterface.ts";
 export type {
+  UpdateProject200,
+  UpdateProject400,
+  UpdateProject500,
+  UpdateProjectMutation,
+  UpdateProjectMutationRequest,
+  UpdateProjectMutationResponse,
+  UpdateProjectPathParams,
+} from "./models/UpdateProject.ts";
+export type {
   UpdateProjectIndex200,
   UpdateProjectIndex400,
   UpdateProjectIndex500,
@@ -172,12 +191,14 @@ export type {
   UpdateProjectIndexMutationResponse,
   UpdateProjectIndexPathParams,
 } from "./models/UpdateProjectIndex.ts";
+export type { UpdateProjectInput } from "./models/UpdateProjectInput.ts";
 export { blockTask } from "./client/blockTask.ts";
 export { claimTask } from "./client/claimTask.ts";
 export { commentTask } from "./client/commentTask.ts";
 export { completeTask } from "./client/completeTask.ts";
 export { createProject } from "./client/createProject.ts";
 export { createTask } from "./client/createTask.ts";
+export { deleteProject } from "./client/deleteProject.ts";
 export { getHealth } from "./client/getHealth.ts";
 export { getProjectIndexStatus } from "./client/getProjectIndexStatus.ts";
 export { listProjectTasks } from "./client/listProjectTasks.ts";
@@ -187,6 +208,7 @@ export { progressTask } from "./client/progressTask.ts";
 export { showProject } from "./client/showProject.ts";
 export { showTask } from "./client/showTask.ts";
 export { unblockTask } from "./client/unblockTask.ts";
+export { updateProject } from "./client/updateProject.ts";
 export { updateProjectIndex } from "./client/updateProjectIndex.ts";
 export { blockTaskMutationKey } from "./hooks/useBlockTask.ts";
 export { useBlockTask } from "./hooks/useBlockTask.ts";
@@ -200,6 +222,8 @@ export { createProjectMutationKey } from "./hooks/useCreateProject.ts";
 export { useCreateProject } from "./hooks/useCreateProject.ts";
 export { createTaskMutationKey } from "./hooks/useCreateTask.ts";
 export { useCreateTask } from "./hooks/useCreateTask.ts";
+export { deleteProjectMutationKey } from "./hooks/useDeleteProject.ts";
+export { useDeleteProject } from "./hooks/useDeleteProject.ts";
 export { getHealthQueryKey } from "./hooks/useGetHealth.ts";
 export { getHealthQueryOptions } from "./hooks/useGetHealth.ts";
 export { useGetHealth } from "./hooks/useGetHealth.ts";
@@ -225,5 +249,7 @@ export { showTaskQueryOptions } from "./hooks/useShowTask.ts";
 export { useShowTask } from "./hooks/useShowTask.ts";
 export { unblockTaskMutationKey } from "./hooks/useUnblockTask.ts";
 export { useUnblockTask } from "./hooks/useUnblockTask.ts";
+export { updateProjectMutationKey } from "./hooks/useUpdateProject.ts";
+export { useUpdateProject } from "./hooks/useUpdateProject.ts";
 export { updateProjectIndexMutationKey } from "./hooks/useUpdateProjectIndex.ts";
 export { useUpdateProjectIndex } from "./hooks/useUpdateProjectIndex.ts";

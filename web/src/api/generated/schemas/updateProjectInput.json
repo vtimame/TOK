@@ -1,0 +1,10 @@
+{
+  "description": "UpdateProjectInput schema",
+  "properties": {
+    "display_name": { "type": "string" },
+    "name": { "type": "string" },
+    "path": { "type": "string" }
+  },
+  "type": "object",
+  "x-readme-ref-name": "UpdateProjectInput"
+}

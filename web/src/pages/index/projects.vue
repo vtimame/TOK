@@ -6,14 +6,17 @@ import ProjectDialog from "@/components/pages/projects/ProjectDialog.vue";
 import {
   type ProjectDraft,
   useCreateProjectMutation,
+  useUpdateProjectMutation,
   useProjectsQuery,
 } from "@/api/queries/projects.ts";
 import { toastApiError } from "@/api/axios.ts";
 import { useRoute } from "vue-router";
 import ProjectsTable from "@/components/pages/projects/ProjectsTable.vue";
+import type { Project } from "@/components/pages/projects";
 
 const route = useRoute();
 const showProjectDialog = ref(false);
+const editingProject = ref<Project>();
 const pageSize = ref(25);
 const page = ref(1);
 const offset = computed(() => (page.value - 1) * pageSize.value);
@@ -23,6 +26,7 @@ const projectListParams = computed(() => ({
 }));
 const projectsQuery = useProjectsQuery(projectListParams);
 const createProjectMutation = useCreateProjectMutation();
+const updateProjectMutation = useUpdateProjectMutation();
 const projectsPage = computed(
   () =>
     projectsQuery.data.value ?? {
@@ -48,12 +52,41 @@ watch(pageCount, (nextPageCount) => {
 
 async function saveProject(input: ProjectDraft) {
   try {
-    await createProjectMutation.mutateAsync({ data: input });
+    if (editingProject.value) {
+      await updateProjectMutation.mutateAsync({
+        project: editingProject.value.name,
+        data: {
+          name: input.name,
+          display_name: input.display_name || input.name,
+          path: input.path,
+        },
+      });
+    } else {
+      await createProjectMutation.mutateAsync({ data: input });
+    }
+    editingProject.value = undefined;
     showProjectDialog.value = false;
   } catch (error) {
     toastApiError(error, {
       409: "Project already exists.",
     });
+  }
+}
+
+function createProject() {
+  editingProject.value = undefined;
+  showProjectDialog.value = true;
+}
+
+function editProject(project: Project) {
+  editingProject.value = project;
+  showProjectDialog.value = true;
+}
+
+function updateProjectDialogOpen(open: boolean) {
+  showProjectDialog.value = open;
+  if (!open) {
+    editingProject.value = undefined;
   }
 }
 
@@ -66,13 +99,15 @@ useTitle("Projects");
   <div v-else class="mx-auto flex h-svh w-full max-w-5xl flex-col gap-4 overflow-hidden px-4 py-18">
     <div class="flex shrink-0 items-center justify-between">
       <div class="text-2xl font-bold">Projects</div>
-      <Button @click="showProjectDialog = true">New project</Button>
+      <Button @click="createProject">New project</Button>
     </div>
 
     <ProjectDialog
       v-model:open="showProjectDialog"
-      :saving="createProjectMutation.isPending.value"
+      :project="editingProject"
+      :saving="createProjectMutation.isPending.value || updateProjectMutation.isPending.value"
       @save="saveProject"
+      @update:open="updateProjectDialogOpen"
     />
 
     <div class="min-h-0 flex-1 overflow-hidden">
@@ -89,7 +124,8 @@ useTitle("Projects");
           :page-size="pageSize"
           :loading="projectsQuery.isPending.value"
           :error="projectsQuery.isError.value"
-          @create="showProjectDialog = true"
+          @create="createProject"
+          @edit="editProject"
           @first-page="page = 1"
           @previous-page="page = Math.max(1, page - 1)"
           @next-page="page = Math.min(pageCount, page + 1)"

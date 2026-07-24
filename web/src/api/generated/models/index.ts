@@ -55,6 +55,14 @@ export type {
   CreateTaskPathParams,
 } from "./CreateTask.ts";
 export type { CreateTaskInput } from "./CreateTaskInput.ts";
+export type {
+  DeleteProject200,
+  DeleteProject400,
+  DeleteProject500,
+  DeleteProjectMutation,
+  DeleteProjectMutationResponse,
+  DeleteProjectPathParams,
+} from "./DeleteProject.ts";
 export type { ErrorItem } from "./ErrorItem.ts";
 export type {
   GetHealth200,
@@ -149,6 +157,15 @@ export type {
 } from "./UnblockTask.ts";
 export type { UnknownInterface } from "./UnknownInterface.ts";
 export type {
+  UpdateProject200,
+  UpdateProject400,
+  UpdateProject500,
+  UpdateProjectMutation,
+  UpdateProjectMutationRequest,
+  UpdateProjectMutationResponse,
+  UpdateProjectPathParams,
+} from "./UpdateProject.ts";
+export type {
   UpdateProjectIndex200,
   UpdateProjectIndex400,
   UpdateProjectIndex500,
@@ -156,3 +173,4 @@ export type {
   UpdateProjectIndexMutationResponse,
   UpdateProjectIndexPathParams,
 } from "./UpdateProjectIndex.ts";
+export type { UpdateProjectInput } from "./UpdateProjectInput.ts";

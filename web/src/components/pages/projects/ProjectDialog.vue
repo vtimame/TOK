@@ -41,9 +41,15 @@ const { r$ } = useRegle(
 );
 
 watch(
-  () => props.open,
-  (v: boolean) => {
-    if (!v)
+  () => [props.open, props.project] as const,
+  ([open, project]) => {
+    if (open) {
+      state.name = project?.name || "";
+      state.path = project?.path || "";
+      r$.$reset();
+      return;
+    }
+    if (!open)
       setTimeout(() => {
         state.name = "";
         state.path = "";

@@ -19,6 +19,12 @@ type CreateProjectInput struct {
 	Path        string `json:"path" validate:"required"`
 }
 
+type UpdateProjectInput struct {
+	Name        string `json:"name,omitempty"`
+	DisplayName string `json:"display_name,omitempty"`
+	Path        string `json:"path,omitempty"`
+}
+
 type CreateTaskInput struct {
 	Title              string `json:"title" validate:"required"`
 	Description        string `json:"description,omitempty"`

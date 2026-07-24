@@ -51,6 +51,12 @@ type CreateProjectInput struct {
 	Path        string
 }
 
+type UpdateProjectInput struct {
+	Name        string
+	DisplayName string
+	Path        string
+}
+
 type ListProjectsOptions struct {
 	Limit  int
 	Offset int
@@ -301,6 +307,54 @@ func (s *Store) GetProjectByID(ctx context.Context, id int64) (Project, error) {
 		WHERE id = ?
 	`, id)
 	return scanProject(row)
+}
+
+func (s *Store) UpdateProject(ctx context.Context, id int64, input UpdateProjectInput) (Project, error) {
+	if id <= 0 {
+		return Project{}, errors.New("project id is required")
+	}
+	if err := validateProjectInput(CreateProjectInput(input)); err != nil {
+		return Project{}, err
+	}
+
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE projects
+		SET name = ?,
+			display_name = ?,
+			path = ?,
+			updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+		WHERE id = ?
+	`, input.Name, input.DisplayName, input.Path, id)
+	if err != nil {
+		return Project{}, fmt.Errorf("update project %d: %w", id, err)
+	}
+	updated, err := res.RowsAffected()
+	if err != nil {
+		return Project{}, fmt.Errorf("read updated project count: %w", err)
+	}
+	if updated == 0 {
+		return Project{}, sql.ErrNoRows
+	}
+
+	return s.GetProjectByID(ctx, id)
+}
+
+func (s *Store) DeleteProject(ctx context.Context, id int64) error {
+	if id <= 0 {
+		return errors.New("project id is required")
+	}
+	res, err := s.db.ExecContext(ctx, "DELETE FROM projects WHERE id = ?", id)
+	if err != nil {
+		return fmt.Errorf("delete project %d: %w", id, err)
+	}
+	deleted, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read deleted project count: %w", err)
+	}
+	if deleted == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (s *Store) ListProjects(ctx context.Context) ([]Project, error) {
