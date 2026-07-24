@@ -100,9 +100,17 @@ func (s *service) addTools(server *mcp.Server) {
 		Description: "Update the lexical index for a project.",
 	}, s.indexUpdate)
 	mcp.AddTool(server, &mcp.Tool{
+		Name:        "index_update_all",
+		Description: "Update lexical indexes for all projects.",
+	}, s.indexUpdateAll)
+	mcp.AddTool(server, &mcp.Tool{
 		Name:        "index_status",
 		Description: "Show index status for a project.",
 	}, s.indexStatus)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "index_status_all",
+		Description: "Show index status for all projects.",
+	}, s.indexStatusAll)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "search",
 		Description: "Search indexed project files.",
@@ -186,10 +194,19 @@ type taskEventOutput struct {
 
 type indexOutput struct {
 	ProjectName      string         `json:"project_name"`
+	State            string         `json:"state"`
+	PathExists       bool           `json:"path_exists"`
 	IndexedDocuments int            `json:"indexed_documents"`
+	IndexedChunks    int            `json:"indexed_chunks"`
 	SkippedFiles     int            `json:"skipped_files"`
 	SkippedReasons   map[string]int `json:"skipped_reasons"`
 	UpdatedAt        string         `json:"updated_at"`
+	LastError        string         `json:"last_error,omitempty"`
+}
+
+type indexListOutput struct {
+	Indexes []indexOutput `json:"indexes"`
+	Total   int           `json:"total"`
 }
 
 type searchOutput struct {
@@ -238,6 +255,8 @@ type SearchResultOutput struct {
 	Path       string  `json:"path"`
 	Score      float64 `json:"score"`
 	Line       int     `json:"line"`
+	LineStart  int     `json:"line_start"`
+	LineEnd    int     `json:"line_end"`
 	Snippet    string  `json:"snippet"`
 	Excerpt    string  `json:"excerpt"`
 	Provenance string  `json:"provenance"`
@@ -400,6 +419,52 @@ func (s *service) indexStatus(ctx context.Context, _ *mcp.CallToolRequest, input
 	return nil, indexFromStatus(status), nil
 }
 
+func (s *service) indexUpdateAll(ctx context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, indexListOutput, error) {
+	projects, err := s.store.ListProjects(ctx)
+	if err != nil {
+		return nil, indexListOutput{}, err
+	}
+	out := indexListOutput{Indexes: make([]indexOutput, 0, len(projects))}
+	for _, project := range projects {
+		summary, err := s.retrieval.IndexProject(ctx, project)
+		if err != nil {
+			out.Indexes = append(out.Indexes, indexOutput{
+				ProjectName:    project.Name,
+				State:          retrieval.StateFailed,
+				SkippedReasons: map[string]int{},
+				LastError:      err.Error(),
+			})
+			continue
+		}
+		out.Indexes = append(out.Indexes, indexFromSummary(summary))
+	}
+	out.Total = len(out.Indexes)
+	return nil, out, nil
+}
+
+func (s *service) indexStatusAll(ctx context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, indexListOutput, error) {
+	projects, err := s.store.ListProjects(ctx)
+	if err != nil {
+		return nil, indexListOutput{}, err
+	}
+	out := indexListOutput{Indexes: make([]indexOutput, 0, len(projects))}
+	for _, project := range projects {
+		status, err := s.retrieval.IndexStatus(ctx, project)
+		if err != nil {
+			out.Indexes = append(out.Indexes, indexOutput{
+				ProjectName:    project.Name,
+				State:          retrieval.StateFailed,
+				SkippedReasons: map[string]int{},
+				LastError:      err.Error(),
+			})
+			continue
+		}
+		out.Indexes = append(out.Indexes, indexFromStatus(status))
+	}
+	out.Total = len(out.Indexes)
+	return nil, out, nil
+}
+
 func (s *service) search(ctx context.Context, _ *mcp.CallToolRequest, input searchInput) (*mcp.CallToolResult, searchOutput, error) {
 	project, err := s.projectByName(ctx, input.Project)
 	if err != nil {
@@ -426,6 +491,8 @@ func (s *service) search(ctx context.Context, _ *mcp.CallToolRequest, input sear
 			Path:       result.Path,
 			Score:      result.Score,
 			Line:       result.Line,
+			LineStart:  result.LineStart,
+			LineEnd:    result.LineEnd,
 			Snippet:    result.Snippet,
 			Excerpt:    result.Excerpt,
 			Provenance: result.Provenance,
@@ -539,20 +606,28 @@ func actorFromSnapshot(id int64, kind, name string) *ActorOutput {
 func indexFromSummary(summary retrieval.IndexSummary) indexOutput {
 	return indexOutput{
 		ProjectName:      summary.ProjectName,
+		State:            summary.State,
+		PathExists:       summary.PathExists,
 		IndexedDocuments: summary.IndexedDocuments,
+		IndexedChunks:    summary.IndexedChunks,
 		SkippedFiles:     summary.SkippedFiles,
 		SkippedReasons:   summary.SkippedReasons,
 		UpdatedAt:        summary.UpdatedAt,
+		LastError:        summary.LastError,
 	}
 }
 
 func indexFromStatus(status retrieval.IndexStatus) indexOutput {
 	return indexOutput{
 		ProjectName:      status.ProjectName,
+		State:            status.State,
+		PathExists:       status.PathExists,
 		IndexedDocuments: status.IndexedDocuments,
+		IndexedChunks:    status.IndexedChunks,
 		SkippedFiles:     status.SkippedFiles,
 		SkippedReasons:   status.SkippedReasons,
 		UpdatedAt:        status.UpdatedAt,
+		LastError:        status.LastError,
 	}
 }
 

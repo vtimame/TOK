@@ -1,0 +1,7 @@
+{
+  "description": "IndexIgnorePatternInput schema",
+  "properties": { "pattern": { "type": "string" } },
+  "required": ["pattern"],
+  "type": "object",
+  "x-readme-ref-name": "IndexIgnorePatternInput"
+}

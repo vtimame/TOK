@@ -57,6 +57,9 @@ func TestIndexAndSearchFixtureProject(t *testing.T) {
 	if summary.IndexedDocuments != 2 {
 		t.Fatalf("expected 2 indexed documents, got %+v", summary)
 	}
+	if summary.State != StateReady || !summary.PathExists || summary.IndexedChunks != 2 {
+		t.Fatalf("unexpected index lifecycle summary: %+v", summary)
+	}
 	if summary.SkippedFiles != 2 {
 		t.Fatalf("expected 2 skipped files, got %+v", summary)
 	}
@@ -150,6 +153,9 @@ func TestIndexProjectHonorsGitignoreAndStoresStatus(t *testing.T) {
 	if status.IndexedDocuments != summary.IndexedDocuments || status.SkippedFiles != summary.SkippedFiles || status.UpdatedAt == "" {
 		t.Fatalf("unexpected index status: %+v", status)
 	}
+	if status.State != StateReady || !status.PathExists || status.IndexedChunks != summary.IndexedChunks {
+		t.Fatalf("unexpected lifecycle status: %+v", status)
+	}
 	if status.SkippedReasons["gitignore"] != 3 || status.SkippedReasons["unsupported_extension"] != 1 {
 		t.Fatalf("unexpected status skipped reasons: %+v", status.SkippedReasons)
 	}
@@ -160,6 +166,129 @@ func TestIndexProjectHonorsGitignoreAndStoresStatus(t *testing.T) {
 	}
 	if len(results) != 1 || results[0].Path != "keep.go" {
 		t.Fatalf("expected only keep.go in search results, got %+v", results)
+	}
+}
+
+func TestIndexStatusReportsMissingPathAndStaleIndex(t *testing.T) {
+	ctx := context.Background()
+	projectDir := t.TempDir()
+	writeFixtureFile(t, projectDir, "keep.go", "package keep\n\nfunc searchableToken() {}\n")
+
+	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), storage.DatabaseFileName))
+	if err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("Close returned error: %v", err)
+		}
+	})
+	if err := store.Init(ctx); err != nil {
+		t.Fatalf("Init returned error: %v", err)
+	}
+
+	project, err := store.CreateProject(ctx, storage.CreateProjectInput{
+		Name:        "fixture",
+		DisplayName: "Fixture",
+		Path:        projectDir,
+	})
+	if err != nil {
+		t.Fatalf("CreateProject returned error: %v", err)
+	}
+
+	service := NewService(store)
+	summary, err := service.IndexProject(ctx, project)
+	if err != nil {
+		t.Fatalf("IndexProject returned error: %v", err)
+	}
+	if summary.State != StateReady {
+		t.Fatalf("expected ready summary, got %+v", summary)
+	}
+
+	writeFixtureFile(t, projectDir, "keep.go", "package keep\n\nfunc searchableTokenChanged() {}\n")
+	status, err := service.IndexStatus(ctx, project)
+	if err != nil {
+		t.Fatalf("IndexStatus returned error: %v", err)
+	}
+	if status.State != StateStale {
+		t.Fatalf("expected stale status after file change, got %+v", status)
+	}
+
+	if err := os.RemoveAll(projectDir); err != nil {
+		t.Fatalf("RemoveAll returned error: %v", err)
+	}
+	missingSummary, err := service.IndexProject(ctx, project)
+	if err != nil {
+		t.Fatalf("IndexProject missing path returned error: %v", err)
+	}
+	if missingSummary.State != StatePathMissing || missingSummary.PathExists || missingSummary.LastError == "" {
+		t.Fatalf("expected path_missing summary, got %+v", missingSummary)
+	}
+	missingStatus, err := service.IndexStatus(ctx, project)
+	if err != nil {
+		t.Fatalf("IndexStatus missing path returned error: %v", err)
+	}
+	if missingStatus.State != StatePathMissing || missingStatus.PathExists {
+		t.Fatalf("expected path_missing status, got %+v", missingStatus)
+	}
+}
+
+func TestIgnorePolicySeedsFromGitignoreAndCanBeEdited(t *testing.T) {
+	ctx := context.Background()
+	projectDir := t.TempDir()
+	writeFixtureFile(t, projectDir, ".gitignore", "typed-router.d.ts\nsrc/generated/**\n")
+	writeFixtureFile(t, projectDir, "src/app.ts", "const searchableToken = true\n")
+	writeFixtureFile(t, projectDir, "typed-router.d.ts", "const searchableToken = false\n")
+	writeFixtureFile(t, projectDir, "src/generated/api.ts", "const searchableToken = false\n")
+
+	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), storage.DatabaseFileName))
+	if err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("Close returned error: %v", err)
+		}
+	})
+	if err := store.Init(ctx); err != nil {
+		t.Fatalf("Init returned error: %v", err)
+	}
+
+	project, err := store.CreateProject(ctx, storage.CreateProjectInput{
+		Name:        "fixture",
+		DisplayName: "Fixture",
+		Path:        projectDir,
+	})
+	if err != nil {
+		t.Fatalf("CreateProject returned error: %v", err)
+	}
+
+	service := NewService(store)
+	policy, err := service.IgnorePolicy(ctx, project)
+	if err != nil {
+		t.Fatalf("IgnorePolicy returned error: %v", err)
+	}
+	if !policy.SeededFromIgnore || !reflect.DeepEqual(policy.IgnorePatterns, []string{"typed-router.d.ts", "src/generated/**"}) {
+		t.Fatalf("unexpected seeded policy: %+v", policy)
+	}
+
+	summary, err := service.IndexProject(ctx, project)
+	if err != nil {
+		t.Fatalf("IndexProject returned error: %v", err)
+	}
+	if summary.IndexedDocuments != 1 || summary.SkippedReasons["gitignore"] != 2 {
+		t.Fatalf("unexpected summary with DB ignore policy: %+v", summary)
+	}
+
+	if _, err := service.RemoveIgnorePattern(ctx, project, "typed-router.d.ts"); err != nil {
+		t.Fatalf("RemoveIgnorePattern returned error: %v", err)
+	}
+	status, err := service.IndexStatus(ctx, project)
+	if err != nil {
+		t.Fatalf("IndexStatus returned error: %v", err)
+	}
+	if status.State != StateStale {
+		t.Fatalf("expected stale status after ignore policy change, got %+v", status)
 	}
 }
 

@@ -113,11 +113,11 @@ func (c *CLI) runProjectList(ctx context.Context, store *storage.Store, args []s
 		return nil
 	}
 
-	fmt.Fprintln(c.out, "name\tdisplay_name\tpath")
+	rows := [][]string{{"name", "display_name", "path"}}
 	for _, project := range projects {
-		fmt.Fprintf(c.out, "%s\t%s\t%s\n", project.Name, project.DisplayName, project.Path)
+		rows = append(rows, []string{project.Name, project.DisplayName, project.Path})
 	}
-	return nil
+	return printTerminalTable(c.out, rows)
 }
 
 func (c *CLI) runProjectShow(ctx context.Context, store *storage.Store, args []string) error {

@@ -20,7 +20,7 @@ func TestInitAppliesEmbeddedMigrations(t *testing.T) {
 		t.Fatalf("second Init returned error: %v", err)
 	}
 
-	for _, table := range []string{"projects", "tasks", "task_events", "context_sources", "index_metadata", "retrieval_documents", "runs", "run_artifacts", "actors"} {
+	for _, table := range []string{"projects", "tasks", "task_events", "context_sources", "index_metadata", "retrieval_documents", "runs", "run_artifacts", "actors", "index_file_manifest", "index_policies"} {
 		var name string
 		err := store.db.QueryRowContext(ctx, `
 			SELECT name
@@ -36,8 +36,8 @@ func TestInitAppliesEmbeddedMigrations(t *testing.T) {
 	if err := store.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM schema_migrations").Scan(&applied); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if applied != 8 {
-		t.Fatalf("expected 8 applied migrations, got %d", applied)
+	if applied != 10 {
+		t.Fatalf("expected 10 applied migrations, got %d", applied)
 	}
 }
 

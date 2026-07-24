@@ -1,0 +1,21 @@
+{
+  "description": "IndexIgnorePolicyResponse schema",
+  "properties": {
+    "created_at": { "type": "string" },
+    "ignore_patterns": { "items": { "type": "string" }, "type": ["array", "null"] },
+    "include_patterns": { "items": { "type": "string" }, "type": ["array", "null"] },
+    "project_name": { "type": "string" },
+    "seeded_from_gitignore": { "type": "boolean" },
+    "updated_at": { "type": "string" }
+  },
+  "required": [
+    "created_at",
+    "ignore_patterns",
+    "include_patterns",
+    "project_name",
+    "seeded_from_gitignore",
+    "updated_at"
+  ],
+  "type": "object",
+  "x-readme-ref-name": "IndexIgnorePolicyResponse"
+}

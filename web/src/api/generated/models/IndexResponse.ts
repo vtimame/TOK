@@ -4,14 +4,23 @@
  * Do not edit manually.
  */
 
-/**
- * @description IndexResponse schema
- */
 export type IndexResponse = {
   /**
    * @type integer
    */
+  indexed_chunks: number;
+  /**
+   * @type integer
+   */
   indexed_documents: number;
+  /**
+   * @type string | undefined
+   */
+  last_error?: string;
+  /**
+   * @type boolean
+   */
+  path_exists: boolean;
   /**
    * @type string
    */
@@ -26,6 +35,10 @@ export type IndexResponse = {
   skipped_reasons: {
     [key: string]: number;
   } | null;
+  /**
+   * @type string
+   */
+  state: string;
   /**
    * @type string
    */

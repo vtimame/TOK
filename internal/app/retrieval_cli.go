@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/pterm/pterm"
+
 	"s26.sh/tok/internal/retrieval"
 	"s26.sh/tok/internal/storage"
 )
@@ -35,6 +37,8 @@ func (c *CLI) runIndex(ctx context.Context, opts runtimeOptions) error {
 		return c.runIndexUpdate(ctx, store, opts.args[2:])
 	case "status":
 		return c.runIndexStatus(ctx, store, opts.args[2:])
+	case "ignore":
+		return c.runIndexIgnore(ctx, store, opts.args[2:])
 	default:
 		return &UsageError{
 			Message: fmt.Sprintf("unknown index command %q\n\nRun '%s help' for usage.", opts.args[1], commandName),
@@ -43,8 +47,95 @@ func (c *CLI) runIndex(ctx context.Context, opts runtimeOptions) error {
 	}
 }
 
+type indexIgnoreOptions struct {
+	projectName string
+	pattern     string
+	json        bool
+}
+
+func (c *CLI) runIndexIgnore(ctx context.Context, store *storage.Store, args []string) error {
+	if len(args) < 1 {
+		return &UsageError{Message: "missing index ignore command", Code: 2}
+	}
+
+	command := args[0]
+	ignoreOpts, err := parseIndexIgnoreOptions(args[1:], "index ignore "+command, command == "add" || command == "remove")
+	if err != nil {
+		return err
+	}
+	project, err := getProjectForTask(ctx, store, ignoreOpts.projectName)
+	if err != nil {
+		return err
+	}
+	service := retrieval.NewService(store)
+
+	var policy retrieval.IndexPolicy
+	switch command {
+	case "list":
+		policy, err = service.IgnorePolicy(ctx, project)
+	case "refresh":
+		policy, err = service.RefreshIgnorePolicy(ctx, project)
+	case "add":
+		policy, err = service.AddIgnorePattern(ctx, project, ignoreOpts.pattern)
+	case "remove":
+		policy, err = service.RemoveIgnorePattern(ctx, project, ignoreOpts.pattern)
+	default:
+		return &UsageError{Message: fmt.Sprintf("unknown index ignore command %q", command), Code: 2}
+	}
+	if err != nil {
+		return err
+	}
+	if ignoreOpts.json {
+		return printIndexIgnorePolicyJSON(c.out, policy)
+	}
+	printIndexIgnorePolicy(c.out, policy)
+	return nil
+}
+
+func parseIndexIgnoreOptions(args []string, command string, requirePattern bool) (indexIgnoreOptions, error) {
+	var opts indexIgnoreOptions
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--project":
+			i++
+			if i >= len(args) {
+				return indexIgnoreOptions{}, &UsageError{Message: "--project requires a value", Code: 2}
+			}
+			opts.projectName = args[i]
+		case strings.HasPrefix(arg, "--project="):
+			opts.projectName = strings.TrimPrefix(arg, "--project=")
+			if opts.projectName == "" {
+				return indexIgnoreOptions{}, &UsageError{Message: "--project requires a value", Code: 2}
+			}
+		case arg == "--json":
+			opts.json = true
+		case strings.HasPrefix(arg, "-"):
+			return indexIgnoreOptions{}, &UsageError{Message: fmt.Sprintf("unknown %s option %q", command, arg), Code: 2}
+		default:
+			if opts.pattern != "" {
+				return indexIgnoreOptions{}, &UsageError{Message: command + " accepts exactly one pattern", Code: 2}
+			}
+			opts.pattern = arg
+		}
+	}
+	opts.projectName = strings.TrimSpace(opts.projectName)
+	opts.pattern = strings.TrimSpace(opts.pattern)
+	if opts.projectName == "" {
+		return indexIgnoreOptions{}, &UsageError{Message: command + " requires --project", Code: 2}
+	}
+	if requirePattern && opts.pattern == "" {
+		return indexIgnoreOptions{}, &UsageError{Message: command + " requires a pattern", Code: 2}
+	}
+	if !requirePattern && opts.pattern != "" {
+		return indexIgnoreOptions{}, &UsageError{Message: command + " does not accept a pattern", Code: 2}
+	}
+	return opts, nil
+}
+
 type indexProjectOptions struct {
 	projectName string
+	all         bool
 	json        bool
 }
 
@@ -54,11 +145,55 @@ func (c *CLI) runIndexUpdate(ctx context.Context, store *storage.Store, args []s
 		return err
 	}
 
+	if indexOpts.all {
+		projects, err := store.ListProjects(ctx)
+		if err != nil {
+			return err
+		}
+		summaries := make([]retrieval.IndexSummary, 0, len(projects))
+		service := retrieval.NewService(store)
+		var progress *pterm.ProgressbarPrinter
+		if !indexOpts.json && len(projects) > 1 {
+			progress, _ = pterm.DefaultProgressbar.
+				WithWriter(c.out).
+				WithTotal(len(projects)).
+				WithShowCount().
+				WithShowPercentage().
+				Start("index projects")
+		}
+		for _, project := range projects {
+			if progress != nil {
+				progress.UpdateTitle("index " + project.Name)
+			}
+			summary, err := service.IndexProject(ctx, project)
+			if err != nil {
+				summary = retrieval.IndexSummary{
+					ProjectName:    project.Name,
+					State:          retrieval.StateFailed,
+					SkippedReasons: map[string]int{},
+					LastError:      err.Error(),
+				}
+			}
+			summaries = append(summaries, summary)
+			if progress != nil {
+				progress.Increment()
+			}
+		}
+		if progress != nil {
+			_, _ = progress.Stop()
+			fmt.Fprintln(c.out)
+		}
+		if indexOpts.json {
+			return printIndexSummariesJSON(c.out, summaries)
+		}
+		printIndexSummaries(c.out, summaries)
+		return nil
+	}
+
 	project, err := getProjectForTask(ctx, store, indexOpts.projectName)
 	if err != nil {
 		return err
 	}
-
 	summary, err := retrieval.NewService(store).IndexProject(ctx, project)
 	if err != nil {
 		return err
@@ -77,11 +212,36 @@ func (c *CLI) runIndexStatus(ctx context.Context, store *storage.Store, args []s
 		return err
 	}
 
+	if indexOpts.all {
+		projects, err := store.ListProjects(ctx)
+		if err != nil {
+			return err
+		}
+		statuses := make([]retrieval.IndexStatus, 0, len(projects))
+		service := retrieval.NewService(store)
+		for _, project := range projects {
+			status, err := service.IndexStatus(ctx, project)
+			if err != nil {
+				status = retrieval.IndexStatus{
+					ProjectName:    project.Name,
+					State:          retrieval.StateFailed,
+					SkippedReasons: map[string]int{},
+					LastError:      err.Error(),
+				}
+			}
+			statuses = append(statuses, status)
+		}
+		if indexOpts.json {
+			return printIndexStatusesJSON(c.out, statuses)
+		}
+		printIndexStatuses(c.out, statuses)
+		return nil
+	}
+
 	project, err := getProjectForTask(ctx, store, indexOpts.projectName)
 	if err != nil {
 		return err
 	}
-
 	status, err := retrieval.NewService(store).IndexStatus(ctx, project)
 	if err != nil {
 		return err
@@ -101,16 +261,27 @@ func parseIndexProjectOptions(args []string, command string) (indexProjectOption
 		arg := args[i]
 		switch {
 		case arg == "--project":
+			if opts.all {
+				return indexProjectOptions{}, &UsageError{Message: command + " cannot combine --project and --all", Code: 2}
+			}
 			i++
 			if i >= len(args) {
 				return indexProjectOptions{}, &UsageError{Message: "--project requires a value", Code: 2}
 			}
 			opts.projectName = args[i]
 		case strings.HasPrefix(arg, "--project="):
+			if opts.all {
+				return indexProjectOptions{}, &UsageError{Message: command + " cannot combine --project and --all", Code: 2}
+			}
 			opts.projectName = strings.TrimPrefix(arg, "--project=")
 			if opts.projectName == "" {
 				return indexProjectOptions{}, &UsageError{Message: "--project requires a value", Code: 2}
 			}
+		case arg == "--all":
+			if opts.projectName != "" {
+				return indexProjectOptions{}, &UsageError{Message: command + " cannot combine --project and --all", Code: 2}
+			}
+			opts.all = true
 		case arg == "--json":
 			opts.json = true
 		default:
@@ -119,7 +290,7 @@ func parseIndexProjectOptions(args []string, command string) (indexProjectOption
 	}
 
 	opts.projectName = strings.TrimSpace(opts.projectName)
-	if opts.projectName == "" {
+	if opts.projectName == "" && !opts.all {
 		return indexProjectOptions{}, &UsageError{Message: command + " requires --project", Code: 2}
 	}
 
@@ -130,6 +301,7 @@ type searchOptions struct {
 	projectName string
 	query       string
 	limit       int
+	json        bool
 }
 
 func (c *CLI) runSearch(ctx context.Context, opts runtimeOptions) error {
@@ -157,16 +329,25 @@ func (c *CLI) runSearch(ctx context.Context, opts runtimeOptions) error {
 	if err != nil {
 		return err
 	}
+	if searchOpts.json {
+		return printSearchResultsJSON(c.out, results)
+	}
 	if len(results) == 0 {
 		fmt.Fprintln(c.out, "no results")
 		return nil
 	}
 
-	fmt.Fprintln(c.out, "path\tline\tscore\tprovenance\tsnippet")
+	rows := [][]string{{"path", "line", "score", "provenance", "snippet"}}
 	for _, result := range results {
-		fmt.Fprintf(c.out, "%s\t%d\t%.6f\t%s\t%s\n", result.Path, result.Line, result.Score, result.Provenance, result.Snippet)
+		rows = append(rows, []string{
+			result.Path,
+			strconv.Itoa(result.Line),
+			fmt.Sprintf("%.6f", result.Score),
+			result.Provenance,
+			result.Snippet,
+		})
 	}
-	return nil
+	return printTerminalTable(c.out, rows)
 }
 
 func parseSearchOptions(args []string) (searchOptions, error) {
@@ -203,6 +384,8 @@ func parseSearchOptions(args []string) (searchOptions, error) {
 				return searchOptions{}, err
 			}
 			opts.limit = limit
+		case arg == "--json":
+			opts.json = true
 		case strings.HasPrefix(arg, "-"):
 			return searchOptions{}, &UsageError{Message: fmt.Sprintf("unknown search option %q", arg), Code: 2}
 		default:
@@ -235,26 +418,157 @@ func parseSearchLimit(value string) (int, error) {
 
 type indexSummaryOutput struct {
 	ProjectName      string         `json:"project_name"`
+	State            string         `json:"state"`
+	PathExists       bool           `json:"path_exists"`
 	IndexedDocuments int            `json:"indexed_documents"`
+	IndexedChunks    int            `json:"indexed_chunks"`
 	SkippedFiles     int            `json:"skipped_files"`
 	SkippedReasons   map[string]int `json:"skipped_reasons"`
 	UpdatedAt        string         `json:"updated_at"`
+	LastError        string         `json:"last_error,omitempty"`
+}
+
+type indexIgnorePolicyOutput struct {
+	ProjectName      string   `json:"project_name"`
+	IncludePatterns  []string `json:"include_patterns"`
+	IgnorePatterns   []string `json:"ignore_patterns"`
+	CreatedAt        string   `json:"created_at"`
+	UpdatedAt        string   `json:"updated_at"`
+	SeededFromIgnore bool     `json:"seeded_from_gitignore"`
+}
+
+type searchListOutput struct {
+	Results []searchResultOutput `json:"results"`
+}
+
+type searchResultOutput struct {
+	Path       string  `json:"path"`
+	Score      float64 `json:"score"`
+	Line       int     `json:"line"`
+	LineStart  int     `json:"line_start"`
+	LineEnd    int     `json:"line_end"`
+	Snippet    string  `json:"snippet"`
+	Excerpt    string  `json:"excerpt"`
+	Provenance string  `json:"provenance"`
+}
+
+func printSearchResultsJSON(out io.Writer, results []retrieval.SearchResult) error {
+	items := make([]searchResultOutput, 0, len(results))
+	for _, result := range results {
+		items = append(items, searchResultOutput{
+			Path:       result.Path,
+			Score:      result.Score,
+			Line:       result.Line,
+			LineStart:  result.LineStart,
+			LineEnd:    result.LineEnd,
+			Snippet:    result.Snippet,
+			Excerpt:    result.Excerpt,
+			Provenance: result.Provenance,
+		})
+	}
+
+	encoder := json.NewEncoder(out)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(searchListOutput{Results: items})
+}
+
+func printIndexIgnorePolicy(out io.Writer, policy retrieval.IndexPolicy) {
+	fmt.Fprintf(out, "project: %s\n", policy.ProjectName)
+	fmt.Fprintf(out, "seeded_from_gitignore: %t\n", policy.SeededFromIgnore)
+	if len(policy.IgnorePatterns) == 0 {
+		fmt.Fprintln(out, "ignore_patterns: none")
+	} else {
+		fmt.Fprintln(out, "ignore_patterns:")
+		for _, pattern := range policy.IgnorePatterns {
+			fmt.Fprintf(out, "- %s\n", pattern)
+		}
+	}
+	if policy.UpdatedAt != "" {
+		fmt.Fprintf(out, "updated_at: %s\n", policy.UpdatedAt)
+	}
+}
+
+func printIndexIgnorePolicyJSON(out io.Writer, policy retrieval.IndexPolicy) error {
+	encoder := json.NewEncoder(out)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(indexIgnorePolicyOutput{
+		ProjectName:      policy.ProjectName,
+		IncludePatterns:  policy.IncludePatterns,
+		IgnorePatterns:   policy.IgnorePatterns,
+		CreatedAt:        policy.CreatedAt,
+		UpdatedAt:        policy.UpdatedAt,
+		SeededFromIgnore: policy.SeededFromIgnore,
+	})
 }
 
 func printIndexSummary(out io.Writer, summary retrieval.IndexSummary) {
 	fmt.Fprintf(out, "project: %s\n", summary.ProjectName)
+	fmt.Fprintf(out, "state: %s\n", summary.State)
+	fmt.Fprintf(out, "path_exists: %t\n", summary.PathExists)
 	fmt.Fprintf(out, "indexed_documents: %d\n", summary.IndexedDocuments)
+	fmt.Fprintf(out, "indexed_chunks: %d\n", summary.IndexedChunks)
 	fmt.Fprintf(out, "skipped_files: %d\n", summary.SkippedFiles)
 	printSkippedReasons(out, summary.SkippedReasons)
 	fmt.Fprintf(out, "updated_at: %s\n", summary.UpdatedAt)
+	if summary.LastError != "" {
+		fmt.Fprintf(out, "last_error: %s\n", summary.LastError)
+	}
 }
 
 func printIndexStatus(out io.Writer, status retrieval.IndexStatus) {
 	fmt.Fprintf(out, "project: %s\n", status.ProjectName)
+	fmt.Fprintf(out, "state: %s\n", status.State)
+	fmt.Fprintf(out, "path_exists: %t\n", status.PathExists)
 	fmt.Fprintf(out, "indexed_documents: %d\n", status.IndexedDocuments)
+	fmt.Fprintf(out, "indexed_chunks: %d\n", status.IndexedChunks)
 	fmt.Fprintf(out, "skipped_files: %d\n", status.SkippedFiles)
 	printSkippedReasons(out, status.SkippedReasons)
 	fmt.Fprintf(out, "updated_at: %s\n", status.UpdatedAt)
+	if status.LastError != "" {
+		fmt.Fprintf(out, "last_error: %s\n", status.LastError)
+	}
+}
+
+func printIndexSummaries(out io.Writer, summaries []retrieval.IndexSummary) {
+	if len(summaries) == 0 {
+		fmt.Fprintln(out, "no projects")
+		return
+	}
+	rows := [][]string{{"project", "state", "path_exists", "documents", "chunks", "skipped", "updated_at", "last_error"}}
+	for _, summary := range summaries {
+		rows = append(rows, []string{
+			summary.ProjectName,
+			summary.State,
+			strconv.FormatBool(summary.PathExists),
+			strconv.Itoa(summary.IndexedDocuments),
+			strconv.Itoa(summary.IndexedChunks),
+			strconv.Itoa(summary.SkippedFiles),
+			summary.UpdatedAt,
+			summary.LastError,
+		})
+	}
+	_ = printTerminalTable(out, rows)
+}
+
+func printIndexStatuses(out io.Writer, statuses []retrieval.IndexStatus) {
+	if len(statuses) == 0 {
+		fmt.Fprintln(out, "no projects")
+		return
+	}
+	rows := [][]string{{"project", "state", "path_exists", "documents", "chunks", "skipped", "updated_at", "last_error"}}
+	for _, status := range statuses {
+		rows = append(rows, []string{
+			status.ProjectName,
+			status.State,
+			strconv.FormatBool(status.PathExists),
+			strconv.Itoa(status.IndexedDocuments),
+			strconv.Itoa(status.IndexedChunks),
+			strconv.Itoa(status.SkippedFiles),
+			status.UpdatedAt,
+			status.LastError,
+		})
+	}
+	_ = printTerminalTable(out, rows)
 }
 
 func printSkippedReasons(out io.Writer, reasons map[string]int) {
@@ -273,11 +587,35 @@ func printIndexSummaryJSON(out io.Writer, summary retrieval.IndexSummary) error 
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(indexSummaryOutput{
 		ProjectName:      summary.ProjectName,
+		State:            summary.State,
+		PathExists:       summary.PathExists,
 		IndexedDocuments: summary.IndexedDocuments,
+		IndexedChunks:    summary.IndexedChunks,
 		SkippedFiles:     summary.SkippedFiles,
 		SkippedReasons:   summary.SkippedReasons,
 		UpdatedAt:        summary.UpdatedAt,
+		LastError:        summary.LastError,
 	})
+}
+
+func printIndexSummariesJSON(out io.Writer, summaries []retrieval.IndexSummary) error {
+	encoder := json.NewEncoder(out)
+	encoder.SetIndent("", "  ")
+	items := make([]indexSummaryOutput, 0, len(summaries))
+	for _, summary := range summaries {
+		items = append(items, indexSummaryOutput{
+			ProjectName:      summary.ProjectName,
+			State:            summary.State,
+			PathExists:       summary.PathExists,
+			IndexedDocuments: summary.IndexedDocuments,
+			IndexedChunks:    summary.IndexedChunks,
+			SkippedFiles:     summary.SkippedFiles,
+			SkippedReasons:   summary.SkippedReasons,
+			UpdatedAt:        summary.UpdatedAt,
+			LastError:        summary.LastError,
+		})
+	}
+	return encoder.Encode(items)
 }
 
 func printIndexStatusJSON(out io.Writer, status retrieval.IndexStatus) error {
@@ -285,11 +623,35 @@ func printIndexStatusJSON(out io.Writer, status retrieval.IndexStatus) error {
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(indexSummaryOutput{
 		ProjectName:      status.ProjectName,
+		State:            status.State,
+		PathExists:       status.PathExists,
 		IndexedDocuments: status.IndexedDocuments,
+		IndexedChunks:    status.IndexedChunks,
 		SkippedFiles:     status.SkippedFiles,
 		SkippedReasons:   status.SkippedReasons,
 		UpdatedAt:        status.UpdatedAt,
+		LastError:        status.LastError,
 	})
+}
+
+func printIndexStatusesJSON(out io.Writer, statuses []retrieval.IndexStatus) error {
+	encoder := json.NewEncoder(out)
+	encoder.SetIndent("", "  ")
+	items := make([]indexSummaryOutput, 0, len(statuses))
+	for _, status := range statuses {
+		items = append(items, indexSummaryOutput{
+			ProjectName:      status.ProjectName,
+			State:            status.State,
+			PathExists:       status.PathExists,
+			IndexedDocuments: status.IndexedDocuments,
+			IndexedChunks:    status.IndexedChunks,
+			SkippedFiles:     status.SkippedFiles,
+			SkippedReasons:   status.SkippedReasons,
+			UpdatedAt:        status.UpdatedAt,
+			LastError:        status.LastError,
+		})
+	}
+	return encoder.Encode(items)
 }
 
 func sortedReasonKeys(reasons map[string]int) []string {

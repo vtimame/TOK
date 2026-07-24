@@ -73,6 +73,12 @@ func (c *CLI) Run(ctx context.Context, args []string) error {
 		c.printHelp()
 		return nil
 	}
+	if helpPath, ok, err := helpRequestPath(opts.args); ok {
+		if err != nil {
+			return err
+		}
+		return c.printCommandHelp(helpPath)
+	}
 
 	switch opts.args[0] {
 	case "help", "-h", "--help":
@@ -105,6 +111,10 @@ func (c *CLI) Run(ctx context.Context, args []string) error {
 		return c.runContext(ctx, opts)
 	case "run":
 		return c.runRun(ctx, opts)
+	case "completion":
+		return c.runCompletion(ctx, opts)
+	case "__complete":
+		return c.runComplete(ctx, opts)
 	default:
 		return &UsageError{
 			Message: fmt.Sprintf("unknown command %q\n\nRun '%s help' for usage.", opts.args[0], commandName),
@@ -238,31 +248,25 @@ func (c *CLI) runConfig(ctx context.Context, opts runtimeOptions) error {
 }
 
 func (c *CLI) printHelp() {
-	fmt.Fprint(c.out, strings.TrimSpace(helpText)+"\n")
+	fmt.Fprint(c.out, formatCommandHelp(tokCommandSpec()))
+}
+
+func (c *CLI) printCommandHelp(path []string) error {
+	spec, ok := findCommandSpec(path)
+	if !ok {
+		topic := strings.Join(path, " ")
+		if topic == "" {
+			topic = commandName
+		}
+		return &UsageError{
+			Message: fmt.Sprintf("unknown help topic %q\n\nRun '%s help' for usage.", topic, commandName),
+			Code:    2,
+		}
+	}
+	fmt.Fprint(c.out, formatCommandHelp(spec))
+	return nil
 }
 
 func (c *CLI) printVersion() {
 	fmt.Fprintf(c.out, "%s %s\ncommit: %s\nbuilt: %s\n", commandName, c.version.Version, c.version.Commit, c.version.Date)
 }
-
-const helpText = `
-TOK - Task Operations Kernel
-
-Usage:
-  tok [--config <path>] [--log-level <level>] <command>
-
-Commands:
-  version   Print build version information
-  init      Initialize local runtime storage
-  config    Inspect runtime configuration
-  project   Register and inspect local projects
-  task      Create and update project tasks
-  user      Inspect and set the local user profile
-  agent     Manage local agent identities and tokens
-  ui        Serve the local UI API
-  index     Update local retrieval indexes
-  search    Search indexed project files
-  context   Build compact task context packages
-  run       Record agent run attempts
-  help      Show this help
-`

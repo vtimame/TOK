@@ -3,6 +3,7 @@ package context
 import (
 	stdctx "context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -44,16 +45,15 @@ func TestBuilderBuildsDeterministicTextPackage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddTaskDependency returned error: %v", err)
 	}
-	if _, err := store.ReplaceIndexedDocuments(ctx, project.ID, []storage.IndexedDocumentInput{
-		{
-			ProjectID:  project.ID,
-			Path:       "internal/auth/token.go",
-			Provenance: "project_file",
-			SizeBytes:  64,
-			Content:    "package auth\n\nfunc refreshToken() string {\n\treturn \"value\"\n}\n",
-		},
-	}); err != nil {
-		t.Fatalf("ReplaceIndexedDocuments returned error: %v", err)
+	sourcePath := filepath.Join(project.Path, "internal/auth/token.go")
+	if err := os.MkdirAll(filepath.Dir(sourcePath), 0o755); err != nil {
+		t.Fatalf("MkdirAll returned error: %v", err)
+	}
+	if err := os.WriteFile(sourcePath, []byte("package auth\n\nfunc refreshToken() string {\n\treturn \"value\"\n}\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	if _, err := retrieval.NewService(store).IndexProject(ctx, project); err != nil {
+		t.Fatalf("IndexProject returned error: %v", err)
 	}
 
 	builder := NewBuilder(store, retrieval.NewService(store))

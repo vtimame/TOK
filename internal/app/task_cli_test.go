@@ -55,8 +55,10 @@ func TestCLITaskCreateListShowStatusAndComment(t *testing.T) {
 		t.Fatalf("task list returned error: %v", err)
 	}
 	for _, want := range []string{
-		"id\tstatus\ttitle",
-		strconv.FormatInt(taskID, 10) + "\topen\tImplement task store",
+		"id | status | title",
+		strconv.FormatInt(taskID, 10),
+		"open",
+		"Implement task store",
 	} {
 		if !strings.Contains(listOut.String(), want) {
 			t.Fatalf("task list output missing %q:\n%s", want, listOut.String())
@@ -208,8 +210,10 @@ func TestCLITaskDependencyReadyAndClaimFlow(t *testing.T) {
 	if err := readyCLI.Run(ctx, []string{"task", "ready", "--project", "tok"}); err != nil {
 		t.Fatalf("task ready returned error: %v", err)
 	}
-	if !strings.Contains(readyOut.String(), strconv.FormatInt(blockerID, 10)+"\topen\tBlocker") {
-		t.Fatalf("expected blocker to be ready:\n%s", readyOut.String())
+	for _, want := range []string{strconv.FormatInt(blockerID, 10), "open", "Blocker"} {
+		if !strings.Contains(readyOut.String(), want) {
+			t.Fatalf("expected blocker to be ready, missing %q:\n%s", want, readyOut.String())
+		}
 	}
 	if strings.Contains(readyOut.String(), "Blocked") || strings.Contains(readyOut.String(), "Claimed") {
 		t.Fatalf("blocked or in-progress task should not be ready:\n%s", readyOut.String())
@@ -238,8 +242,10 @@ func TestCLITaskDependencyReadyAndClaimFlow(t *testing.T) {
 	if err := readyCLI.Run(ctx, []string{"task", "ready", "--project", "tok"}); err != nil {
 		t.Fatalf("task ready after done returned error: %v", err)
 	}
-	if !strings.Contains(readyOut.String(), strconv.FormatInt(blockedID, 10)+"\topen\tBlocked") {
-		t.Fatalf("expected blocked task to become ready:\n%s", readyOut.String())
+	for _, want := range []string{strconv.FormatInt(blockedID, 10), "open", "Blocked"} {
+		if !strings.Contains(readyOut.String(), want) {
+			t.Fatalf("expected blocked task to become ready, missing %q:\n%s", want, readyOut.String())
+		}
 	}
 	if strings.Contains(readyOut.String(), "Blocker") || strings.Contains(readyOut.String(), "Claimed") {
 		t.Fatalf("done or in-progress task should not be ready:\n%s", readyOut.String())

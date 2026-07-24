@@ -1,3 +1,4 @@
+export type { AddProjectIndexIgnorePatternMutationKey } from "./hooks/useAddProjectIndexIgnorePattern.ts";
 export type { BlockTaskMutationKey } from "./hooks/useBlockTask.ts";
 export type { ClaimTaskMutationKey } from "./hooks/useClaimTask.ts";
 export type { CommentTaskMutationKey } from "./hooks/useCommentTask.ts";
@@ -8,21 +9,35 @@ export type { CreateTaskMutationKey } from "./hooks/useCreateTask.ts";
 export type { DeleteAgentMutationKey } from "./hooks/useDeleteAgent.ts";
 export type { DeleteProjectMutationKey } from "./hooks/useDeleteProject.ts";
 export type { GetHealthQueryKey } from "./hooks/useGetHealth.ts";
+export type { GetProjectIndexIgnorePolicyQueryKey } from "./hooks/useGetProjectIndexIgnorePolicy.ts";
 export type { GetProjectIndexStatusQueryKey } from "./hooks/useGetProjectIndexStatus.ts";
 export type { ListAgentsQueryKey } from "./hooks/useListAgents.ts";
+export type { ListIndexStatusQueryKey } from "./hooks/useListIndexStatus.ts";
 export type { ListProjectTasksQueryKey } from "./hooks/useListProjectTasks.ts";
 export type { ListProjectsQueryKey } from "./hooks/useListProjects.ts";
 export type { ListReadyTasksQueryKey } from "./hooks/useListReadyTasks.ts";
 export type { ListTasksQueryKey } from "./hooks/useListTasks.ts";
 export type { ProgressTaskMutationKey } from "./hooks/useProgressTask.ts";
+export type { RefreshProjectIndexIgnorePolicyMutationKey } from "./hooks/useRefreshProjectIndexIgnorePolicy.ts";
+export type { RemoveProjectIndexIgnorePatternMutationKey } from "./hooks/useRemoveProjectIndexIgnorePattern.ts";
 export type { ShowAgentQueryKey } from "./hooks/useShowAgent.ts";
 export type { ShowProjectQueryKey } from "./hooks/useShowProject.ts";
 export type { ShowTaskQueryKey } from "./hooks/useShowTask.ts";
 export type { UnblockTaskMutationKey } from "./hooks/useUnblockTask.ts";
 export type { UpdateAgentMutationKey } from "./hooks/useUpdateAgent.ts";
+export type { UpdateAllProjectIndexesMutationKey } from "./hooks/useUpdateAllProjectIndexes.ts";
 export type { UpdateProjectMutationKey } from "./hooks/useUpdateProject.ts";
 export type { UpdateProjectIndexMutationKey } from "./hooks/useUpdateProjectIndex.ts";
 export type { ActorOutput } from "./models/ActorOutput.ts";
+export type {
+  AddProjectIndexIgnorePattern200,
+  AddProjectIndexIgnorePattern400,
+  AddProjectIndexIgnorePattern500,
+  AddProjectIndexIgnorePatternMutation,
+  AddProjectIndexIgnorePatternMutationRequest,
+  AddProjectIndexIgnorePatternMutationResponse,
+  AddProjectIndexIgnorePatternPathParams,
+} from "./models/AddProjectIndexIgnorePattern.ts";
 export type { AgentListResponse } from "./models/AgentListResponse.ts";
 export type { AgentOutput } from "./models/AgentOutput.ts";
 export type { AgentProjectOutput } from "./models/AgentProjectOutput.ts";
@@ -118,6 +133,14 @@ export type {
   GetHealthQueryResponse,
 } from "./models/GetHealth.ts";
 export type {
+  GetProjectIndexIgnorePolicy200,
+  GetProjectIndexIgnorePolicy400,
+  GetProjectIndexIgnorePolicy500,
+  GetProjectIndexIgnorePolicyPathParams,
+  GetProjectIndexIgnorePolicyQuery,
+  GetProjectIndexIgnorePolicyQueryResponse,
+} from "./models/GetProjectIndexIgnorePolicy.ts";
+export type {
   GetProjectIndexStatus200,
   GetProjectIndexStatus400,
   GetProjectIndexStatus500,
@@ -127,6 +150,9 @@ export type {
 } from "./models/GetProjectIndexStatus.ts";
 export type { HTTPError } from "./models/HTTPError.ts";
 export type { HealthOutput } from "./models/HealthOutput.ts";
+export type { IndexIgnorePatternInput } from "./models/IndexIgnorePatternInput.ts";
+export type { IndexIgnorePolicyResponse } from "./models/IndexIgnorePolicyResponse.ts";
+export type { IndexListResponse } from "./models/IndexListResponse.ts";
 export type { IndexResponse } from "./models/IndexResponse.ts";
 export type {
   ListAgents200,
@@ -135,6 +161,13 @@ export type {
   ListAgentsQuery,
   ListAgentsQueryResponse,
 } from "./models/ListAgents.ts";
+export type {
+  ListIndexStatus200,
+  ListIndexStatus400,
+  ListIndexStatus500,
+  ListIndexStatusQuery,
+  ListIndexStatusQueryResponse,
+} from "./models/ListIndexStatus.ts";
 export type {
   ListProjectTasks200,
   ListProjectTasks400,
@@ -180,6 +213,23 @@ export type {
 export type { ProjectListResponse } from "./models/ProjectListResponse.ts";
 export type { ProjectOutput } from "./models/ProjectOutput.ts";
 export type { ProjectResponse } from "./models/ProjectResponse.ts";
+export type {
+  RefreshProjectIndexIgnorePolicy200,
+  RefreshProjectIndexIgnorePolicy400,
+  RefreshProjectIndexIgnorePolicy500,
+  RefreshProjectIndexIgnorePolicyMutation,
+  RefreshProjectIndexIgnorePolicyMutationResponse,
+  RefreshProjectIndexIgnorePolicyPathParams,
+} from "./models/RefreshProjectIndexIgnorePolicy.ts";
+export type {
+  RemoveProjectIndexIgnorePattern200,
+  RemoveProjectIndexIgnorePattern400,
+  RemoveProjectIndexIgnorePattern500,
+  RemoveProjectIndexIgnorePatternMutation,
+  RemoveProjectIndexIgnorePatternMutationRequest,
+  RemoveProjectIndexIgnorePatternMutationResponse,
+  RemoveProjectIndexIgnorePatternPathParams,
+} from "./models/RemoveProjectIndexIgnorePattern.ts";
 export type {
   ShowAgent200,
   ShowAgent400,
@@ -238,6 +288,13 @@ export type {
 } from "./models/UpdateAgent.ts";
 export type { UpdateAgentInput } from "./models/UpdateAgentInput.ts";
 export type {
+  UpdateAllProjectIndexes200,
+  UpdateAllProjectIndexes400,
+  UpdateAllProjectIndexes500,
+  UpdateAllProjectIndexesMutation,
+  UpdateAllProjectIndexesMutationResponse,
+} from "./models/UpdateAllProjectIndexes.ts";
+export type {
   UpdateProject200,
   UpdateProject400,
   UpdateProject500,
@@ -255,6 +312,7 @@ export type {
   UpdateProjectIndexPathParams,
 } from "./models/UpdateProjectIndex.ts";
 export type { UpdateProjectInput } from "./models/UpdateProjectInput.ts";
+export { addProjectIndexIgnorePattern } from "./client/addProjectIndexIgnorePattern.ts";
 export { blockTask } from "./client/blockTask.ts";
 export { claimTask } from "./client/claimTask.ts";
 export { commentTask } from "./client/commentTask.ts";
@@ -265,20 +323,27 @@ export { createTask } from "./client/createTask.ts";
 export { deleteAgent } from "./client/deleteAgent.ts";
 export { deleteProject } from "./client/deleteProject.ts";
 export { getHealth } from "./client/getHealth.ts";
+export { getProjectIndexIgnorePolicy } from "./client/getProjectIndexIgnorePolicy.ts";
 export { getProjectIndexStatus } from "./client/getProjectIndexStatus.ts";
 export { listAgents } from "./client/listAgents.ts";
+export { listIndexStatus } from "./client/listIndexStatus.ts";
 export { listProjectTasks } from "./client/listProjectTasks.ts";
 export { listProjects } from "./client/listProjects.ts";
 export { listReadyTasks } from "./client/listReadyTasks.ts";
 export { listTasks } from "./client/listTasks.ts";
 export { progressTask } from "./client/progressTask.ts";
+export { refreshProjectIndexIgnorePolicy } from "./client/refreshProjectIndexIgnorePolicy.ts";
+export { removeProjectIndexIgnorePattern } from "./client/removeProjectIndexIgnorePattern.ts";
 export { showAgent } from "./client/showAgent.ts";
 export { showProject } from "./client/showProject.ts";
 export { showTask } from "./client/showTask.ts";
 export { unblockTask } from "./client/unblockTask.ts";
 export { updateAgent } from "./client/updateAgent.ts";
+export { updateAllProjectIndexes } from "./client/updateAllProjectIndexes.ts";
 export { updateProject } from "./client/updateProject.ts";
 export { updateProjectIndex } from "./client/updateProjectIndex.ts";
+export { addProjectIndexIgnorePatternMutationKey } from "./hooks/useAddProjectIndexIgnorePattern.ts";
+export { useAddProjectIndexIgnorePattern } from "./hooks/useAddProjectIndexIgnorePattern.ts";
 export { blockTaskMutationKey } from "./hooks/useBlockTask.ts";
 export { useBlockTask } from "./hooks/useBlockTask.ts";
 export { claimTaskMutationKey } from "./hooks/useClaimTask.ts";
@@ -300,12 +365,18 @@ export { useDeleteProject } from "./hooks/useDeleteProject.ts";
 export { getHealthQueryKey } from "./hooks/useGetHealth.ts";
 export { getHealthQueryOptions } from "./hooks/useGetHealth.ts";
 export { useGetHealth } from "./hooks/useGetHealth.ts";
+export { getProjectIndexIgnorePolicyQueryKey } from "./hooks/useGetProjectIndexIgnorePolicy.ts";
+export { getProjectIndexIgnorePolicyQueryOptions } from "./hooks/useGetProjectIndexIgnorePolicy.ts";
+export { useGetProjectIndexIgnorePolicy } from "./hooks/useGetProjectIndexIgnorePolicy.ts";
 export { getProjectIndexStatusQueryKey } from "./hooks/useGetProjectIndexStatus.ts";
 export { getProjectIndexStatusQueryOptions } from "./hooks/useGetProjectIndexStatus.ts";
 export { useGetProjectIndexStatus } from "./hooks/useGetProjectIndexStatus.ts";
 export { listAgentsQueryKey } from "./hooks/useListAgents.ts";
 export { listAgentsQueryOptions } from "./hooks/useListAgents.ts";
 export { useListAgents } from "./hooks/useListAgents.ts";
+export { listIndexStatusQueryKey } from "./hooks/useListIndexStatus.ts";
+export { listIndexStatusQueryOptions } from "./hooks/useListIndexStatus.ts";
+export { useListIndexStatus } from "./hooks/useListIndexStatus.ts";
 export { listProjectTasksQueryKey } from "./hooks/useListProjectTasks.ts";
 export { listProjectTasksQueryOptions } from "./hooks/useListProjectTasks.ts";
 export { useListProjectTasks } from "./hooks/useListProjectTasks.ts";
@@ -320,6 +391,10 @@ export { listTasksQueryOptions } from "./hooks/useListTasks.ts";
 export { useListTasks } from "./hooks/useListTasks.ts";
 export { progressTaskMutationKey } from "./hooks/useProgressTask.ts";
 export { useProgressTask } from "./hooks/useProgressTask.ts";
+export { refreshProjectIndexIgnorePolicyMutationKey } from "./hooks/useRefreshProjectIndexIgnorePolicy.ts";
+export { useRefreshProjectIndexIgnorePolicy } from "./hooks/useRefreshProjectIndexIgnorePolicy.ts";
+export { removeProjectIndexIgnorePatternMutationKey } from "./hooks/useRemoveProjectIndexIgnorePattern.ts";
+export { useRemoveProjectIndexIgnorePattern } from "./hooks/useRemoveProjectIndexIgnorePattern.ts";
 export { showAgentQueryKey } from "./hooks/useShowAgent.ts";
 export { showAgentQueryOptions } from "./hooks/useShowAgent.ts";
 export { useShowAgent } from "./hooks/useShowAgent.ts";
@@ -333,6 +408,8 @@ export { unblockTaskMutationKey } from "./hooks/useUnblockTask.ts";
 export { useUnblockTask } from "./hooks/useUnblockTask.ts";
 export { updateAgentMutationKey } from "./hooks/useUpdateAgent.ts";
 export { useUpdateAgent } from "./hooks/useUpdateAgent.ts";
+export { updateAllProjectIndexesMutationKey } from "./hooks/useUpdateAllProjectIndexes.ts";
+export { useUpdateAllProjectIndexes } from "./hooks/useUpdateAllProjectIndexes.ts";
 export { updateProjectMutationKey } from "./hooks/useUpdateProject.ts";
 export { useUpdateProject } from "./hooks/useUpdateProject.ts";
 export { updateProjectIndexMutationKey } from "./hooks/useUpdateProjectIndex.ts";

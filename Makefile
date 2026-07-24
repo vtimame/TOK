@@ -47,3 +47,6 @@ dev-app-start:
 
 dev-app-stop:
 	$(DEVCTL) app-stop
+
+install: build
+	cp $(BINARY) ~/.local/bin/tok

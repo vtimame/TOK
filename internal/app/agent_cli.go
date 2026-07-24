@@ -72,15 +72,15 @@ func (c *CLI) runAgentList(ctx context.Context, store *storage.Store, args []str
 		return nil
 	}
 
-	fmt.Fprintln(c.out, "id\tstatus\tname\tcreated_at\trevoked_at")
+	rows := [][]string{{"id", "status", "name", "created_at", "revoked_at"}}
 	for _, agent := range agents {
 		status := "active"
 		if agent.TokenRevokedAt != "" {
 			status = "revoked"
 		}
-		fmt.Fprintf(c.out, "%d\t%s\t%s\t%s\t%s\n", agent.ID, status, agent.Name, agent.CreatedAt, agent.TokenRevokedAt)
+		rows = append(rows, []string{strconv.FormatInt(agent.ID, 10), status, agent.Name, agent.CreatedAt, agent.TokenRevokedAt})
 	}
-	return nil
+	return printTerminalTable(c.out, rows)
 }
 
 func (c *CLI) runAgentRevoke(ctx context.Context, store *storage.Store, args []string) error {

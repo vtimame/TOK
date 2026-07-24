@@ -44,8 +44,10 @@ func TestCLIProjectAddListShow(t *testing.T) {
 
 	listOutput := listOut.String()
 	for _, want := range []string{
-		"name\tdisplay_name\tpath",
-		"tok\tTOK\t" + projectDir,
+		"name | display_name | path",
+		"tok",
+		"TOK",
+		projectDir,
 	} {
 		if !strings.Contains(listOutput, want) {
 			t.Fatalf("project list output missing %q:\n%s", want, listOutput)

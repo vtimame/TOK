@@ -60,30 +60,36 @@ func TestServerListsProjectsAndExposesOpenAPI(t *testing.T) {
 	}
 
 	expectedOperations := map[string]string{
-		"/api/health GET":                           "getHealth",
-		"/api/agents GET":                           "listAgents",
-		"/api/agents POST":                          "createAgent",
-		"/api/agents/{id} GET":                      "showAgent",
-		"/api/agents/{id} PATCH":                    "updateAgent",
-		"/api/agents/{id} DELETE":                   "deleteAgent",
-		"/api/projects GET":                         "listProjects",
-		"/api/projects POST":                        "createProject",
-		"/api/projects/{project} GET":               "showProject",
-		"/api/projects/{project} PATCH":             "updateProject",
-		"/api/projects/{project} DELETE":            "deleteProject",
-		"/api/projects/{project}/tasks GET":         "listProjectTasks",
-		"/api/projects/{project}/tasks POST":        "createTask",
-		"/api/projects/{project}/tasks/ready GET":   "listReadyTasks",
-		"/api/projects/{project}/tasks/claim POST":  "claimTask",
-		"/api/tasks GET":                            "listTasks",
-		"/api/tasks/{id} GET":                       "showTask",
-		"/api/tasks/{id}/comment POST":              "commentTask",
-		"/api/tasks/{id}/progress POST":             "progressTask",
-		"/api/tasks/{id}/block POST":                "blockTask",
-		"/api/tasks/{id}/unblock POST":              "unblockTask",
-		"/api/tasks/{id}/done POST":                 "completeTask",
-		"/api/projects/{project}/index GET":         "getProjectIndexStatus",
-		"/api/projects/{project}/index/update POST": "updateProjectIndex",
+		"/api/health GET":                                      "getHealth",
+		"/api/agents GET":                                      "listAgents",
+		"/api/agents POST":                                     "createAgent",
+		"/api/agents/{id} GET":                                 "showAgent",
+		"/api/agents/{id} PATCH":                               "updateAgent",
+		"/api/agents/{id} DELETE":                              "deleteAgent",
+		"/api/projects GET":                                    "listProjects",
+		"/api/projects POST":                                   "createProject",
+		"/api/projects/{project} GET":                          "showProject",
+		"/api/projects/{project} PATCH":                        "updateProject",
+		"/api/projects/{project} DELETE":                       "deleteProject",
+		"/api/projects/{project}/tasks GET":                    "listProjectTasks",
+		"/api/projects/{project}/tasks POST":                   "createTask",
+		"/api/projects/{project}/tasks/ready GET":              "listReadyTasks",
+		"/api/projects/{project}/tasks/claim POST":             "claimTask",
+		"/api/tasks GET":                                       "listTasks",
+		"/api/tasks/{id} GET":                                  "showTask",
+		"/api/tasks/{id}/comment POST":                         "commentTask",
+		"/api/tasks/{id}/progress POST":                        "progressTask",
+		"/api/tasks/{id}/block POST":                           "blockTask",
+		"/api/tasks/{id}/unblock POST":                         "unblockTask",
+		"/api/tasks/{id}/done POST":                            "completeTask",
+		"/api/index GET":                                       "listIndexStatus",
+		"/api/index/update POST":                               "updateAllProjectIndexes",
+		"/api/projects/{project}/index GET":                    "getProjectIndexStatus",
+		"/api/projects/{project}/index/update POST":            "updateProjectIndex",
+		"/api/projects/{project}/index/ignore GET":             "getProjectIndexIgnorePolicy",
+		"/api/projects/{project}/index/ignore/refresh POST":    "refreshProjectIndexIgnorePolicy",
+		"/api/projects/{project}/index/ignore/patterns POST":   "addProjectIndexIgnorePattern",
+		"/api/projects/{project}/index/ignore/patterns DELETE": "removeProjectIndexIgnorePattern",
 	}
 	for key, expected := range expectedOperations {
 		path, method, _ := strings.Cut(key, " ")
@@ -96,24 +102,28 @@ func TestServerListsProjectsAndExposesOpenAPI(t *testing.T) {
 		}
 	}
 
-	for _, name := range []string{"AgentListResponse", "AgentResponse", "CreateAgentResponse", "AgentOutput", "AgentProjectOutput", "CreateAgentInput", "UpdateAgentInput", "ProjectListResponse", "ProjectResponse", "TaskListResponse", "TaskResponse", "TaskShowResponse", "TaskProject", "TaskEventResponse", "TaskDependencyOutput", "CreateTaskInput", "UpdateProjectInput", "ClaimTaskInput", "TaskDoneInput", "IndexResponse"} {
+	for _, name := range []string{"AgentListResponse", "AgentResponse", "CreateAgentResponse", "AgentOutput", "AgentProjectOutput", "CreateAgentInput", "UpdateAgentInput", "ProjectListResponse", "ProjectResponse", "TaskListResponse", "TaskResponse", "TaskShowResponse", "TaskProject", "TaskEventResponse", "TaskDependencyOutput", "CreateTaskInput", "UpdateProjectInput", "ClaimTaskInput", "TaskDoneInput", "IndexResponse", "IndexListResponse", "IndexIgnorePolicyResponse", "IndexIgnorePatternInput"} {
 		if _, ok := spec.Components.Schemas[name]; !ok {
 			t.Fatalf("openapi spec missing schema %s", name)
 		}
 	}
 	for schemaName, fields := range map[string][]string{
-		"ProjectListResponse": {"projects", "total", "limit", "offset"},
-		"TaskListResponse":    {"tasks", "total", "limit", "offset"},
-		"ProjectOutput":       {"tasks_count", "task_counts", "agents"},
-		"TaskCounts":          {"total", "open", "in_progress", "blocked", "done", "ready"},
-		"TaskOutput":          {"project", "agents"},
-		"TaskProject":         {"id", "name", "display_name"},
-		"TaskShowResponse":    {"dependencies"},
-		"AgentListResponse":   {"agents"},
-		"AgentResponse":       {"agent"},
-		"CreateAgentResponse": {"agent", "token"},
-		"AgentOutput":         {"projects", "tasks_count", "events_count", "last_activity_at"},
-		"AgentProjectOutput":  {"display_name", "tasks_count", "events_count", "last_activity_at"},
+		"ProjectListResponse":       {"projects", "total", "limit", "offset"},
+		"TaskListResponse":          {"tasks", "total", "limit", "offset"},
+		"ProjectOutput":             {"tasks_count", "task_counts", "agents"},
+		"TaskCounts":                {"total", "open", "in_progress", "blocked", "done", "ready"},
+		"TaskOutput":                {"project", "agents"},
+		"TaskProject":               {"id", "name", "display_name"},
+		"TaskShowResponse":          {"dependencies"},
+		"AgentListResponse":         {"agents"},
+		"AgentResponse":             {"agent"},
+		"CreateAgentResponse":       {"agent", "token"},
+		"AgentOutput":               {"projects", "tasks_count", "events_count", "last_activity_at"},
+		"AgentProjectOutput":        {"display_name", "tasks_count", "events_count", "last_activity_at"},
+		"IndexResponse":             {"state", "path_exists", "indexed_chunks", "last_error"},
+		"IndexListResponse":         {"indexes", "total"},
+		"IndexIgnorePolicyResponse": {"project_name", "ignore_patterns", "seeded_from_gitignore"},
+		"IndexIgnorePatternInput":   {"pattern"},
 	} {
 		props := openAPISchemaProperties(t, spec.Components.Schemas[schemaName])
 		for _, field := range fields {

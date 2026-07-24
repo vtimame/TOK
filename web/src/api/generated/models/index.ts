@@ -1,4 +1,13 @@
 export type { ActorOutput } from "./ActorOutput.ts";
+export type {
+  AddProjectIndexIgnorePattern200,
+  AddProjectIndexIgnorePattern400,
+  AddProjectIndexIgnorePattern500,
+  AddProjectIndexIgnorePatternMutation,
+  AddProjectIndexIgnorePatternMutationRequest,
+  AddProjectIndexIgnorePatternMutationResponse,
+  AddProjectIndexIgnorePatternPathParams,
+} from "./AddProjectIndexIgnorePattern.ts";
 export type { AgentListResponse } from "./AgentListResponse.ts";
 export type { AgentOutput } from "./AgentOutput.ts";
 export type { AgentProjectOutput } from "./AgentProjectOutput.ts";
@@ -94,6 +103,14 @@ export type {
   GetHealthQueryResponse,
 } from "./GetHealth.ts";
 export type {
+  GetProjectIndexIgnorePolicy200,
+  GetProjectIndexIgnorePolicy400,
+  GetProjectIndexIgnorePolicy500,
+  GetProjectIndexIgnorePolicyPathParams,
+  GetProjectIndexIgnorePolicyQuery,
+  GetProjectIndexIgnorePolicyQueryResponse,
+} from "./GetProjectIndexIgnorePolicy.ts";
+export type {
   GetProjectIndexStatus200,
   GetProjectIndexStatus400,
   GetProjectIndexStatus500,
@@ -103,6 +120,9 @@ export type {
 } from "./GetProjectIndexStatus.ts";
 export type { HTTPError } from "./HTTPError.ts";
 export type { HealthOutput } from "./HealthOutput.ts";
+export type { IndexIgnorePatternInput } from "./IndexIgnorePatternInput.ts";
+export type { IndexIgnorePolicyResponse } from "./IndexIgnorePolicyResponse.ts";
+export type { IndexListResponse } from "./IndexListResponse.ts";
 export type { IndexResponse } from "./IndexResponse.ts";
 export type {
   ListAgents200,
@@ -111,6 +131,13 @@ export type {
   ListAgentsQuery,
   ListAgentsQueryResponse,
 } from "./ListAgents.ts";
+export type {
+  ListIndexStatus200,
+  ListIndexStatus400,
+  ListIndexStatus500,
+  ListIndexStatusQuery,
+  ListIndexStatusQueryResponse,
+} from "./ListIndexStatus.ts";
 export type {
   ListProjectTasks200,
   ListProjectTasks400,
@@ -156,6 +183,23 @@ export type {
 export type { ProjectListResponse } from "./ProjectListResponse.ts";
 export type { ProjectOutput } from "./ProjectOutput.ts";
 export type { ProjectResponse } from "./ProjectResponse.ts";
+export type {
+  RefreshProjectIndexIgnorePolicy200,
+  RefreshProjectIndexIgnorePolicy400,
+  RefreshProjectIndexIgnorePolicy500,
+  RefreshProjectIndexIgnorePolicyMutation,
+  RefreshProjectIndexIgnorePolicyMutationResponse,
+  RefreshProjectIndexIgnorePolicyPathParams,
+} from "./RefreshProjectIndexIgnorePolicy.ts";
+export type {
+  RemoveProjectIndexIgnorePattern200,
+  RemoveProjectIndexIgnorePattern400,
+  RemoveProjectIndexIgnorePattern500,
+  RemoveProjectIndexIgnorePatternMutation,
+  RemoveProjectIndexIgnorePatternMutationRequest,
+  RemoveProjectIndexIgnorePatternMutationResponse,
+  RemoveProjectIndexIgnorePatternPathParams,
+} from "./RemoveProjectIndexIgnorePattern.ts";
 export type {
   ShowAgent200,
   ShowAgent400,
@@ -213,6 +257,13 @@ export type {
   UpdateAgentPathParams,
 } from "./UpdateAgent.ts";
 export type { UpdateAgentInput } from "./UpdateAgentInput.ts";
+export type {
+  UpdateAllProjectIndexes200,
+  UpdateAllProjectIndexes400,
+  UpdateAllProjectIndexes500,
+  UpdateAllProjectIndexesMutation,
+  UpdateAllProjectIndexesMutationResponse,
+} from "./UpdateAllProjectIndexes.ts";
 export type {
   UpdateProject200,
   UpdateProject400,

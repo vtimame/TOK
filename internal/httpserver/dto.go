@@ -195,10 +195,32 @@ type AgentProjectOutput struct {
 
 type IndexResponse struct {
 	ProjectName      string         `json:"project_name"`
+	State            string         `json:"state"`
+	PathExists       bool           `json:"path_exists"`
 	IndexedDocuments int            `json:"indexed_documents"`
+	IndexedChunks    int            `json:"indexed_chunks"`
 	SkippedFiles     int            `json:"skipped_files"`
 	SkippedReasons   map[string]int `json:"skipped_reasons"`
 	UpdatedAt        string         `json:"updated_at"`
+	LastError        string         `json:"last_error,omitempty"`
+}
+
+type IndexListResponse struct {
+	Indexes []IndexResponse `json:"indexes"`
+	Total   int             `json:"total"`
+}
+
+type IndexIgnorePolicyResponse struct {
+	ProjectName      string   `json:"project_name"`
+	IncludePatterns  []string `json:"include_patterns"`
+	IgnorePatterns   []string `json:"ignore_patterns"`
+	CreatedAt        string   `json:"created_at"`
+	UpdatedAt        string   `json:"updated_at"`
+	SeededFromIgnore bool     `json:"seeded_from_gitignore"`
+}
+
+type IndexIgnorePatternInput struct {
+	Pattern string `json:"pattern"`
 }
 
 func projectFromStorage(project storage.Project, taskCounts TaskCounts, agents []ActorOutput) ProjectOutput {
@@ -419,19 +441,61 @@ func agentsFromEvents(events []storage.TaskEvent) []ActorOutput {
 func indexFromSummary(summary retrieval.IndexSummary) IndexResponse {
 	return IndexResponse{
 		ProjectName:      summary.ProjectName,
+		State:            summary.State,
+		PathExists:       summary.PathExists,
 		IndexedDocuments: summary.IndexedDocuments,
+		IndexedChunks:    summary.IndexedChunks,
 		SkippedFiles:     summary.SkippedFiles,
 		SkippedReasons:   summary.SkippedReasons,
 		UpdatedAt:        summary.UpdatedAt,
+		LastError:        summary.LastError,
 	}
 }
 
 func indexFromStatus(status retrieval.IndexStatus) IndexResponse {
 	return IndexResponse{
 		ProjectName:      status.ProjectName,
+		State:            status.State,
+		PathExists:       status.PathExists,
 		IndexedDocuments: status.IndexedDocuments,
+		IndexedChunks:    status.IndexedChunks,
 		SkippedFiles:     status.SkippedFiles,
 		SkippedReasons:   status.SkippedReasons,
 		UpdatedAt:        status.UpdatedAt,
+		LastError:        status.LastError,
 	}
+}
+
+func indexListFromSummaries(summaries []retrieval.IndexSummary) IndexListResponse {
+	out := make([]IndexResponse, 0, len(summaries))
+	for _, summary := range summaries {
+		out = append(out, indexFromSummary(summary))
+	}
+	return IndexListResponse{Indexes: out, Total: len(out)}
+}
+
+func indexListFromStatuses(statuses []retrieval.IndexStatus) IndexListResponse {
+	out := make([]IndexResponse, 0, len(statuses))
+	for _, status := range statuses {
+		out = append(out, indexFromStatus(status))
+	}
+	return IndexListResponse{Indexes: out, Total: len(out)}
+}
+
+func indexIgnorePolicyFromRetrieval(policy retrieval.IndexPolicy) IndexIgnorePolicyResponse {
+	return IndexIgnorePolicyResponse{
+		ProjectName:      policy.ProjectName,
+		IncludePatterns:  nonNilStrings(policy.IncludePatterns),
+		IgnorePatterns:   nonNilStrings(policy.IgnorePatterns),
+		CreatedAt:        policy.CreatedAt,
+		UpdatedAt:        policy.UpdatedAt,
+		SeededFromIgnore: policy.SeededFromIgnore,
+	}
+}
+
+func nonNilStrings(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return values
 }

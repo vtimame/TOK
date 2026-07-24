@@ -1,20 +1,26 @@
 {
-  "description": "IndexResponse schema",
   "properties": {
+    "indexed_chunks": { "type": "integer" },
     "indexed_documents": { "type": "integer" },
+    "last_error": { "type": "string" },
+    "path_exists": { "type": "boolean" },
     "project_name": { "type": "string" },
     "skipped_files": { "type": "integer" },
     "skipped_reasons": {
       "additionalProperties": { "type": "integer" },
       "type": ["object", "null"]
     },
+    "state": { "type": "string" },
     "updated_at": { "type": "string" }
   },
   "required": [
+    "indexed_chunks",
     "indexed_documents",
+    "path_exists",
     "project_name",
     "skipped_files",
     "skipped_reasons",
+    "state",
     "updated_at"
   ],
   "type": "object",

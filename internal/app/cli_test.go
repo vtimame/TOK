@@ -29,6 +29,135 @@ func TestCLIRootPrintsHelp(t *testing.T) {
 	}
 }
 
+func TestCLINestedHelpPrintsCommandAndSubcommandUsage(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{
+			name: "project flag help",
+			args: []string{"project", "--help"},
+			want: []string{"project - Register and inspect local projects", "Usage:", "tok project <command>", "add", "list", "show"},
+		},
+		{
+			name: "help command path",
+			args: []string{"help", "task", "dependency"},
+			want: []string{"dependency - Manage task dependencies", "tok task dependency <command>", "add", "remove"},
+		},
+		{
+			name: "deep index ignore add help",
+			args: []string{"index", "ignore", "add", "--help"},
+			want: []string{"add - Add one ignore pattern", "tok index ignore add --project <name> [--json] <pattern>", "--project <name>", "--json"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var out bytes.Buffer
+			cli := NewCLI(&out, &bytes.Buffer{}, VersionInfo{})
+
+			if err := cli.Run(context.Background(), tt.args); err != nil {
+				t.Fatalf("Run returned error: %v", err)
+			}
+
+			got := out.String()
+			for _, want := range tt.want {
+				if !strings.Contains(got, want) {
+					t.Fatalf("help output missing %q:\n%s", want, got)
+				}
+			}
+		})
+	}
+}
+
+func TestCLIUnknownHelpTopicReturnsUsageError(t *testing.T) {
+	cli := NewCLI(&bytes.Buffer{}, &bytes.Buffer{}, VersionInfo{})
+
+	err := cli.Run(context.Background(), []string{"help", "missing"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	var usageErr *UsageError
+	if !errors.As(err, &usageErr) {
+		t.Fatalf("expected UsageError, got %T: %v", err, err)
+	}
+	if usageErr.Code != 2 || !strings.Contains(usageErr.Message, "unknown help topic") {
+		t.Fatalf("unexpected usage error: %+v", usageErr)
+	}
+}
+
+func TestCLICompletionScripts(t *testing.T) {
+	tests := []struct {
+		shell string
+		want  []string
+	}{
+		{shell: "bash", want: []string{"_tok_completion", "complete -F _tok_completion tok", "tok __complete"}},
+		{shell: "zsh", want: []string{"#compdef tok", "compdef _tok tok", "tok __complete"}},
+		{shell: "fish", want: []string{"function __tok_complete", "complete -c tok", "tok __complete"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.shell, func(t *testing.T) {
+			var out bytes.Buffer
+			cli := NewCLI(&out, &bytes.Buffer{}, VersionInfo{})
+
+			if err := cli.Run(context.Background(), []string{"completion", tt.shell}); err != nil {
+				t.Fatalf("Run returned error: %v", err)
+			}
+
+			got := out.String()
+			for _, want := range tt.want {
+				if !strings.Contains(got, want) {
+					t.Fatalf("completion script missing %q:\n%s", want, got)
+				}
+			}
+		})
+	}
+}
+
+func TestCLICompleteSuggestsCommandsFlagsAndProjectNames(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	projectDir := t.TempDir()
+
+	addCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	if err := addCLI.Run(ctx, []string{"project", "add", projectDir, "--name", "tok"}); err != nil {
+		t.Fatalf("project add returned error: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{name: "root commands", args: []string{"__complete", ""}, want: []string{"project", "completion", "index"}},
+		{name: "nested commands", args: []string{"__complete", "index", "ignore", ""}, want: []string{"add", "list", "refresh", "remove"}},
+		{name: "flags", args: []string{"__complete", "index", "update", "--"}, want: []string{"--all", "--json", "--project"}},
+		{name: "project names", args: []string{"__complete", "index", "update", "--project", ""}, want: []string{"tok"}},
+		{name: "completion shells", args: []string{"__complete", "completion", ""}, want: []string{"bash", "fish", "zsh"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var out bytes.Buffer
+			cli := newProjectTestCLI(dataDir, &out)
+
+			if err := cli.Run(ctx, tt.args); err != nil {
+				t.Fatalf("Run returned error: %v", err)
+			}
+
+			got := out.String()
+			for _, want := range tt.want {
+				if !strings.Contains(got, want+"\n") {
+					t.Fatalf("completion output missing %q:\n%s", want, got)
+				}
+			}
+		})
+	}
+}
+
 func TestCLIVersionPrintsBuildInfo(t *testing.T) {
 	var out bytes.Buffer
 	cli := NewCLI(&out, &bytes.Buffer{}, VersionInfo{

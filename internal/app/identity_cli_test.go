@@ -64,7 +64,7 @@ func TestCLIAgentAddListAndRevoke(t *testing.T) {
 		t.Fatalf("agent list returned error: %v", err)
 	}
 	listOutput := listOut.String()
-	for _, want := range []string{"id\tstatus\tname\tcreated_at\trevoked_at", "active\tCodex Designer"} {
+	for _, want := range []string{"id | status | name", "revoked_at", "active", "Codex Designer"} {
 		if !strings.Contains(listOutput, want) {
 			t.Fatalf("agent list output missing %q:\n%s", want, listOutput)
 		}

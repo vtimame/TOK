@@ -289,11 +289,97 @@
         ],
         "type": "object"
       },
-      "IndexResponse": {
-        "description": "IndexResponse schema",
+      "IndexIgnorePatternInput": {
+        "description": "IndexIgnorePatternInput schema",
         "properties": {
+          "pattern": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "pattern"
+        ],
+        "type": "object"
+      },
+      "IndexIgnorePolicyResponse": {
+        "description": "IndexIgnorePolicyResponse schema",
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "ignore_patterns": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "include_patterns": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "project_name": {
+            "type": "string"
+          },
+          "seeded_from_gitignore": {
+            "type": "boolean"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "created_at",
+          "ignore_patterns",
+          "include_patterns",
+          "project_name",
+          "seeded_from_gitignore",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "IndexListResponse": {
+        "description": "IndexListResponse schema",
+        "properties": {
+          "indexes": {
+            "items": {
+              "$ref": "#/components/schemas/IndexResponse"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "total": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "indexes",
+          "total"
+        ],
+        "type": "object"
+      },
+      "IndexResponse": {
+        "properties": {
+          "indexed_chunks": {
+            "type": "integer"
+          },
           "indexed_documents": {
             "type": "integer"
+          },
+          "last_error": {
+            "type": "string"
+          },
+          "path_exists": {
+            "type": "boolean"
           },
           "project_name": {
             "type": "string"
@@ -310,15 +396,21 @@
               "null"
             ]
           },
+          "state": {
+            "type": "string"
+          },
           "updated_at": {
             "type": "string"
           }
         },
         "required": [
+          "indexed_chunks",
           "indexed_documents",
+          "path_exists",
           "project_name",
           "skipped_files",
           "skipped_reasons",
+          "state",
           "updated_at"
         ],
         "type": "object"
@@ -1157,6 +1249,120 @@
         ]
       }
     },
+    "/api/index": {
+      "get": {
+        "description": "Show all project index statuses.",
+        "operationId": "listIndexStatus",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndexListResponse"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndexListResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Bad Request _(validation or deserialization error)_"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Internal Server Error _(panics)_"
+          }
+        },
+        "summary": "Show all project index statuses",
+        "tags": [
+          "Index"
+        ]
+      }
+    },
+    "/api/index/update": {
+      "post": {
+        "description": "Update all project indexes.",
+        "operationId": "updateAllProjectIndexes",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndexListResponse"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndexListResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Bad Request _(validation or deserialization error)_"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Internal Server Error _(panics)_"
+          }
+        },
+        "summary": "Update all project indexes",
+        "tags": [
+          "Index"
+        ]
+      }
+    },
     "/api/projects": {
       "get": {
         "description": "List registered projects.",
@@ -1568,6 +1774,294 @@
           }
         },
         "summary": "Show project index status",
+        "tags": [
+          "Index"
+        ]
+      }
+    },
+    "/api/projects/{project}/index/ignore": {
+      "get": {
+        "description": "Show project index ignore policy.",
+        "operationId": "getProjectIndexIgnorePolicy",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndexIgnorePolicyResponse"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndexIgnorePolicyResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Bad Request _(validation or deserialization error)_"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Internal Server Error _(panics)_"
+          }
+        },
+        "summary": "Show project index ignore policy",
+        "tags": [
+          "Index"
+        ]
+      }
+    },
+    "/api/projects/{project}/index/ignore/patterns": {
+      "delete": {
+        "description": "Remove project index ignore pattern.",
+        "operationId": "removeProjectIndexIgnorePattern",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IndexIgnorePatternInput"
+              }
+            }
+          },
+          "description": "Request body for httpserver.IndexIgnorePatternInput",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndexIgnorePolicyResponse"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndexIgnorePolicyResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Bad Request _(validation or deserialization error)_"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Internal Server Error _(panics)_"
+          }
+        },
+        "summary": "Remove project index ignore pattern",
+        "tags": [
+          "Index"
+        ]
+      },
+      "post": {
+        "description": "Add project index ignore pattern.",
+        "operationId": "addProjectIndexIgnorePattern",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IndexIgnorePatternInput"
+              }
+            }
+          },
+          "description": "Request body for httpserver.IndexIgnorePatternInput",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndexIgnorePolicyResponse"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndexIgnorePolicyResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Bad Request _(validation or deserialization error)_"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Internal Server Error _(panics)_"
+          }
+        },
+        "summary": "Add project index ignore pattern",
+        "tags": [
+          "Index"
+        ]
+      }
+    },
+    "/api/projects/{project}/index/ignore/refresh": {
+      "post": {
+        "description": "Refresh project index ignore policy from .gitignore.",
+        "operationId": "refreshProjectIndexIgnorePolicy",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndexIgnorePolicyResponse"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndexIgnorePolicyResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Bad Request _(validation or deserialization error)_"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Internal Server Error _(panics)_"
+          }
+        },
+        "summary": "Refresh project index ignore policy from .gitignore",
         "tags": [
           "Index"
         ]

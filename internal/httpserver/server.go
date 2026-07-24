@@ -112,8 +112,14 @@ func registerRoutes(s *fuego.Server, a *api) {
 	fuego.Post(s, "/api/tasks/{id}/unblock", a.unblockTask, append(operation("unblockTask", "Tasks", "Unblock a task"), jsonBody()...)...)
 	fuego.Post(s, "/api/tasks/{id}/done", a.doneTask, append(operation("completeTask", "Tasks", "Complete a task"), jsonBody()...)...)
 
+	fuego.Get(s, "/api/index", a.indexStatusAll, operation("listIndexStatus", "Index", "Show all project index statuses")...)
+	fuego.Post(s, "/api/index/update", a.indexUpdateAll, operation("updateAllProjectIndexes", "Index", "Update all project indexes")...)
 	fuego.Get(s, "/api/projects/{project}/index", a.indexStatus, operation("getProjectIndexStatus", "Index", "Show project index status")...)
 	fuego.Post(s, "/api/projects/{project}/index/update", a.indexUpdate, operation("updateProjectIndex", "Index", "Update project index")...)
+	fuego.Get(s, "/api/projects/{project}/index/ignore", a.indexIgnorePolicy, operation("getProjectIndexIgnorePolicy", "Index", "Show project index ignore policy")...)
+	fuego.Post(s, "/api/projects/{project}/index/ignore/refresh", a.indexIgnoreRefresh, operation("refreshProjectIndexIgnorePolicy", "Index", "Refresh project index ignore policy from .gitignore")...)
+	fuego.Post(s, "/api/projects/{project}/index/ignore/patterns", a.indexIgnoreAdd, append(operation("addProjectIndexIgnorePattern", "Index", "Add project index ignore pattern"), jsonBody()...)...)
+	fuego.Delete(s, "/api/projects/{project}/index/ignore/patterns", a.indexIgnoreRemove, append(operation("removeProjectIndexIgnorePattern", "Index", "Remove project index ignore pattern"), jsonBody()...)...)
 }
 
 func operation(id, tag, summary string) []fuego.RouteOption {
@@ -639,6 +645,104 @@ func (a *api) indexUpdate(ctx fuego.ContextNoBody) (IndexResponse, error) {
 		return IndexResponse{}, err
 	}
 	return indexFromSummary(summary), nil
+}
+
+func (a *api) indexStatusAll(ctx fuego.ContextNoBody) (IndexListResponse, error) {
+	projects, err := a.store.ListProjects(ctx.Context())
+	if err != nil {
+		return IndexListResponse{}, err
+	}
+	statuses := make([]retrieval.IndexStatus, 0, len(projects))
+	for _, project := range projects {
+		status, err := a.retrieval.IndexStatus(ctx.Context(), project)
+		if err != nil {
+			status = retrieval.IndexStatus{
+				ProjectName:    project.Name,
+				State:          retrieval.StateFailed,
+				SkippedReasons: map[string]int{},
+				LastError:      err.Error(),
+			}
+		}
+		statuses = append(statuses, status)
+	}
+	return indexListFromStatuses(statuses), nil
+}
+
+func (a *api) indexUpdateAll(ctx fuego.ContextNoBody) (IndexListResponse, error) {
+	projects, err := a.store.ListProjects(ctx.Context())
+	if err != nil {
+		return IndexListResponse{}, err
+	}
+	summaries := make([]retrieval.IndexSummary, 0, len(projects))
+	for _, project := range projects {
+		summary, err := a.retrieval.IndexProject(ctx.Context(), project)
+		if err != nil {
+			summary = retrieval.IndexSummary{
+				ProjectName:    project.Name,
+				State:          retrieval.StateFailed,
+				SkippedReasons: map[string]int{},
+				LastError:      err.Error(),
+			}
+		}
+		summaries = append(summaries, summary)
+	}
+	return indexListFromSummaries(summaries), nil
+}
+
+func (a *api) indexIgnorePolicy(ctx fuego.ContextNoBody) (IndexIgnorePolicyResponse, error) {
+	project, err := a.projectByName(ctx.Context(), ctx.PathParam("project"))
+	if err != nil {
+		return IndexIgnorePolicyResponse{}, err
+	}
+	policy, err := a.retrieval.IgnorePolicy(ctx.Context(), project)
+	if err != nil {
+		return IndexIgnorePolicyResponse{}, err
+	}
+	return indexIgnorePolicyFromRetrieval(policy), nil
+}
+
+func (a *api) indexIgnoreRefresh(ctx fuego.ContextNoBody) (IndexIgnorePolicyResponse, error) {
+	project, err := a.projectByName(ctx.Context(), ctx.PathParam("project"))
+	if err != nil {
+		return IndexIgnorePolicyResponse{}, err
+	}
+	policy, err := a.retrieval.RefreshIgnorePolicy(ctx.Context(), project)
+	if err != nil {
+		return IndexIgnorePolicyResponse{}, err
+	}
+	return indexIgnorePolicyFromRetrieval(policy), nil
+}
+
+func (a *api) indexIgnoreAdd(ctx fuego.ContextWithBody[IndexIgnorePatternInput]) (IndexIgnorePolicyResponse, error) {
+	project, err := a.projectByName(ctx.Context(), ctx.PathParam("project"))
+	if err != nil {
+		return IndexIgnorePolicyResponse{}, err
+	}
+	body, err := ctx.Body()
+	if err != nil {
+		return IndexIgnorePolicyResponse{}, err
+	}
+	policy, err := a.retrieval.AddIgnorePattern(ctx.Context(), project, body.Pattern)
+	if err != nil {
+		return IndexIgnorePolicyResponse{}, badRequest(err.Error())
+	}
+	return indexIgnorePolicyFromRetrieval(policy), nil
+}
+
+func (a *api) indexIgnoreRemove(ctx fuego.ContextWithBody[IndexIgnorePatternInput]) (IndexIgnorePolicyResponse, error) {
+	project, err := a.projectByName(ctx.Context(), ctx.PathParam("project"))
+	if err != nil {
+		return IndexIgnorePolicyResponse{}, err
+	}
+	body, err := ctx.Body()
+	if err != nil {
+		return IndexIgnorePolicyResponse{}, err
+	}
+	policy, err := a.retrieval.RemoveIgnorePattern(ctx.Context(), project, body.Pattern)
+	if err != nil {
+		return IndexIgnorePolicyResponse{}, badRequest(err.Error())
+	}
+	return indexIgnorePolicyFromRetrieval(policy), nil
 }
 
 func (a *api) addTaskNote(ctx fuego.ContextWithBody[TaskNoteInput], kind string) (TaskEventResponse, error) {

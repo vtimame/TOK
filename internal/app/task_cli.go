@@ -136,11 +136,11 @@ func (c *CLI) runTaskList(ctx context.Context, store *storage.Store, args []stri
 		return nil
 	}
 
-	fmt.Fprintln(c.out, "id\tstatus\ttitle")
+	rows := [][]string{{"id", "status", "title"}}
 	for _, task := range tasks {
-		fmt.Fprintf(c.out, "%d\t%s\t%s\n", task.ID, task.Status, task.Title)
+		rows = append(rows, []string{strconv.FormatInt(task.ID, 10), task.Status, task.Title})
 	}
-	return nil
+	return printTerminalTable(c.out, rows)
 }
 
 func (c *CLI) runTaskShow(ctx context.Context, store *storage.Store, args []string) error {
@@ -399,11 +399,11 @@ func (c *CLI) runTaskReady(ctx context.Context, store *storage.Store, args []str
 		return nil
 	}
 
-	fmt.Fprintln(c.out, "id\tstatus\ttitle")
+	rows := [][]string{{"id", "status", "title"}}
 	for _, task := range tasks {
-		fmt.Fprintf(c.out, "%d\t%s\t%s\n", task.ID, task.Status, task.Title)
+		rows = append(rows, []string{strconv.FormatInt(task.ID, 10), task.Status, task.Title})
 	}
-	return nil
+	return printTerminalTable(c.out, rows)
 }
 
 type taskClaimOptions struct {
