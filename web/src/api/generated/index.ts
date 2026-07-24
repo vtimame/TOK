@@ -10,6 +10,7 @@ export type { GetProjectIndexStatusQueryKey } from "./hooks/useGetProjectIndexSt
 export type { ListProjectTasksQueryKey } from "./hooks/useListProjectTasks.ts";
 export type { ListProjectsQueryKey } from "./hooks/useListProjects.ts";
 export type { ListReadyTasksQueryKey } from "./hooks/useListReadyTasks.ts";
+export type { ListTasksQueryKey } from "./hooks/useListTasks.ts";
 export type { ProgressTaskMutationKey } from "./hooks/useProgressTask.ts";
 export type { ShowProjectQueryKey } from "./hooks/useShowProject.ts";
 export type { ShowTaskQueryKey } from "./hooks/useShowTask.ts";
@@ -126,6 +127,14 @@ export type {
   ListReadyTasksQueryResponse,
 } from "./models/ListReadyTasks.ts";
 export type {
+  ListTasks200,
+  ListTasks400,
+  ListTasks500,
+  ListTasksQuery,
+  ListTasksQueryParams,
+  ListTasksQueryResponse,
+} from "./models/ListTasks.ts";
+export type {
   ProgressTask200,
   ProgressTask400,
   ProgressTask500,
@@ -204,6 +213,7 @@ export { getProjectIndexStatus } from "./client/getProjectIndexStatus.ts";
 export { listProjectTasks } from "./client/listProjectTasks.ts";
 export { listProjects } from "./client/listProjects.ts";
 export { listReadyTasks } from "./client/listReadyTasks.ts";
+export { listTasks } from "./client/listTasks.ts";
 export { progressTask } from "./client/progressTask.ts";
 export { showProject } from "./client/showProject.ts";
 export { showTask } from "./client/showTask.ts";
@@ -239,6 +249,9 @@ export { useListProjects } from "./hooks/useListProjects.ts";
 export { listReadyTasksQueryKey } from "./hooks/useListReadyTasks.ts";
 export { listReadyTasksQueryOptions } from "./hooks/useListReadyTasks.ts";
 export { useListReadyTasks } from "./hooks/useListReadyTasks.ts";
+export { listTasksQueryKey } from "./hooks/useListTasks.ts";
+export { listTasksQueryOptions } from "./hooks/useListTasks.ts";
+export { useListTasks } from "./hooks/useListTasks.ts";
 export { progressTaskMutationKey } from "./hooks/useProgressTask.ts";
 export { useProgressTask } from "./hooks/useProgressTask.ts";
 export { showProjectQueryKey } from "./hooks/useShowProject.ts";

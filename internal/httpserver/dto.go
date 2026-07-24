@@ -65,7 +65,10 @@ type TaskCounts struct {
 }
 
 type TaskListResponse struct {
-	Tasks []TaskOutput `json:"tasks"`
+	Tasks  []TaskOutput `json:"tasks"`
+	Total  int          `json:"total"`
+	Limit  int          `json:"limit"`
+	Offset int          `json:"offset"`
 }
 
 type TaskResponse struct {

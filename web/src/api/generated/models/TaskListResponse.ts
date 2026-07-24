@@ -11,7 +11,19 @@ import type { TaskOutput } from "./TaskOutput.ts";
  */
 export type TaskListResponse = {
   /**
+   * @type integer
+   */
+  limit: number;
+  /**
+   * @type integer
+   */
+  offset: number;
+  /**
    * @type array,null
    */
   tasks: TaskOutput[] | null;
+  /**
+   * @type integer
+   */
+  total: number;
 };

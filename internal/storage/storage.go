@@ -85,6 +85,8 @@ type CreateTaskInput struct {
 
 type ListTasksOptions struct {
 	Status string
+	Limit  int
+	Offset int
 }
 
 type TaskEvent struct {
@@ -457,26 +459,48 @@ func (s *Store) ListTasks(ctx context.Context, projectID int64) ([]Task, error) 
 	return s.ListTasksWithOptions(ctx, projectID, ListTasksOptions{})
 }
 
+func (s *Store) ListAllTasksWithOptions(ctx context.Context, opts ListTasksOptions) ([]Task, error) {
+	return s.listTasksWithOptions(ctx, 0, opts, "DESC")
+}
+
 func (s *Store) ListTasksWithOptions(ctx context.Context, projectID int64, opts ListTasksOptions) ([]Task, error) {
+	if projectID <= 0 {
+		return nil, errors.New("task project id is required")
+	}
+	return s.listTasksWithOptions(ctx, projectID, opts, "ASC")
+}
+
+func (s *Store) listTasksWithOptions(ctx context.Context, projectID int64, opts ListTasksOptions, direction string) ([]Task, error) {
 	status := strings.TrimSpace(opts.Status)
 	if status != "" && !validTaskStatus(status) {
 		return nil, fmt.Errorf("invalid task status %q", status)
-	}
-	if projectID <= 0 {
-		return nil, errors.New("task project id is required")
 	}
 
 	query := `
 		SELECT id, project_id, status, title, description, acceptance_criteria, notes, created_at, updated_at
 		FROM tasks
-		WHERE project_id = ?
 	`
-	args := []any{projectID}
+	args := []any{}
+	where := []string{}
+	if projectID > 0 {
+		where = append(where, "project_id = ?")
+		args = append(args, projectID)
+	}
 	if status != "" {
-		query += " AND status = ?"
+		where = append(where, "status = ?")
 		args = append(args, status)
 	}
-	query += " ORDER BY id"
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
+	}
+	if direction != "DESC" {
+		direction = "ASC"
+	}
+	query += " ORDER BY id " + direction
+	if opts.Limit > 0 {
+		query += " LIMIT ? OFFSET ?"
+		args = append(args, opts.Limit, max(opts.Offset, 0))
+	}
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -497,6 +521,38 @@ func (s *Store) ListTasksWithOptions(ctx context.Context, projectID int64, opts 
 	}
 
 	return tasks, nil
+}
+
+func (s *Store) CountTasks(ctx context.Context) (int, error) {
+	return s.CountTasksWithOptions(ctx, 0, ListTasksOptions{})
+}
+
+func (s *Store) CountTasksWithOptions(ctx context.Context, projectID int64, opts ListTasksOptions) (int, error) {
+	status := strings.TrimSpace(opts.Status)
+	if status != "" && !validTaskStatus(status) {
+		return 0, fmt.Errorf("invalid task status %q", status)
+	}
+
+	query := "SELECT COUNT(*) FROM tasks"
+	args := []any{}
+	where := []string{}
+	if projectID > 0 {
+		where = append(where, "project_id = ?")
+		args = append(args, projectID)
+	}
+	if status != "" {
+		where = append(where, "status = ?")
+		args = append(args, status)
+	}
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
+	}
+
+	var count int
+	if err := s.db.QueryRowContext(ctx, query, args...).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count tasks: %w", err)
+	}
+	return count, nil
 }
 
 func (s *Store) UpdateTaskStatus(ctx context.Context, id int64, status string) (Task, error) {

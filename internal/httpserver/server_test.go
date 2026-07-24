@@ -55,7 +55,7 @@ func TestServerListsProjectsAndExposesOpenAPI(t *testing.T) {
 	if spec.OpenAPI == "" {
 		t.Fatalf("openapi spec version is empty")
 	}
-	if spec.Paths["/api/projects"] == nil || spec.Paths["/api/tasks/{id}"] == nil {
+	if spec.Paths["/api/projects"] == nil || spec.Paths["/api/tasks"] == nil || spec.Paths["/api/tasks/{id}"] == nil {
 		t.Fatalf("openapi spec missing expected paths: %+v", spec.Paths)
 	}
 
@@ -70,6 +70,7 @@ func TestServerListsProjectsAndExposesOpenAPI(t *testing.T) {
 		"/api/projects/{project}/tasks POST":        "createTask",
 		"/api/projects/{project}/tasks/ready GET":   "listReadyTasks",
 		"/api/projects/{project}/tasks/claim POST":  "claimTask",
+		"/api/tasks GET":                            "listTasks",
 		"/api/tasks/{id} GET":                       "showTask",
 		"/api/tasks/{id}/comment POST":              "commentTask",
 		"/api/tasks/{id}/progress POST":             "progressTask",
@@ -97,6 +98,7 @@ func TestServerListsProjectsAndExposesOpenAPI(t *testing.T) {
 	}
 	for schemaName, fields := range map[string][]string{
 		"ProjectListResponse": {"projects", "total", "limit", "offset"},
+		"TaskListResponse":    {"tasks", "total", "limit", "offset"},
 		"ProjectOutput":       {"tasks_count", "task_counts", "agents"},
 		"TaskCounts":          {"total", "open", "in_progress", "blocked", "done", "ready"},
 		"TaskOutput":          {"agents"},
@@ -151,6 +153,44 @@ func TestServerPaginatesProjects(t *testing.T) {
 	}
 	if got := projectNames(projects.Projects); !slices.Equal(got, []string{"bravo", "charlie"}) {
 		t.Fatalf("unexpected paged projects: %v", got)
+	}
+}
+
+func TestServerPaginatesTasks(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+
+	project, err := store.CreateProject(ctx, storage.CreateProjectInput{
+		Name:        "tok",
+		DisplayName: "TOK",
+		Path:        t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("CreateProject returned error: %v", err)
+	}
+	for _, title := range []string{"first", "second", "third", "fourth"} {
+		if _, err := store.CreateTask(ctx, storage.CreateTaskInput{
+			ProjectID: project.ID,
+			Title:     title,
+		}); err != nil {
+			t.Fatalf("CreateTask(%q) returned error: %v", title, err)
+		}
+	}
+
+	handler := newTestHandler(t, store)
+	res := doJSON(t, handler, http.MethodGet, "/api/tasks?limit=2&offset=1", nil)
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/tasks?limit=2&offset=1 status = %d", res.StatusCode)
+	}
+	var tasks TaskListResponse
+	decodeJSON(t, res, &tasks)
+
+	if tasks.Total != 4 || tasks.Limit != 2 || tasks.Offset != 1 {
+		t.Fatalf("unexpected pagination metadata: %+v", tasks)
+	}
+	if got := taskTitles(tasks.Tasks); !slices.Equal(got, []string{"third", "second"}) {
+		t.Fatalf("unexpected paged tasks: %v", got)
 	}
 }
 
@@ -495,6 +535,14 @@ func projectNames(projects []ProjectOutput) []string {
 		names = append(names, project.Name)
 	}
 	return names
+}
+
+func taskTitles(tasks []TaskOutput) []string {
+	titles := make([]string, 0, len(tasks))
+	for _, task := range tasks {
+		titles = append(titles, task.Title)
+	}
+	return titles
 }
 
 func assertTaskCounts(t *testing.T, got, want TaskCounts) {

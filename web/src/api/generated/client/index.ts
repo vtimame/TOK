@@ -10,6 +10,7 @@ export { getProjectIndexStatus } from "./getProjectIndexStatus.ts";
 export { listProjectTasks } from "./listProjectTasks.ts";
 export { listProjects } from "./listProjects.ts";
 export { listReadyTasks } from "./listReadyTasks.ts";
+export { listTasks } from "./listTasks.ts";
 export { progressTask } from "./progressTask.ts";
 export { showProject } from "./showProject.ts";
 export { showTask } from "./showTask.ts";

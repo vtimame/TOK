@@ -385,6 +385,12 @@
       "TaskListResponse": {
         "description": "TaskListResponse schema",
         "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          },
           "tasks": {
             "items": {
               "$ref": "#/components/schemas/TaskOutput"
@@ -393,10 +399,16 @@
               "array",
               "null"
             ]
+          },
+          "total": {
+            "type": "integer"
           }
         },
         "required": [
-          "tasks"
+          "limit",
+          "offset",
+          "tasks",
+          "total"
         ],
         "type": "object"
       },
@@ -1371,6 +1383,81 @@
           }
         },
         "summary": "List ready project tasks",
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
+    "/api/tasks": {
+      "get": {
+        "description": "List tasks.",
+        "operationId": "listTasks",
+        "parameters": [
+          {
+            "description": "Maximum tasks to return",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Tasks to skip before returning results",
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskListResponse"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskListResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Bad Request _(validation or deserialization error)_"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Internal Server Error _(panics)_"
+          }
+        },
+        "summary": "List tasks",
         "tags": [
           "Tasks"
         ]

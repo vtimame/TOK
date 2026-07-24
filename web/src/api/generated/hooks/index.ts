@@ -10,6 +10,7 @@ export type { GetProjectIndexStatusQueryKey } from "./useGetProjectIndexStatus.t
 export type { ListProjectTasksQueryKey } from "./useListProjectTasks.ts";
 export type { ListProjectsQueryKey } from "./useListProjects.ts";
 export type { ListReadyTasksQueryKey } from "./useListReadyTasks.ts";
+export type { ListTasksQueryKey } from "./useListTasks.ts";
 export type { ProgressTaskMutationKey } from "./useProgressTask.ts";
 export type { ShowProjectQueryKey } from "./useShowProject.ts";
 export type { ShowTaskQueryKey } from "./useShowTask.ts";
@@ -45,6 +46,9 @@ export { useListProjects } from "./useListProjects.ts";
 export { listReadyTasksQueryKey } from "./useListReadyTasks.ts";
 export { listReadyTasksQueryOptions } from "./useListReadyTasks.ts";
 export { useListReadyTasks } from "./useListReadyTasks.ts";
+export { listTasksQueryKey } from "./useListTasks.ts";
+export { listTasksQueryOptions } from "./useListTasks.ts";
+export { useListTasks } from "./useListTasks.ts";
 export { progressTaskMutationKey } from "./useProgressTask.ts";
 export { useProgressTask } from "./useProgressTask.ts";
 export { showProjectQueryKey } from "./useShowProject.ts";

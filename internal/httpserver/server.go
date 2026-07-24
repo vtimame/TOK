@@ -98,6 +98,7 @@ func registerRoutes(s *fuego.Server, a *api) {
 	fuego.Post(s, "/api/projects/{project}/tasks", a.createTask, append(operation("createTask", "Tasks", "Create a project task"), jsonBody()...)...)
 	fuego.Get(s, "/api/projects/{project}/tasks/ready", a.readyTasks, operation("listReadyTasks", "Tasks", "List ready project tasks")...)
 	fuego.Post(s, "/api/projects/{project}/tasks/claim", a.claimTask, append(operation("claimTask", "Tasks", "Claim the next ready task or a specific ready task"), jsonBody()...)...)
+	fuego.Get(s, "/api/tasks", a.listAllTasks, append(operation("listTasks", "Tasks", "List tasks"), option.Query("limit", "Maximum tasks to return"), option.Query("offset", "Tasks to skip before returning results"))...)
 	fuego.Get(s, "/api/tasks/{id}", a.showTask, operation("showTask", "Tasks", "Show a task with event history")...)
 	fuego.Post(s, "/api/tasks/{id}/comment", a.commentTask, append(operation("commentTask", "Tasks", "Add a task comment"), jsonBody()...)...)
 	fuego.Post(s, "/api/tasks/{id}/progress", a.progressTask, append(operation("progressTask", "Tasks", "Add task progress"), jsonBody()...)...)
@@ -283,7 +284,31 @@ func (a *api) listTasks(ctx fuego.ContextNoBody) (TaskListResponse, error) {
 	if err != nil {
 		return TaskListResponse{}, err
 	}
-	return a.taskListResponse(ctx.Context(), tasks)
+	total, err := a.store.CountTasksWithOptions(ctx.Context(), project.ID, storage.ListTasksOptions{Status: status})
+	if err != nil {
+		return TaskListResponse{}, err
+	}
+	return a.taskListResponse(ctx.Context(), tasks, total, len(tasks), 0)
+}
+
+func (a *api) listAllTasks(ctx fuego.ContextNoBody) (TaskListResponse, error) {
+	limit, err := positiveIntQuery(ctx, "limit", 25, 100)
+	if err != nil {
+		return TaskListResponse{}, err
+	}
+	offset, err := nonNegativeIntQuery(ctx, "offset", 0)
+	if err != nil {
+		return TaskListResponse{}, err
+	}
+	total, err := a.store.CountTasks(ctx.Context())
+	if err != nil {
+		return TaskListResponse{}, err
+	}
+	tasks, err := a.store.ListAllTasksWithOptions(ctx.Context(), storage.ListTasksOptions{Limit: limit, Offset: offset})
+	if err != nil {
+		return TaskListResponse{}, err
+	}
+	return a.taskListResponse(ctx.Context(), tasks, total, limit, offset)
 }
 
 func (a *api) createTask(ctx fuego.ContextWithBody[CreateTaskInput]) (TaskResponse, error) {
@@ -326,7 +351,7 @@ func (a *api) readyTasks(ctx fuego.ContextNoBody) (TaskListResponse, error) {
 	if err != nil {
 		return TaskListResponse{}, err
 	}
-	return a.taskListResponse(ctx.Context(), tasks)
+	return a.taskListResponse(ctx.Context(), tasks, len(tasks), len(tasks), 0)
 }
 
 func (a *api) showTask(ctx fuego.ContextNoBody) (TaskShowResponse, error) {
@@ -537,12 +562,16 @@ func (a *api) taskResponse(ctx context.Context, task storage.Task) (TaskResponse
 	return TaskResponse{Task: taskFromStorage(task, agentsFromEvents(events))}, nil
 }
 
-func (a *api) taskListResponse(ctx context.Context, tasks []storage.Task) (TaskListResponse, error) {
+func (a *api) taskListResponse(ctx context.Context, tasks []storage.Task, total, limit, offset int) (TaskListResponse, error) {
 	agentsByTask, err := a.agentsByTask(ctx, tasks)
 	if err != nil {
 		return TaskListResponse{}, err
 	}
-	return tasksFromStorage(tasks, agentsByTask), nil
+	out := tasksFromStorage(tasks, agentsByTask)
+	out.Total = total
+	out.Limit = limit
+	out.Offset = offset
+	return out, nil
 }
 
 func (a *api) agentsByTask(ctx context.Context, tasks []storage.Task) (map[int64][]ActorOutput, error) {

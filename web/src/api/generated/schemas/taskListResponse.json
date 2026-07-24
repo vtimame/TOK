@@ -1,6 +1,8 @@
 {
   "description": "TaskListResponse schema",
   "properties": {
+    "limit": { "type": "integer" },
+    "offset": { "type": "integer" },
     "tasks": {
       "items": {
         "properties": {
@@ -43,9 +45,10 @@
         "x-readme-ref-name": "TaskOutput"
       },
       "type": ["array", "null"]
-    }
+    },
+    "total": { "type": "integer" }
   },
-  "required": ["tasks"],
+  "required": ["limit", "offset", "tasks", "total"],
   "type": "object",
   "x-readme-ref-name": "TaskListResponse"
 }
