@@ -1,0 +1,10 @@
+{
+  "properties": {
+    "display_name": { "type": "string" },
+    "id": { "format": "int64", "type": "integer" },
+    "name": { "type": "string" }
+  },
+  "required": ["display_name", "id", "name"],
+  "type": "object",
+  "x-readme-ref-name": "TaskProject"
+}

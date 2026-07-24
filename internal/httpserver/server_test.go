@@ -96,7 +96,7 @@ func TestServerListsProjectsAndExposesOpenAPI(t *testing.T) {
 		}
 	}
 
-	for _, name := range []string{"AgentListResponse", "AgentResponse", "CreateAgentResponse", "AgentOutput", "AgentProjectOutput", "CreateAgentInput", "UpdateAgentInput", "ProjectListResponse", "ProjectResponse", "TaskListResponse", "TaskResponse", "TaskShowResponse", "TaskEventResponse", "TaskDependencyOutput", "CreateTaskInput", "UpdateProjectInput", "ClaimTaskInput", "TaskDoneInput", "IndexResponse"} {
+	for _, name := range []string{"AgentListResponse", "AgentResponse", "CreateAgentResponse", "AgentOutput", "AgentProjectOutput", "CreateAgentInput", "UpdateAgentInput", "ProjectListResponse", "ProjectResponse", "TaskListResponse", "TaskResponse", "TaskShowResponse", "TaskProject", "TaskEventResponse", "TaskDependencyOutput", "CreateTaskInput", "UpdateProjectInput", "ClaimTaskInput", "TaskDoneInput", "IndexResponse"} {
 		if _, ok := spec.Components.Schemas[name]; !ok {
 			t.Fatalf("openapi spec missing schema %s", name)
 		}
@@ -106,7 +106,8 @@ func TestServerListsProjectsAndExposesOpenAPI(t *testing.T) {
 		"TaskListResponse":    {"tasks", "total", "limit", "offset"},
 		"ProjectOutput":       {"tasks_count", "task_counts", "agents"},
 		"TaskCounts":          {"total", "open", "in_progress", "blocked", "done", "ready"},
-		"TaskOutput":          {"agents"},
+		"TaskOutput":          {"project", "agents"},
+		"TaskProject":         {"id", "name", "display_name"},
 		"TaskShowResponse":    {"dependencies"},
 		"AgentListResponse":   {"agents"},
 		"AgentResponse":       {"agent"},
@@ -289,6 +290,9 @@ func TestServerPaginatesTasks(t *testing.T) {
 	}
 	if got := taskTitles(tasks.Tasks); !slices.Equal(got, []string{"fourth", "third"}) {
 		t.Fatalf("unexpected paged tasks: %v", got)
+	}
+	if tasks.Tasks[0].Project.ID != project.ID || tasks.Tasks[0].Project.Name != "tok" || tasks.Tasks[0].Project.DisplayName != "TOK" {
+		t.Fatalf("unexpected task project summary: %+v", tasks.Tasks[0].Project)
 	}
 
 	filteredRes := doJSON(t, handler, http.MethodGet, "/api/tasks?projectId="+jsonNumber(project.ID)+"&status=open&limit=10&offset=0", nil)
@@ -549,6 +553,9 @@ func TestServerAggregatesAgentsFromTaskHistory(t *testing.T) {
 		t.Fatalf("unexpected tasks response: %+v", tasks)
 	}
 	assertSingleAgent(t, tasks.Tasks[0].Agents, agent.Agent.ID, "Codex Backend")
+	if tasks.Tasks[0].Project.ID != project.ID || tasks.Tasks[0].Project.DisplayName != "TOK" {
+		t.Fatalf("unexpected project summary in task list: %+v", tasks.Tasks[0].Project)
+	}
 
 	showRes := doJSON(t, handler, http.MethodGet, "/api/tasks/"+jsonNumber(task.ID), nil)
 	defer showRes.Body.Close()
@@ -558,6 +565,9 @@ func TestServerAggregatesAgentsFromTaskHistory(t *testing.T) {
 	var shown TaskShowResponse
 	decodeJSON(t, showRes, &shown)
 	assertSingleAgent(t, shown.Task.Agents, agent.Agent.ID, "Codex Backend")
+	if shown.Task.Project.ID != project.ID || shown.Task.Project.Name != "tok" || shown.Task.Project.DisplayName != "TOK" {
+		t.Fatalf("unexpected shown task project summary: %+v", shown.Task.Project)
+	}
 	if len(shown.Dependencies) != 1 || shown.Dependencies[0].Role != "blocks" {
 		t.Fatalf("unexpected task dependencies: %+v", shown.Dependencies)
 	}

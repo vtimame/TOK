@@ -189,6 +189,7 @@ export type { TaskEventResponse } from "./TaskEventResponse.ts";
 export type { TaskListResponse } from "./TaskListResponse.ts";
 export type { TaskNoteInput } from "./TaskNoteInput.ts";
 export type { TaskOutput } from "./TaskOutput.ts";
+export type { TaskProject } from "./TaskProject.ts";
 export type { TaskResponse } from "./TaskResponse.ts";
 export type { TaskShowResponse } from "./TaskShowResponse.ts";
 export type { TaskUnblockInput } from "./TaskUnblockInput.ts";

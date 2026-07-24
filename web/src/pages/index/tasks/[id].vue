@@ -1,7 +1,6 @@
 <script lang="ts" setup>
 import AgentIcon from "@/components/common/agent/AgentIcon.vue";
 import { toastApiError } from "@/api/axios.ts";
-import { useProjectsQuery } from "@/api/queries/projects.ts";
 import {
   useBlockTaskMutation,
   useClaimTaskMutation,
@@ -25,7 +24,6 @@ const taskId = computed(() => {
   return Array.isArray(value) ? value[0] : String(value || "");
 });
 const taskQuery = useTaskQuery(taskId);
-const projectsQuery = useProjectsQuery();
 const claimTaskMutation = useClaimTaskMutation();
 const completeTaskMutation = useCompleteTaskMutation();
 const commentTaskMutation = useCommentTaskMutation();
@@ -37,11 +35,21 @@ const taskDetails = computed(() => taskQuery.data.value);
 const task = computed(() => taskDetails.value?.task);
 const events = computed(() => taskDetails.value?.events ?? []);
 const dependencies = computed(() => taskDetails.value?.dependencies ?? []);
-const project = computed(() =>
-  projectsQuery.data.value?.projects.find((item) => item.id === task.value?.projectId),
+const blockedBy = computed(() =>
+  dependencies.value.filter((dependency) => dependency.role === "blocked_by"),
 );
-const blockedBy = computed(() => dependencies.value.filter((dependency) => dependency.role === "blocked_by"));
-const blocks = computed(() => dependencies.value.filter((dependency) => dependency.role === "blocks"));
+const blocks = computed(() =>
+  dependencies.value.filter((dependency) => dependency.role === "blocks"),
+);
+const project = computed(() => task.value?.project);
+const canClaim = computed(() => task.value?.status === "open");
+const canComplete = computed(() => task.value?.status === "in_progress");
+const notePlaceholder = computed(() => {
+  if (task.value?.status === "blocked") return "Write an unblock note or add context";
+  if (task.value?.status === "in_progress")
+    return "Describe progress, a blocker, or completion notes";
+  return "Write a comment, progress note, or blocker reason";
+});
 const actionPending = computed(
   () =>
     claimTaskMutation.isPending.value ||
@@ -53,10 +61,10 @@ const actionPending = computed(
 );
 
 async function claimTask() {
-  if (!task.value || !project.value) return;
+  if (!task.value) return;
   try {
     await claimTaskMutation.mutateAsync({
-      project: project.value.name,
+      project: task.value.project.name,
       data: { id: task.value.id },
     });
   } catch (error) {
@@ -101,6 +109,15 @@ function eventBody(type: string, body: string, toStatus: string) {
   return body || statusLabel(toStatus || type);
 }
 
+function eventLabel(type: string, fromStatus: string, toStatus: string) {
+  if (fromStatus || toStatus) {
+    return `${statusLabel(type)} ${fromStatus ? statusLabel(fromStatus) : ""}${
+      fromStatus && toStatus ? " -> " : ""
+    }${toStatus ? statusLabel(toStatus) : ""}`.trim();
+  }
+  return statusLabel(type);
+}
+
 function formatDate(value?: string) {
   if (!value) return "";
   return new Intl.DateTimeFormat("en", {
@@ -120,16 +137,24 @@ useTitle(computed(() => task.value?.title || "Task"));
       <div class="min-w-0">
         <RouterLink
           class="text-sm text-muted-foreground hover:text-foreground"
-          :to="{ path: '/tasks', query: task?.projectId ? { projectId: String(task.projectId) } : {} }"
+          :to="{
+            path: '/tasks',
+            query: task?.projectId ? { projectId: String(task.projectId) } : {},
+          }"
         >
-          Tasks
+          {{ project?.displayName || "Tasks" }}
         </RouterLink>
         <div class="truncate text-2xl font-bold">{{ task?.title || `Task #${taskId}` }}</div>
         <div class="truncate text-sm text-muted-foreground">
+          Task #{{ task?.id || taskId }} in
           {{ project?.displayName || `Project #${task?.projectId || ""}` }}
         </div>
       </div>
-      <span v-if="task" class="rounded-full border px-2 py-0.5 text-xs" :class="statusTone(task.status)">
+      <span
+        v-if="task"
+        class="rounded-full border px-2 py-0.5 text-xs"
+        :class="statusTone(task.status)"
+      >
         {{ statusLabel(task.status) }}
       </span>
     </div>
@@ -148,20 +173,24 @@ useTitle(computed(() => task.value?.title || "Task"));
     </div>
 
     <div v-else class="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_18rem] gap-4 overflow-hidden">
-      <main class="min-h-0 overflow-y-auto rounded-lg bg-card shadow ring-1 ring-foreground/5 custom-scrollbar">
+      <main
+        class="min-h-0 overflow-y-auto rounded-lg bg-card shadow ring-1 ring-foreground/5 custom-scrollbar"
+      >
         <section class="border-b p-4">
-          <div class="grid gap-4">
-            <div>
+          <div class="grid gap-5">
+            <div class="grid gap-2">
               <div class="text-sm font-medium text-muted-foreground">Description</div>
-              <div class="mt-1 whitespace-pre-wrap text-sm">{{ task.description || "No description" }}</div>
+              <div class="mt-1 whitespace-pre-wrap text-sm">
+                {{ task.description || "No description" }}
+              </div>
             </div>
-            <div>
+            <div class="grid gap-2">
               <div class="text-sm font-medium text-muted-foreground">Acceptance criteria</div>
               <div class="mt-1 whitespace-pre-wrap text-sm">
                 {{ task.acceptanceCriteria || "No acceptance criteria" }}
               </div>
             </div>
-            <div>
+            <div class="grid gap-2">
               <div class="text-sm font-medium text-muted-foreground">Notes</div>
               <div class="mt-1 whitespace-pre-wrap text-sm">{{ task.notes || "No notes" }}</div>
             </div>
@@ -169,32 +198,26 @@ useTitle(computed(() => task.value?.title || "Task"));
         </section>
 
         <section class="border-b p-4">
-          <div class="mb-3 flex items-center justify-between">
-            <div class="text-sm font-medium text-muted-foreground">History</div>
-            <div class="text-sm text-muted-foreground">{{ events.length }} events</div>
+          <div class="mb-3 flex items-center justify-between gap-3">
+            <div class="text-sm font-medium text-muted-foreground">Add update</div>
+            <div class="text-xs text-muted-foreground">{{ statusLabel(task.status) }}</div>
           </div>
-          <div v-if="events.length === 0" class="text-sm text-muted-foreground">No history yet.</div>
-          <div v-for="event in events" :key="event.id" class="border-b py-3 last:border-b-0">
-            <div class="flex items-center gap-2 text-sm">
-              <AgentIcon v-if="event.actor" :value="event.actor.icon" class="size-5" />
-              <span class="font-medium">{{ event.actor?.name || "System" }}</span>
-              <span class="text-muted-foreground">{{ statusLabel(event.type) }}</span>
-              <span class="ml-auto text-xs text-muted-foreground">{{ formatDate(event.createdAt) }}</span>
-            </div>
-            <div class="mt-1 whitespace-pre-wrap text-sm">
-              {{ eventBody(event.type, event.body, event.toStatus) }}
-            </div>
-          </div>
-        </section>
-
-        <section class="p-4">
-          <div class="mb-3 text-sm font-medium text-muted-foreground">Add update</div>
-          <Textarea v-model="noteBody" class="min-h-24" placeholder="Write a note" />
+          <Textarea v-model="noteBody" class="min-h-24" :placeholder="notePlaceholder" />
           <div class="mt-3 flex flex-wrap justify-end gap-2">
-            <Button size="sm" variant="outline" :disabled="!noteBody.trim() || actionPending" @click="addNote('comment')">
+            <Button
+              size="sm"
+              variant="outline"
+              :disabled="!noteBody.trim() || actionPending"
+              @click="addNote('comment')"
+            >
               Comment
             </Button>
-            <Button size="sm" variant="outline" :disabled="!noteBody.trim() || actionPending" @click="addNote('progress')">
+            <Button
+              size="sm"
+              variant="outline"
+              :disabled="!noteBody.trim() || actionPending"
+              @click="addNote('progress')"
+            >
               Progress
             </Button>
             <Button
@@ -217,17 +240,69 @@ useTitle(computed(() => task.value?.title || "Task"));
             </Button>
           </div>
         </section>
+
+        <section class="p-4">
+          <div class="mb-4 flex items-center justify-between">
+            <div class="text-sm font-medium text-muted-foreground">History</div>
+            <div class="text-sm text-muted-foreground">{{ events.length }} events</div>
+          </div>
+          <div v-if="events.length === 0" class="text-sm text-muted-foreground">
+            No history yet.
+          </div>
+          <div v-else class="space-y-0">
+            <div
+              v-for="event in events"
+              :key="event.id"
+              class="relative border-l pl-4 pb-5 last:pb-0"
+            >
+              <div class="absolute -left-1.5 top-1.5 size-3 rounded-full border bg-card"></div>
+              <div class="flex items-start gap-3">
+                <AgentIcon v-if="event.actor" :value="event.actor.icon" class="mt-0.5 size-5" />
+                <div v-else class="mt-0.5 size-5 rounded-full border bg-muted"></div>
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-2 text-sm">
+                    <span class="font-medium">{{ event.actor?.name || "System" }}</span>
+                    <span class="truncate text-muted-foreground">
+                      {{ eventLabel(event.type, event.fromStatus, event.toStatus) }}
+                    </span>
+                    <span class="ml-auto shrink-0 text-xs text-muted-foreground">
+                      {{ formatDate(event.createdAt) }}
+                    </span>
+                  </div>
+                  <div class="mt-1 whitespace-pre-wrap text-sm">
+                    {{ eventBody(event.type, event.body, event.toStatus) }}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
       </main>
 
-      <aside class="min-h-0 overflow-y-auto rounded-lg bg-card p-4 shadow ring-1 ring-foreground/5 custom-scrollbar">
+      <aside
+        class="min-h-0 overflow-y-auto rounded-lg bg-card p-4 shadow ring-1 ring-foreground/5 custom-scrollbar"
+      >
         <div class="space-y-4">
           <div>
-            <div class="text-sm font-medium text-muted-foreground">Actions</div>
+            <div class="mb-2 flex items-center justify-between gap-2">
+              <div class="text-sm font-medium text-muted-foreground">Actions</div>
+              <span
+                class="rounded-full border px-2 py-0.5 text-xs"
+                :class="statusTone(task.status)"
+              >
+                {{ statusLabel(task.status) }}
+              </span>
+            </div>
             <div class="mt-2 grid gap-2">
-              <Button size="sm" variant="outline" :disabled="actionPending || task.status !== 'open'" @click="claimTask">
+              <Button
+                size="sm"
+                variant="outline"
+                :disabled="actionPending || !canClaim"
+                @click="claimTask"
+              >
                 Claim
               </Button>
-              <Button size="sm" :disabled="actionPending || task.status !== 'in_progress'" @click="completeTask">
+              <Button size="sm" :disabled="actionPending || !canComplete" @click="completeTask">
                 Done
               </Button>
             </div>
@@ -244,18 +319,41 @@ useTitle(computed(() => task.value?.title || "Task"));
           <div>
             <div class="text-sm font-medium text-muted-foreground">Dependencies</div>
             <div class="mt-2 space-y-2">
-              <div v-if="blockedBy.length === 0 && blocks.length === 0" class="text-sm text-muted-foreground">
+              <div
+                v-if="blockedBy.length === 0 && blocks.length === 0"
+                class="text-sm text-muted-foreground"
+              >
                 No dependencies
               </div>
-              <div v-for="dependency in blockedBy" :key="dependency.id" class="rounded-md border p-2 text-sm">
+              <div
+                v-for="dependency in blockedBy"
+                :key="dependency.id"
+                class="rounded-md border border-destructive/20 bg-destructive/5 p-2 text-sm"
+              >
                 <div class="text-muted-foreground">Blocked by</div>
-                <RouterLink class="font-medium hover:underline" :to="`/tasks/${dependency.blockerTaskId}`">
+                <RouterLink
+                  class="font-medium hover:underline"
+                  :to="{
+                    path: `/tasks/${dependency.blockerTaskId}`,
+                    query: { projectId: String(task.projectId) },
+                  }"
+                >
                   #{{ dependency.blockerTaskId }}
                 </RouterLink>
               </div>
-              <div v-for="dependency in blocks" :key="dependency.id" class="rounded-md border p-2 text-sm">
+              <div
+                v-for="dependency in blocks"
+                :key="dependency.id"
+                class="rounded-md border border-sky-500/20 bg-sky-500/5 p-2 text-sm"
+              >
                 <div class="text-muted-foreground">Blocks</div>
-                <RouterLink class="font-medium hover:underline" :to="`/tasks/${dependency.blockedTaskId}`">
+                <RouterLink
+                  class="font-medium hover:underline"
+                  :to="{
+                    path: `/tasks/${dependency.blockedTaskId}`,
+                    query: { projectId: String(task.projectId) },
+                  }"
+                >
                   #{{ dependency.blockedTaskId }}
                 </RouterLink>
               </div>
@@ -268,6 +366,10 @@ useTitle(computed(() => task.value?.title || "Task"));
               <div class="flex justify-between gap-2">
                 <dt class="text-muted-foreground">ID</dt>
                 <dd>#{{ task.id }}</dd>
+              </div>
+              <div class="flex justify-between gap-2">
+                <dt class="text-muted-foreground">Project</dt>
+                <dd class="truncate text-right">{{ task.project.displayName }}</dd>
               </div>
               <div class="flex justify-between gap-2">
                 <dt class="text-muted-foreground">Created</dt>

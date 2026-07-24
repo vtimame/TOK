@@ -5,6 +5,7 @@
  */
 
 import type { ActorOutput } from "./ActorOutput.ts";
+import type { TaskProject } from "./TaskProject.ts";
 
 export type TaskOutput = {
   /**
@@ -31,6 +32,10 @@ export type TaskOutput = {
    * @type string
    */
   notes: string;
+  /**
+   * @type object
+   */
+  project: TaskProject;
   /**
    * @type integer, int64
    */

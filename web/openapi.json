@@ -625,6 +625,9 @@
           "notes": {
             "type": "string"
           },
+          "project": {
+            "$ref": "#/components/schemas/TaskProject"
+          },
           "project_id": {
             "format": "int64",
             "type": "integer"
@@ -646,10 +649,31 @@
           "description",
           "id",
           "notes",
+          "project",
           "project_id",
           "status",
           "title",
           "updated_at"
+        ],
+        "type": "object"
+      },
+      "TaskProject": {
+        "properties": {
+          "display_name": {
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "display_name",
+          "id",
+          "name"
         ],
         "type": "object"
       },

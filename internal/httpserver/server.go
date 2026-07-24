@@ -516,7 +516,11 @@ func (a *api) showTask(ctx fuego.ContextNoBody) (TaskShowResponse, error) {
 	if err != nil {
 		return TaskShowResponse{}, err
 	}
-	return taskShowFromStorage(task, events, dependencies), nil
+	project, err := a.store.GetProjectByID(ctx.Context(), task.ProjectID)
+	if err != nil {
+		return TaskShowResponse{}, err
+	}
+	return taskShowFromStorage(task, project, events, dependencies), nil
 }
 
 func (a *api) claimTask(ctx fuego.ContextWithBody[ClaimTaskInput]) (TaskResponse, error) {
@@ -727,7 +731,11 @@ func (a *api) taskResponse(ctx context.Context, task storage.Task) (TaskResponse
 	if err != nil {
 		return TaskResponse{}, err
 	}
-	return TaskResponse{Task: taskFromStorage(task, agentsFromEvents(events))}, nil
+	project, err := a.store.GetProjectByID(ctx, task.ProjectID)
+	if err != nil {
+		return TaskResponse{}, err
+	}
+	return TaskResponse{Task: taskFromStorage(task, project, agentsFromEvents(events))}, nil
 }
 
 func (a *api) taskListResponse(ctx context.Context, tasks []storage.Task, total, limit, offset int) (TaskListResponse, error) {
@@ -735,10 +743,29 @@ func (a *api) taskListResponse(ctx context.Context, tasks []storage.Task, total,
 	if err != nil {
 		return TaskListResponse{}, err
 	}
-	out := tasksFromStorage(tasks, agentsByTask)
+	projectsByID, err := a.projectsByTask(ctx, tasks)
+	if err != nil {
+		return TaskListResponse{}, err
+	}
+	out := tasksFromStorage(tasks, agentsByTask, projectsByID)
 	out.Total = total
 	out.Limit = limit
 	out.Offset = offset
+	return out, nil
+}
+
+func (a *api) projectsByTask(ctx context.Context, tasks []storage.Task) (map[int64]storage.Project, error) {
+	out := make(map[int64]storage.Project)
+	for _, task := range tasks {
+		if _, ok := out[task.ProjectID]; ok {
+			continue
+		}
+		project, err := a.store.GetProjectByID(ctx, task.ProjectID)
+		if err != nil {
+			return nil, err
+		}
+		out[task.ProjectID] = project
+	}
 	return out, nil
 }
 

@@ -112,6 +112,7 @@ type TaskDoneInput struct {
 type TaskOutput struct {
 	ID                 int64         `json:"id"`
 	ProjectID          int64         `json:"project_id"`
+	Project            TaskProject   `json:"project"`
 	Status             string        `json:"status"`
 	Title              string        `json:"title"`
 	Description        string        `json:"description"`
@@ -120,6 +121,12 @@ type TaskOutput struct {
 	Agents             []ActorOutput `json:"agents"`
 	CreatedAt          string        `json:"created_at"`
 	UpdatedAt          string        `json:"updated_at"`
+}
+
+type TaskProject struct {
+	ID          int64  `json:"id"`
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name"`
 }
 
 type TaskEventResponse struct {
@@ -209,17 +216,17 @@ func projectFromStorage(project storage.Project, taskCounts TaskCounts, agents [
 	}
 }
 
-func tasksFromStorage(tasks []storage.Task, agents map[int64][]ActorOutput) TaskListResponse {
+func tasksFromStorage(tasks []storage.Task, agents map[int64][]ActorOutput, projects map[int64]storage.Project) TaskListResponse {
 	out := TaskListResponse{Tasks: make([]TaskOutput, 0, len(tasks))}
 	for _, task := range tasks {
-		out.Tasks = append(out.Tasks, taskFromStorage(task, agents[task.ID]))
+		out.Tasks = append(out.Tasks, taskFromStorage(task, projects[task.ProjectID], agents[task.ID]))
 	}
 	return out
 }
 
-func taskShowFromStorage(task storage.Task, events []storage.TaskEvent, dependencies []storage.TaskDependency) TaskShowResponse {
+func taskShowFromStorage(task storage.Task, project storage.Project, events []storage.TaskEvent, dependencies []storage.TaskDependency) TaskShowResponse {
 	out := TaskShowResponse{
-		Task:         taskFromStorage(task, agentsFromEvents(events)),
+		Task:         taskFromStorage(task, project, agentsFromEvents(events)),
 		Events:       make([]TaskEventOutput, 0, len(events)),
 		Dependencies: make([]TaskDependencyOutput, 0, len(dependencies)),
 	}
@@ -232,11 +239,12 @@ func taskShowFromStorage(task storage.Task, events []storage.TaskEvent, dependen
 	return out
 }
 
-func taskFromStorage(task storage.Task, agents []ActorOutput) TaskOutput {
+func taskFromStorage(task storage.Task, project storage.Project, agents []ActorOutput) TaskOutput {
 	agents = nonNilActors(agents)
 	return TaskOutput{
 		ID:                 task.ID,
 		ProjectID:          task.ProjectID,
+		Project:            taskProjectFromStorage(project),
 		Status:             task.Status,
 		Title:              task.Title,
 		Description:        task.Description,
@@ -245,6 +253,18 @@ func taskFromStorage(task storage.Task, agents []ActorOutput) TaskOutput {
 		Agents:             agents,
 		CreatedAt:          task.CreatedAt,
 		UpdatedAt:          task.UpdatedAt,
+	}
+}
+
+func taskProjectFromStorage(project storage.Project) TaskProject {
+	displayName := project.DisplayName
+	if displayName == "" {
+		displayName = project.Name
+	}
+	return TaskProject{
+		ID:          project.ID,
+		Name:        project.Name,
+		DisplayName: displayName,
 	}
 }
 

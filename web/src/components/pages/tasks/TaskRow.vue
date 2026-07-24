@@ -22,7 +22,10 @@ const updatedAt = computed(() => {
 });
 
 function openTask() {
-  router.push({ path: `/tasks/${props.task.id}`, query: { projectId: String(props.task.projectId) } });
+  router.push({
+    path: `/tasks/${props.task.id}`,
+    query: { projectId: String(props.task.projectId) },
+  });
 }
 </script>
 
@@ -35,7 +38,9 @@ function openTask() {
         {{ task.description || "No description" }}
       </div>
     </TableCell>
-    <TableCell class="text-muted-foreground">#{{ task.projectId }}</TableCell>
+    <TableCell class="max-w-40 truncate text-muted-foreground">
+      {{ task.project.displayName || `#${task.projectId}` }}
+    </TableCell>
     <TableCell>
       <span class="rounded-full border px-2 py-0.5 text-xs" :class="statusTone(task.status)">
         {{ statusLabel(task.status) }}

@@ -10,6 +10,11 @@ import type { Project } from "@/components/pages/projects";
 export type Task = {
   id: number;
   projectId: number;
+  project: {
+    id: number;
+    name: string;
+    displayName: string;
+  };
   title: string;
   description: string;
   acceptanceCriteria: string;
@@ -110,6 +115,11 @@ export function taskFromApi(task: TaskOutput): Task {
   return {
     id: task.id,
     projectId: task.project_id,
+    project: {
+      id: task.project.id,
+      name: task.project.name,
+      displayName: task.project.display_name,
+    },
     title: task.title,
     description: task.description,
     acceptanceCriteria: task.acceptance_criteria,

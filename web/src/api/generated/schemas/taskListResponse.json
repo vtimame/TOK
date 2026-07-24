@@ -24,6 +24,16 @@
           "description": { "type": "string" },
           "id": { "format": "int64", "type": "integer" },
           "notes": { "type": "string" },
+          "project": {
+            "properties": {
+              "display_name": { "type": "string" },
+              "id": { "format": "int64", "type": "integer" },
+              "name": { "type": "string" }
+            },
+            "required": ["display_name", "id", "name"],
+            "type": "object",
+            "x-readme-ref-name": "TaskProject"
+          },
           "project_id": { "format": "int64", "type": "integer" },
           "status": { "type": "string" },
           "title": { "type": "string" },
@@ -36,6 +46,7 @@
           "description",
           "id",
           "notes",
+          "project",
           "project_id",
           "status",
           "title",
