@@ -146,7 +146,7 @@ useTitle("Tasks");
             </ComboboxTrigger>
           </ComboboxAnchor>
           <ComboboxList class="w-48" align="start">
-            <ComboboxInput placeholder="Search project..." />
+            <ComboboxInput :display-value="() => ''" placeholder="Search project..." />
             <ComboboxEmpty>No projects found.</ComboboxEmpty>
             <ComboboxGroup>
               <ComboboxItem :value="allProjectsValue">
