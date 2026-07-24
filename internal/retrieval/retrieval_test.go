@@ -60,6 +60,9 @@ func TestIndexAndSearchFixtureProject(t *testing.T) {
 	if summary.SkippedFiles != 2 {
 		t.Fatalf("expected 2 skipped files, got %+v", summary)
 	}
+	if summary.SkippedReasons["env_file"] != 1 || summary.SkippedReasons["unsupported_extension"] != 1 {
+		t.Fatalf("unexpected skipped reasons: %+v", summary.SkippedReasons)
+	}
 
 	results, err := service.Search(ctx, project, "refresh token", 5)
 	if err != nil {
@@ -91,6 +94,72 @@ func TestIndexAndSearchFixtureProject(t *testing.T) {
 	}
 	if !foundAuth {
 		t.Fatalf("expected auth.go in results: %+v", results)
+	}
+}
+
+func TestIndexProjectHonorsGitignoreAndStoresStatus(t *testing.T) {
+	ctx := context.Background()
+	projectDir := t.TempDir()
+	writeFixtureFile(t, projectDir, ".gitignore", "*.log\nignored/\n/secrets.json\n")
+	writeFixtureFile(t, projectDir, "keep.go", "package keep\n\nfunc searchableToken() {}\n")
+	writeFixtureFile(t, projectDir, "debug.log", "searchableToken should be ignored\n")
+	writeFixtureFile(t, projectDir, "ignored/generated.go", "package ignored\nfunc searchableToken() {}\n")
+	writeFixtureFile(t, projectDir, "secrets.json", `{"token":"searchableToken"}`)
+
+	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), storage.DatabaseFileName))
+	if err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("Close returned error: %v", err)
+		}
+	})
+	if err := store.Init(ctx); err != nil {
+		t.Fatalf("Init returned error: %v", err)
+	}
+
+	project, err := store.CreateProject(ctx, storage.CreateProjectInput{
+		Name:        "fixture",
+		DisplayName: "Fixture",
+		Path:        projectDir,
+	})
+	if err != nil {
+		t.Fatalf("CreateProject returned error: %v", err)
+	}
+
+	service := NewService(store)
+	summary, err := service.IndexProject(ctx, project)
+	if err != nil {
+		t.Fatalf("IndexProject returned error: %v", err)
+	}
+	if summary.IndexedDocuments != 1 || summary.SkippedReasons["gitignore"] != 3 {
+		t.Fatalf("unexpected index summary: %+v", summary)
+	}
+	if summary.SkippedReasons["unsupported_extension"] != 1 {
+		t.Fatalf("expected .gitignore unsupported skip, got %+v", summary.SkippedReasons)
+	}
+	if summary.UpdatedAt == "" {
+		t.Fatalf("expected updated timestamp: %+v", summary)
+	}
+
+	status, err := service.IndexStatus(ctx, project)
+	if err != nil {
+		t.Fatalf("IndexStatus returned error: %v", err)
+	}
+	if status.IndexedDocuments != summary.IndexedDocuments || status.SkippedFiles != summary.SkippedFiles || status.UpdatedAt == "" {
+		t.Fatalf("unexpected index status: %+v", status)
+	}
+	if status.SkippedReasons["gitignore"] != 3 || status.SkippedReasons["unsupported_extension"] != 1 {
+		t.Fatalf("unexpected status skipped reasons: %+v", status.SkippedReasons)
+	}
+
+	results, err := service.Search(ctx, project, "searchable token", 10)
+	if err != nil {
+		t.Fatalf("Search returned error: %v", err)
+	}
+	if len(results) != 1 || results[0].Path != "keep.go" {
+		t.Fatalf("expected only keep.go in search results, got %+v", results)
 	}
 }
 

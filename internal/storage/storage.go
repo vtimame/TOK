@@ -69,6 +69,11 @@ type CreateTaskInput struct {
 	Description        string
 	AcceptanceCriteria string
 	Notes              string
+	Actor              ActorRef
+}
+
+type ListTasksOptions struct {
+	Status string
 }
 
 type TaskEvent struct {
@@ -78,6 +83,9 @@ type TaskEvent struct {
 	Body       string
 	FromStatus string
 	ToStatus   string
+	ActorID    int64
+	ActorKind  string
+	ActorName  string
 	CreatedAt  string
 }
 
@@ -100,6 +108,12 @@ type Run struct {
 	BaseBranch             string
 	BaseHead               string
 	ResultSummary          string
+	ActorID                int64
+	ActorKind              string
+	ActorName              string
+	FinishedActorID        int64
+	FinishedActorKind      string
+	FinishedActorName      string
 }
 
 type RunArtifact struct {
@@ -109,6 +123,9 @@ type RunArtifact struct {
 	Path        string
 	ContentHash string
 	Metadata    string
+	ActorID     int64
+	ActorKind   string
+	ActorName   string
 	CreatedAt   string
 }
 
@@ -119,12 +136,14 @@ type CreateRunInput struct {
 	RetrievalLimit         int
 	BaseBranch             string
 	BaseHead               string
+	Actor                  ActorRef
 }
 
 type FinishRunInput struct {
 	ID            int64
 	Status        string
 	ResultSummary string
+	Actor         ActorRef
 }
 
 type AddRunArtifactInput struct {
@@ -133,6 +152,7 @@ type AddRunArtifactInput struct {
 	Path        string
 	ContentHash string
 	Metadata    string
+	Actor       ActorRef
 }
 
 type ContextSource struct {
@@ -331,10 +351,11 @@ func (s *Store) CreateTask(ctx context.Context, input CreateTaskInput) (Task, er
 		return Task{}, fmt.Errorf("read created task id: %w", err)
 	}
 
+	actor := sanitizeActorRef(input.Actor)
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO task_events (task_id, type, body, to_status)
-		VALUES (?, 'created', ?, 'open')
-	`, id, input.Title); err != nil {
+		INSERT INTO task_events (task_id, type, body, to_status, actor_id, actor_kind, actor_name)
+		VALUES (?, 'created', ?, 'open', ?, ?, ?)
+	`, id, input.Title, actor.ID, actor.Kind, actor.Name); err != nil {
 		return Task{}, fmt.Errorf("record task create event: %w", err)
 	}
 
@@ -355,12 +376,31 @@ func (s *Store) GetTask(ctx context.Context, id int64) (Task, error) {
 }
 
 func (s *Store) ListTasks(ctx context.Context, projectID int64) ([]Task, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	return s.ListTasksWithOptions(ctx, projectID, ListTasksOptions{})
+}
+
+func (s *Store) ListTasksWithOptions(ctx context.Context, projectID int64, opts ListTasksOptions) ([]Task, error) {
+	status := strings.TrimSpace(opts.Status)
+	if status != "" && !validTaskStatus(status) {
+		return nil, fmt.Errorf("invalid task status %q", status)
+	}
+	if projectID <= 0 {
+		return nil, errors.New("task project id is required")
+	}
+
+	query := `
 		SELECT id, project_id, status, title, description, acceptance_criteria, notes, created_at, updated_at
 		FROM tasks
 		WHERE project_id = ?
-		ORDER BY id
-	`, projectID)
+	`
+	args := []any{projectID}
+	if status != "" {
+		query += " AND status = ?"
+		args = append(args, status)
+	}
+	query += " ORDER BY id"
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
 	}
@@ -382,6 +422,10 @@ func (s *Store) ListTasks(ctx context.Context, projectID int64) ([]Task, error) 
 }
 
 func (s *Store) UpdateTaskStatus(ctx context.Context, id int64, status string) (Task, error) {
+	return s.UpdateTaskStatusByActor(ctx, id, status, ActorRef{})
+}
+
+func (s *Store) UpdateTaskStatusByActor(ctx context.Context, id int64, status string, actor ActorRef) (Task, error) {
 	if !validTaskStatus(status) {
 		return Task{}, fmt.Errorf("invalid task status %q", status)
 	}
@@ -408,10 +452,11 @@ func (s *Store) UpdateTaskStatus(ctx context.Context, id int64, status string) (
 		return Task{}, fmt.Errorf("update task status: %w", err)
 	}
 
+	actor = sanitizeActorRef(actor)
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO task_events (task_id, type, from_status, to_status)
-		VALUES (?, 'status_changed', ?, ?)
-	`, id, current.Status, status); err != nil {
+		INSERT INTO task_events (task_id, type, from_status, to_status, actor_id, actor_kind, actor_name)
+		VALUES (?, 'status_changed', ?, ?, ?, ?, ?)
+	`, id, current.Status, status, actor.ID, actor.Kind, actor.Name); err != nil {
 		return Task{}, fmt.Errorf("record task status event: %w", err)
 	}
 
@@ -423,6 +468,10 @@ func (s *Store) UpdateTaskStatus(ctx context.Context, id int64, status string) (
 }
 
 func (s *Store) CompleteTask(ctx context.Context, id int64, note string) (Task, error) {
+	return s.CompleteTaskByActor(ctx, id, note, ActorRef{})
+}
+
+func (s *Store) CompleteTaskByActor(ctx context.Context, id int64, note string, actor ActorRef) (Task, error) {
 	note = strings.TrimSpace(note)
 	if id <= 0 {
 		return Task{}, errors.New("task id is required")
@@ -461,10 +510,11 @@ func (s *Store) CompleteTask(ctx context.Context, id int64, note string) (Task, 
 		return Task{}, ErrInvalidTaskTransition
 	}
 
+	actor = sanitizeActorRef(actor)
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO task_events (task_id, type, body, from_status, to_status)
-		VALUES (?, 'completed', ?, 'in_progress', 'done')
-	`, id, note); err != nil {
+		INSERT INTO task_events (task_id, type, body, from_status, to_status, actor_id, actor_kind, actor_name)
+		VALUES (?, 'completed', ?, 'in_progress', 'done', ?, ?, ?)
+	`, id, note, actor.ID, actor.Kind, actor.Name); err != nil {
 		return Task{}, fmt.Errorf("record task completion event: %w", err)
 	}
 
@@ -476,14 +526,26 @@ func (s *Store) CompleteTask(ctx context.Context, id int64, note string) (Task, 
 }
 
 func (s *Store) AddTaskProgress(ctx context.Context, taskID int64, body string) (TaskEvent, error) {
-	return s.addTaskNoteEvent(ctx, taskID, "progress", body)
+	return s.AddTaskProgressByActor(ctx, taskID, body, ActorRef{})
+}
+
+func (s *Store) AddTaskProgressByActor(ctx context.Context, taskID int64, body string, actor ActorRef) (TaskEvent, error) {
+	return s.addTaskNoteEvent(ctx, taskID, "progress", body, actor)
 }
 
 func (s *Store) BlockTask(ctx context.Context, id int64, reason string) (Task, error) {
-	return s.transitionTaskWithNote(ctx, id, "blocked", "blocked", reason)
+	return s.BlockTaskByActor(ctx, id, reason, ActorRef{})
+}
+
+func (s *Store) BlockTaskByActor(ctx context.Context, id int64, reason string, actor ActorRef) (Task, error) {
+	return s.transitionTaskWithNote(ctx, id, "blocked", "blocked", reason, actor)
 }
 
 func (s *Store) UnblockTask(ctx context.Context, id int64, note string) (Task, error) {
+	return s.UnblockTaskByActor(ctx, id, note, ActorRef{})
+}
+
+func (s *Store) UnblockTaskByActor(ctx context.Context, id int64, note string, actor ActorRef) (Task, error) {
 	note = strings.TrimSpace(note)
 	if id <= 0 {
 		return Task{}, errors.New("task id is required")
@@ -500,12 +562,12 @@ func (s *Store) UnblockTask(ctx context.Context, id int64, note string) (Task, e
 		return Task{}, ErrInvalidTaskTransition
 	}
 
-	return s.transitionTaskWithNote(ctx, id, "open", "unblocked", note)
+	return s.transitionTaskWithNote(ctx, id, "open", "unblocked", note, actor)
 }
 
 func (s *Store) ListTaskEvents(ctx context.Context, taskID int64) ([]TaskEvent, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, task_id, type, body, from_status, to_status, created_at
+		SELECT id, task_id, type, body, from_status, to_status, actor_id, actor_kind, actor_name, created_at
 		FROM task_events
 		WHERE task_id = ?
 		ORDER BY id
@@ -518,7 +580,7 @@ func (s *Store) ListTaskEvents(ctx context.Context, taskID int64) ([]TaskEvent, 
 	var events []TaskEvent
 	for rows.Next() {
 		var event TaskEvent
-		if err := rows.Scan(&event.ID, &event.TaskID, &event.Type, &event.Body, &event.FromStatus, &event.ToStatus, &event.CreatedAt); err != nil {
+		if err := rows.Scan(&event.ID, &event.TaskID, &event.Type, &event.Body, &event.FromStatus, &event.ToStatus, &event.ActorID, &event.ActorKind, &event.ActorName, &event.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan task event: %w", err)
 		}
 		events = append(events, event)
@@ -659,10 +721,11 @@ func (s *Store) CreateRun(ctx context.Context, input CreateRunInput) (Run, error
 		input.RetrievalLimit = 5
 	}
 
+	actor := sanitizeActorRef(input.Actor)
 	res, err := s.db.ExecContext(ctx, `
-		INSERT INTO runs (task_id, status, handoff_contract_version, retrieval_limit, base_branch, base_head)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`, input.TaskID, status, input.HandoffContractVersion, input.RetrievalLimit, input.BaseBranch, input.BaseHead)
+		INSERT INTO runs (task_id, status, handoff_contract_version, retrieval_limit, base_branch, base_head, actor_id, actor_kind, actor_name)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, input.TaskID, status, input.HandoffContractVersion, input.RetrievalLimit, input.BaseBranch, input.BaseHead, actor.ID, actor.Kind, actor.Name)
 	if err != nil {
 		return Run{}, fmt.Errorf("create run: %w", err)
 	}
@@ -677,7 +740,7 @@ func (s *Store) CreateRun(ctx context.Context, input CreateRunInput) (Run, error
 
 func (s *Store) GetRun(ctx context.Context, id int64) (Run, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, task_id, status, handoff_contract_version, retrieval_limit, started_at, finished_at, base_branch, base_head, result_summary
+		SELECT id, task_id, status, handoff_contract_version, retrieval_limit, started_at, finished_at, base_branch, base_head, result_summary, actor_id, actor_kind, actor_name, finished_actor_id, finished_actor_kind, finished_actor_name
 		FROM runs
 		WHERE id = ?
 	`, id)
@@ -705,14 +768,18 @@ func (s *Store) FinishRun(ctx context.Context, input FinishRunInput) (Run, error
 		return Run{}, ErrInvalidRunTransition
 	}
 
+	actor := sanitizeActorRef(input.Actor)
 	res, err := s.db.ExecContext(ctx, `
 		UPDATE runs
 		SET status = ?,
 			finished_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
-			result_summary = ?
+			result_summary = ?,
+			finished_actor_id = ?,
+			finished_actor_kind = ?,
+			finished_actor_name = ?
 		WHERE id = ?
 		  AND status IN ('created', 'in_progress')
-	`, input.Status, input.ResultSummary, input.ID)
+	`, input.Status, input.ResultSummary, actor.ID, actor.Kind, actor.Name, input.ID)
 	if err != nil {
 		return Run{}, fmt.Errorf("finish run: %w", err)
 	}
@@ -745,10 +812,11 @@ func (s *Store) AddRunArtifact(ctx context.Context, input AddRunArtifactInput) (
 		input.Metadata = "{}"
 	}
 
+	actor := sanitizeActorRef(input.Actor)
 	res, err := s.db.ExecContext(ctx, `
-		INSERT INTO run_artifacts (run_id, kind, path, content_hash, metadata)
-		VALUES (?, ?, ?, ?, ?)
-	`, input.RunID, input.Kind, input.Path, input.ContentHash, input.Metadata)
+		INSERT INTO run_artifacts (run_id, kind, path, content_hash, metadata, actor_id, actor_kind, actor_name)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, input.RunID, input.Kind, input.Path, input.ContentHash, input.Metadata, actor.ID, actor.Kind, actor.Name)
 	if err != nil {
 		return RunArtifact{}, fmt.Errorf("add run artifact: %w", err)
 	}
@@ -763,7 +831,7 @@ func (s *Store) AddRunArtifact(ctx context.Context, input AddRunArtifactInput) (
 
 func (s *Store) GetRunArtifact(ctx context.Context, id int64) (RunArtifact, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, run_id, kind, path, content_hash, metadata, created_at
+		SELECT id, run_id, kind, path, content_hash, metadata, actor_id, actor_kind, actor_name, created_at
 		FROM run_artifacts
 		WHERE id = ?
 	`, id)
@@ -776,7 +844,7 @@ func (s *Store) ListRunArtifacts(ctx context.Context, runID int64) ([]RunArtifac
 	}
 
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, run_id, kind, path, content_hash, metadata, created_at
+		SELECT id, run_id, kind, path, content_hash, metadata, actor_id, actor_kind, actor_name, created_at
 		FROM run_artifacts
 		WHERE run_id = ?
 		ORDER BY id
@@ -838,6 +906,10 @@ func (s *Store) ListReadyTasks(ctx context.Context, projectID int64) ([]Task, er
 }
 
 func (s *Store) ClaimNextReadyTask(ctx context.Context, projectID int64) (Task, error) {
+	return s.ClaimNextReadyTaskByActor(ctx, projectID, ActorRef{})
+}
+
+func (s *Store) ClaimNextReadyTaskByActor(ctx context.Context, projectID int64, actor ActorRef) (Task, error) {
 	if projectID <= 0 {
 		return Task{}, errors.New("claim project id is required")
 	}
@@ -872,7 +944,7 @@ func (s *Store) ClaimNextReadyTask(ctx context.Context, projectID int64) (Task, 
 		return Task{}, fmt.Errorf("select next ready task: %w", err)
 	}
 
-	task, err := claimTaskInTx(ctx, tx, projectID, taskID)
+	task, err := claimTaskInTx(ctx, tx, projectID, taskID, actor)
 	if err != nil {
 		return Task{}, err
 	}
@@ -884,6 +956,10 @@ func (s *Store) ClaimNextReadyTask(ctx context.Context, projectID int64) (Task, 
 }
 
 func (s *Store) ClaimTask(ctx context.Context, projectID, taskID int64) (Task, error) {
+	return s.ClaimTaskByActor(ctx, projectID, taskID, ActorRef{})
+}
+
+func (s *Store) ClaimTaskByActor(ctx context.Context, projectID, taskID int64, actor ActorRef) (Task, error) {
 	if projectID <= 0 {
 		return Task{}, errors.New("claim project id is required")
 	}
@@ -897,7 +973,7 @@ func (s *Store) ClaimTask(ctx context.Context, projectID, taskID int64) (Task, e
 	}
 	defer rollback(tx)
 
-	task, err := claimTaskInTx(ctx, tx, projectID, taskID)
+	task, err := claimTaskInTx(ctx, tx, projectID, taskID, actor)
 	if err != nil {
 		return Task{}, err
 	}
@@ -909,10 +985,14 @@ func (s *Store) ClaimTask(ctx context.Context, projectID, taskID int64) (Task, e
 }
 
 func (s *Store) AddTaskComment(ctx context.Context, taskID int64, body string) (TaskEvent, error) {
-	return s.addTaskNoteEvent(ctx, taskID, "commented", body)
+	return s.AddTaskCommentByActor(ctx, taskID, body, ActorRef{})
 }
 
-func (s *Store) addTaskNoteEvent(ctx context.Context, taskID int64, eventType, body string) (TaskEvent, error) {
+func (s *Store) AddTaskCommentByActor(ctx context.Context, taskID int64, body string, actor ActorRef) (TaskEvent, error) {
+	return s.addTaskNoteEvent(ctx, taskID, "commented", body, actor)
+}
+
+func (s *Store) addTaskNoteEvent(ctx context.Context, taskID int64, eventType, body string, actor ActorRef) (TaskEvent, error) {
 	if taskID <= 0 {
 		return TaskEvent{}, errors.New("task id is required")
 	}
@@ -925,10 +1005,11 @@ func (s *Store) addTaskNoteEvent(ctx context.Context, taskID int64, eventType, b
 		return TaskEvent{}, err
 	}
 
+	actor = sanitizeActorRef(actor)
 	res, err := s.db.ExecContext(ctx, `
-		INSERT INTO task_events (task_id, type, body)
-		VALUES (?, ?, ?)
-	`, taskID, eventType, body)
+		INSERT INTO task_events (task_id, type, body, actor_id, actor_kind, actor_name)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, taskID, eventType, body, actor.ID, actor.Kind, actor.Name)
 	if err != nil {
 		return TaskEvent{}, fmt.Errorf("record task %s event: %w", eventType, err)
 	}
@@ -941,7 +1022,7 @@ func (s *Store) addTaskNoteEvent(ctx context.Context, taskID int64, eventType, b
 	return s.GetTaskEvent(ctx, id)
 }
 
-func (s *Store) transitionTaskWithNote(ctx context.Context, id int64, status, eventType, body string) (Task, error) {
+func (s *Store) transitionTaskWithNote(ctx context.Context, id int64, status, eventType, body string, actor ActorRef) (Task, error) {
 	body = strings.TrimSpace(body)
 	if id <= 0 {
 		return Task{}, errors.New("task id is required")
@@ -972,10 +1053,11 @@ func (s *Store) transitionTaskWithNote(ctx context.Context, id int64, status, ev
 		return Task{}, fmt.Errorf("update task %s status: %w", eventType, err)
 	}
 
+	actor = sanitizeActorRef(actor)
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO task_events (task_id, type, body, from_status, to_status)
-		VALUES (?, ?, ?, ?, ?)
-	`, id, eventType, body, current.Status, status); err != nil {
+		INSERT INTO task_events (task_id, type, body, from_status, to_status, actor_id, actor_kind, actor_name)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, id, eventType, body, current.Status, status, actor.ID, actor.Kind, actor.Name); err != nil {
 		return Task{}, fmt.Errorf("record task %s event: %w", eventType, err)
 	}
 
@@ -986,7 +1068,7 @@ func (s *Store) transitionTaskWithNote(ctx context.Context, id int64, status, ev
 	return s.GetTask(ctx, id)
 }
 
-func claimTaskInTx(ctx context.Context, tx *sql.Tx, projectID, taskID int64) (Task, error) {
+func claimTaskInTx(ctx context.Context, tx *sql.Tx, projectID, taskID int64, actor ActorRef) (Task, error) {
 	current, err := getTaskInTx(ctx, tx, taskID)
 	if err != nil {
 		return Task{}, err
@@ -1039,10 +1121,11 @@ func claimTaskInTx(ctx context.Context, tx *sql.Tx, projectID, taskID int64) (Ta
 		return Task{}, ErrTaskNotReady
 	}
 
+	actor = sanitizeActorRef(actor)
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO task_events (task_id, type, from_status, to_status)
-		VALUES (?, 'claimed', 'open', 'in_progress')
-	`, taskID); err != nil {
+		INSERT INTO task_events (task_id, type, from_status, to_status, actor_id, actor_kind, actor_name)
+		VALUES (?, 'claimed', 'open', 'in_progress', ?, ?, ?)
+	`, taskID, actor.ID, actor.Kind, actor.Name); err != nil {
 		return Task{}, fmt.Errorf("record task claim event: %w", err)
 	}
 
@@ -1060,13 +1143,13 @@ func getTaskInTx(ctx context.Context, tx *sql.Tx, id int64) (Task, error) {
 
 func (s *Store) GetTaskEvent(ctx context.Context, id int64) (TaskEvent, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, task_id, type, body, from_status, to_status, created_at
+		SELECT id, task_id, type, body, from_status, to_status, actor_id, actor_kind, actor_name, created_at
 		FROM task_events
 		WHERE id = ?
 	`, id)
 
 	var event TaskEvent
-	if err := row.Scan(&event.ID, &event.TaskID, &event.Type, &event.Body, &event.FromStatus, &event.ToStatus, &event.CreatedAt); err != nil {
+	if err := row.Scan(&event.ID, &event.TaskID, &event.Type, &event.Body, &event.FromStatus, &event.ToStatus, &event.ActorID, &event.ActorKind, &event.ActorName, &event.CreatedAt); err != nil {
 		return TaskEvent{}, err
 	}
 	return event, nil
@@ -1113,6 +1196,33 @@ func (s *Store) UpsertIndexMetadata(ctx context.Context, projectID int64, source
 		return IndexMetadata{}, errors.New("index metadata key is required")
 	}
 
+	if !sourceID.Valid {
+		var id int64
+		err := s.db.QueryRowContext(ctx, `
+			SELECT id
+			FROM index_metadata
+			WHERE project_id = ? AND source_id IS NULL AND key = ?
+		`, projectID, key).Scan(&id)
+		if err == nil {
+			if _, err := s.db.ExecContext(ctx, `
+				UPDATE index_metadata
+				SET value = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+				WHERE id = ?
+			`, value, id); err != nil {
+				return IndexMetadata{}, fmt.Errorf("update index metadata: %w", err)
+			}
+			row := s.db.QueryRowContext(ctx, `
+				SELECT id, project_id, source_id, key, value, updated_at
+				FROM index_metadata
+				WHERE id = ?
+			`, id)
+			return scanIndexMetadata(row)
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return IndexMetadata{}, fmt.Errorf("find index metadata: %w", err)
+		}
+	}
+
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO index_metadata (project_id, source_id, key, value)
 		VALUES (?, ?, ?, ?)
@@ -1130,6 +1240,37 @@ func (s *Store) UpsertIndexMetadata(ctx context.Context, projectID int64, source
 		WHERE project_id = ? AND source_id IS ? AND key = ?
 	`, projectID, sourceID, key)
 	return scanIndexMetadata(row)
+}
+
+func (s *Store) ListProjectIndexMetadata(ctx context.Context, projectID int64) ([]IndexMetadata, error) {
+	if projectID <= 0 {
+		return nil, errors.New("index metadata project id is required")
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, project_id, source_id, key, value, updated_at
+		FROM index_metadata
+		WHERE project_id = ? AND source_id IS NULL
+		ORDER BY key
+	`, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("list project index metadata: %w", err)
+	}
+	defer rows.Close()
+
+	var metadata []IndexMetadata
+	for rows.Next() {
+		item, err := scanIndexMetadata(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan project index metadata: %w", err)
+		}
+		metadata = append(metadata, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate project index metadata: %w", err)
+	}
+
+	return metadata, nil
 }
 
 func (s *Store) ReplaceIndexedDocuments(ctx context.Context, projectID int64, docs []IndexedDocumentInput) (int, error) {
@@ -1359,6 +1500,12 @@ func scanRun(row scanner) (Run, error) {
 		&run.BaseBranch,
 		&run.BaseHead,
 		&run.ResultSummary,
+		&run.ActorID,
+		&run.ActorKind,
+		&run.ActorName,
+		&run.FinishedActorID,
+		&run.FinishedActorKind,
+		&run.FinishedActorName,
 	); err != nil {
 		return Run{}, err
 	}
@@ -1374,6 +1521,9 @@ func scanRunArtifact(row scanner) (RunArtifact, error) {
 		&artifact.Path,
 		&artifact.ContentHash,
 		&artifact.Metadata,
+		&artifact.ActorID,
+		&artifact.ActorKind,
+		&artifact.ActorName,
 		&artifact.CreatedAt,
 	); err != nil {
 		return RunArtifact{}, err
@@ -1460,6 +1610,24 @@ func validateTaskDependency(edgeType string, blockerTaskID, blockedTaskID int64)
 		return errors.New("task cannot block itself")
 	}
 	return nil
+}
+
+func sanitizeActorRef(actor ActorRef) ActorRef {
+	actor.Kind = strings.TrimSpace(actor.Kind)
+	actor.Name = strings.TrimSpace(actor.Name)
+	if actor.ID <= 0 || actor.Kind == "" || actor.Name == "" || !validActorKind(actor.Kind) {
+		return ActorRef{}
+	}
+	return actor
+}
+
+func validActorKind(kind string) bool {
+	switch kind {
+	case "human", "agent", "system":
+		return true
+	default:
+		return false
+	}
 }
 
 func sqliteDSN(path string) string {

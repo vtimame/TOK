@@ -63,6 +63,28 @@ func TestCLITaskCreateListShowStatusAndComment(t *testing.T) {
 		}
 	}
 
+	var listJSONOut bytes.Buffer
+	listJSONCLI := newProjectTestCLI(dataDir, &listJSONOut)
+	if err := listJSONCLI.Run(ctx, []string{"task", "list", "--project", "tok", "--json"}); err != nil {
+		t.Fatalf("task list --json returned error: %v", err)
+	}
+	var listedTasks []readyTaskOutput
+	if err := json.Unmarshal(listJSONOut.Bytes(), &listedTasks); err != nil {
+		t.Fatalf("parse task list JSON: %v\n%s", err, listJSONOut.String())
+	}
+	if len(listedTasks) != 1 ||
+		listedTasks[0].ID != taskID ||
+		listedTasks[0].ProjectID == 0 ||
+		listedTasks[0].Status != "open" ||
+		listedTasks[0].Title != "Implement task store" ||
+		listedTasks[0].Description != "Create issue-like task CLI." ||
+		listedTasks[0].AcceptanceCriteria != "- create\n- list\n- show\n- status" ||
+		listedTasks[0].Notes != "Keep it local." ||
+		listedTasks[0].CreatedAt == "" ||
+		listedTasks[0].UpdatedAt == "" {
+		t.Fatalf("unexpected task list JSON: %+v", listedTasks)
+	}
+
 	var statusOut bytes.Buffer
 	statusCLI := newProjectTestCLI(dataDir, &statusOut)
 	if err := statusCLI.Run(ctx, []string{"task", "status", strconv.FormatInt(taskID, 10), "blocked"}); err != nil {
@@ -70,6 +92,32 @@ func TestCLITaskCreateListShowStatusAndComment(t *testing.T) {
 	}
 	if !strings.Contains(statusOut.String(), "status: blocked") {
 		t.Fatalf("unexpected task status output:\n%s", statusOut.String())
+	}
+
+	var blockedListJSONOut bytes.Buffer
+	blockedListJSONCLI := newProjectTestCLI(dataDir, &blockedListJSONOut)
+	if err := blockedListJSONCLI.Run(ctx, []string{"task", "list", "--project", "tok", "--status", "blocked", "--json"}); err != nil {
+		t.Fatalf("task list --status blocked --json returned error: %v", err)
+	}
+	var blockedTasks []readyTaskOutput
+	if err := json.Unmarshal(blockedListJSONOut.Bytes(), &blockedTasks); err != nil {
+		t.Fatalf("parse blocked task list JSON: %v\n%s", err, blockedListJSONOut.String())
+	}
+	if len(blockedTasks) != 1 || blockedTasks[0].ID != taskID || blockedTasks[0].Status != "blocked" {
+		t.Fatalf("unexpected blocked task list JSON: %+v", blockedTasks)
+	}
+
+	var openListJSONOut bytes.Buffer
+	openListJSONCLI := newProjectTestCLI(dataDir, &openListJSONOut)
+	if err := openListJSONCLI.Run(ctx, []string{"task", "list", "--project", "tok", "--status=open", "--json"}); err != nil {
+		t.Fatalf("task list --status open --json returned error: %v", err)
+	}
+	var openTasks []readyTaskOutput
+	if err := json.Unmarshal(openListJSONOut.Bytes(), &openTasks); err != nil {
+		t.Fatalf("parse open task list JSON: %v\n%s", err, openListJSONOut.String())
+	}
+	if len(openTasks) != 0 {
+		t.Fatalf("expected no open tasks after status change, got %+v", openTasks)
 	}
 
 	var commentOut bytes.Buffer

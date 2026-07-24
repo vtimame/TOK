@@ -16,8 +16,8 @@ This repository contains the TOK product source code.
 ## Manual Core Workflow
 
 TOK's current core workflow is intentionally CLI-first. It does not start a
-runner, daemon, MCP server or UI process. A human operator or external agent can
-drive the loop explicitly:
+runner, daemon or UI process automatically. A human operator or external agent
+can drive the loop explicitly:
 
 ```bash
 tok init
@@ -34,6 +34,7 @@ tok task claim --project tok --json
 tok run start --task <task-id> --limit 5 --handoff-output handoff.md --json
 
 tok index update --project tok
+tok index status --project tok --json
 tok context build \
   --project tok \
   --task <task-id> \
@@ -48,6 +49,8 @@ tok task block <task-id> --reason "Waiting for a decision."
 tok task unblock <task-id> --note "Decision recorded."
 tok task done <task-id> --note "Implemented and tests pass."
 tok task show <task-id> --json
+
+TOK_AGENT_TOKEN="tok_agent_..." tok mcp serve
 ```
 
 The core invariants are:
@@ -56,6 +59,9 @@ The core invariants are:
 - `claim` atomically moves ready work from `open` to `in_progress`.
 - `context build` produces a reproducible handoff package from task state,
   project metadata, lexical retrieval results and git repository state.
+- `index update` respects the built-in skip list plus basic `.gitignore` rules;
+  `index status --json` reports indexed document count and aggregated skip
+  reasons for UI and agent use.
 - Handoff packages expose `tok.handoff.v0`, dependencies/blockers, suggested
   commands and V1 text sections for agent use.
 - `run start` records an agent run attempt with the handoff contract version,
@@ -68,3 +74,5 @@ The core invariants are:
   excluded from `ready` and cannot be claimed.
 - `done` records a completion event and moves an `in_progress` task to `done`.
 - JSON output is available for machine-driven workflow steps.
+- `mcp serve` exposes project, task, index and search tools over the official
+  MCP Go SDK stdio transport and requires an agent token.

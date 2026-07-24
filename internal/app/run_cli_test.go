@@ -149,6 +149,16 @@ func assertHandoffArtifactOutput(t *testing.T, artifacts []runArtifactOutput, ru
 	}
 }
 
+func sameRunArtifactOutput(a, b runArtifactOutput) bool {
+	if a.ID != b.ID || a.RunID != b.RunID || a.Kind != b.Kind || a.Path != b.Path || a.ContentHash != b.ContentHash || a.Metadata != b.Metadata || a.CreatedAt != b.CreatedAt {
+		return false
+	}
+	if a.Actor == nil || b.Actor == nil {
+		return a.Actor == nil && b.Actor == nil
+	}
+	return *a.Actor == *b.Actor
+}
+
 func TestCLIRunStartPrintsTextOutput(t *testing.T) {
 	ctx := context.Background()
 	dataDir := t.TempDir()
@@ -242,7 +252,7 @@ func TestCLIRunRecordValidationArtifact(t *testing.T) {
 	if err := json.Unmarshal(showOut.Bytes(), &shown); err != nil {
 		t.Fatalf("parse run show JSON: %v\n%s", err, showOut.String())
 	}
-	if len(shown.Artifacts) != 1 || shown.Artifacts[0] != artifact {
+	if len(shown.Artifacts) != 1 || !sameRunArtifactOutput(shown.Artifacts[0], artifact) {
 		t.Fatalf("run show did not include validation artifact: %+v", shown.Artifacts)
 	}
 

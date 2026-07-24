@@ -89,6 +89,14 @@ func (c *CLI) Run(ctx context.Context, args []string) error {
 		return c.runProject(ctx, opts)
 	case "task":
 		return c.runTask(ctx, opts)
+	case "user":
+		return c.runUser(ctx, opts)
+	case "agent":
+		return c.runAgent(ctx, opts)
+	case "mcp":
+		return c.runMCP(ctx, opts)
+	case "ui":
+		return c.runUI(ctx, opts)
 	case "index":
 		return c.runIndex(ctx, opts)
 	case "search":
@@ -249,6 +257,9 @@ Commands:
   config    Inspect runtime configuration
   project   Register and inspect local projects
   task      Create and update project tasks
+  user      Inspect and set the local user profile
+  agent     Manage local agent identities and tokens
+  ui        Serve the local UI API
   index     Update local retrieval indexes
   search    Search indexed project files
   context   Build compact task context packages

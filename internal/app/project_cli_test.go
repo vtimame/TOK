@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -68,6 +69,46 @@ func TestCLIProjectAddListShow(t *testing.T) {
 		if !strings.Contains(showOutput, want) {
 			t.Fatalf("project show output missing %q:\n%s", want, showOutput)
 		}
+	}
+
+	var addJSONOut bytes.Buffer
+	addJSONCLI := newProjectTestCLI(t.TempDir(), &addJSONOut)
+	jsonProjectDir := t.TempDir()
+	if err := addJSONCLI.Run(ctx, []string{"project", "add", jsonProjectDir, "--name", "json-tok", "--display-name", "JSON TOK", "--json"}); err != nil {
+		t.Fatalf("project add --json returned error: %v", err)
+	}
+	var added projectOutput
+	if err := json.Unmarshal(addJSONOut.Bytes(), &added); err != nil {
+		t.Fatalf("parse project add JSON: %v\n%s", err, addJSONOut.String())
+	}
+	if added.ID == 0 || added.Name != "json-tok" || added.DisplayName != "JSON TOK" || added.Path != jsonProjectDir || added.CreatedAt == "" || added.UpdatedAt == "" {
+		t.Fatalf("unexpected project add JSON: %+v", added)
+	}
+
+	var listJSONOut bytes.Buffer
+	listJSONCLI := newProjectTestCLI(dataDir, &listJSONOut)
+	if err := listJSONCLI.Run(ctx, []string{"project", "list", "--json"}); err != nil {
+		t.Fatalf("project list --json returned error: %v", err)
+	}
+	var listed []projectOutput
+	if err := json.Unmarshal(listJSONOut.Bytes(), &listed); err != nil {
+		t.Fatalf("parse project list JSON: %v\n%s", err, listJSONOut.String())
+	}
+	if len(listed) != 1 || listed[0].Name != "tok" || listed[0].DisplayName != "TOK" || listed[0].Path != projectDir {
+		t.Fatalf("unexpected project list JSON: %+v", listed)
+	}
+
+	var showJSONOut bytes.Buffer
+	showJSONCLI := newProjectTestCLI(dataDir, &showJSONOut)
+	if err := showJSONCLI.Run(ctx, []string{"project", "show", "tok", "--json"}); err != nil {
+		t.Fatalf("project show --json returned error: %v", err)
+	}
+	var shown projectOutput
+	if err := json.Unmarshal(showJSONOut.Bytes(), &shown); err != nil {
+		t.Fatalf("parse project show JSON: %v\n%s", err, showJSONOut.String())
+	}
+	if shown.ID == 0 || shown.Name != "tok" || shown.DisplayName != "TOK" || shown.Path != projectDir || shown.CreatedAt == "" || shown.UpdatedAt == "" {
+		t.Fatalf("unexpected project show JSON: %+v", shown)
 	}
 }
 

@@ -218,7 +218,7 @@ func TestCLICoreWorkflowEndToEnd(t *testing.T) {
 		t.Fatalf("expected handoff and validation artifacts on finished run, got %+v", finishedRun.Artifacts)
 	}
 	assertHandoffArtifactOutput(t, finishedRun.Artifacts[:1], startedRun.ID, handoffPath, handoffHash)
-	if finishedRun.Artifacts[1] != validationArtifact {
+	if !sameRunArtifactOutput(finishedRun.Artifacts[1], validationArtifact) {
 		t.Fatalf("finished run validation artifact mismatch: %+v", finishedRun.Artifacts[1])
 	}
 

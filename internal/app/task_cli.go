@@ -71,6 +71,12 @@ type taskCreateOptions struct {
 	notes              string
 }
 
+type taskListOptions struct {
+	projectName string
+	status      string
+	json        bool
+}
+
 func (c *CLI) runTaskCreate(ctx context.Context, store *storage.Store, args []string) error {
 	createOpts, err := parseTaskCreateOptions(args)
 	if err != nil {
@@ -82,12 +88,18 @@ func (c *CLI) runTaskCreate(ctx context.Context, store *storage.Store, args []st
 		return err
 	}
 
+	actor, err := currentLocalHumanActor(ctx, store)
+	if err != nil {
+		return err
+	}
+
 	task, err := store.CreateTask(ctx, storage.CreateTaskInput{
 		ProjectID:          project.ID,
 		Title:              createOpts.title,
 		Description:        createOpts.description,
 		AcceptanceCriteria: createOpts.acceptanceCriteria,
 		Notes:              createOpts.notes,
+		Actor:              actor,
 	})
 	if err != nil {
 		return err
@@ -98,20 +110,27 @@ func (c *CLI) runTaskCreate(ctx context.Context, store *storage.Store, args []st
 }
 
 func (c *CLI) runTaskList(ctx context.Context, store *storage.Store, args []string) error {
-	projectName, err := parseRequiredProjectOption(args, "task list")
+	listOpts, err := parseTaskListOptions(args)
 	if err != nil {
 		return err
 	}
 
-	project, err := getProjectForTask(ctx, store, projectName)
+	project, err := getProjectForTask(ctx, store, listOpts.projectName)
 	if err != nil {
 		return err
 	}
 
-	tasks, err := store.ListTasks(ctx, project.ID)
+	tasks, err := store.ListTasksWithOptions(ctx, project.ID, storage.ListTasksOptions{
+		Status: listOpts.status,
+	})
 	if err != nil {
 		return err
 	}
+
+	if listOpts.json {
+		return printTasksJSON(c.out, tasks)
+	}
+
 	if len(tasks) == 0 {
 		fmt.Fprintln(c.out, "no tasks")
 		return nil
@@ -162,7 +181,12 @@ func (c *CLI) runTaskStatus(ctx context.Context, store *storage.Store, args []st
 		return err
 	}
 
-	task, err := store.UpdateTaskStatus(ctx, taskID, args[1])
+	actor, err := currentLocalHumanActor(ctx, store)
+	if err != nil {
+		return err
+	}
+
+	task, err := store.UpdateTaskStatusByActor(ctx, taskID, args[1], actor)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("task not found: %d", taskID)
@@ -190,7 +214,12 @@ func (c *CLI) runTaskDone(ctx context.Context, store *storage.Store, args []stri
 		return err
 	}
 
-	task, err := store.CompleteTask(ctx, doneOpts.taskID, doneOpts.note)
+	actor, err := currentLocalHumanActor(ctx, store)
+	if err != nil {
+		return err
+	}
+
+	task, err := store.CompleteTaskByActor(ctx, doneOpts.taskID, doneOpts.note, actor)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("task not found: %d", doneOpts.taskID)
@@ -216,7 +245,12 @@ func (c *CLI) runTaskComment(ctx context.Context, store *storage.Store, args []s
 		return err
 	}
 
-	event, err := store.AddTaskComment(ctx, commentOpts.taskID, commentOpts.body)
+	actor, err := currentLocalHumanActor(ctx, store)
+	if err != nil {
+		return err
+	}
+
+	event, err := store.AddTaskCommentByActor(ctx, commentOpts.taskID, commentOpts.body, actor)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("task not found: %d", commentOpts.taskID)
@@ -234,7 +268,12 @@ func (c *CLI) runTaskProgress(ctx context.Context, store *storage.Store, args []
 		return err
 	}
 
-	event, err := store.AddTaskProgress(ctx, progressOpts.taskID, progressOpts.body)
+	actor, err := currentLocalHumanActor(ctx, store)
+	if err != nil {
+		return err
+	}
+
+	event, err := store.AddTaskProgressByActor(ctx, progressOpts.taskID, progressOpts.body, actor)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("task not found: %d", progressOpts.taskID)
@@ -252,7 +291,12 @@ func (c *CLI) runTaskBlock(ctx context.Context, store *storage.Store, args []str
 		return err
 	}
 
-	task, err := store.BlockTask(ctx, blockOpts.taskID, blockOpts.body)
+	actor, err := currentLocalHumanActor(ctx, store)
+	if err != nil {
+		return err
+	}
+
+	task, err := store.BlockTaskByActor(ctx, blockOpts.taskID, blockOpts.body, actor)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("task not found: %d", blockOpts.taskID)
@@ -273,7 +317,12 @@ func (c *CLI) runTaskUnblock(ctx context.Context, store *storage.Store, args []s
 		return err
 	}
 
-	task, err := store.UnblockTask(ctx, unblockOpts.taskID, unblockOpts.body)
+	actor, err := currentLocalHumanActor(ctx, store)
+	if err != nil {
+		return err
+	}
+
+	task, err := store.UnblockTaskByActor(ctx, unblockOpts.taskID, unblockOpts.body, actor)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("task not found: %d", unblockOpts.taskID)
@@ -375,10 +424,14 @@ func (c *CLI) runTaskClaim(ctx context.Context, store *storage.Store, args []str
 	}
 
 	var task storage.Task
+	actor, err := currentLocalHumanActor(ctx, store)
+	if err != nil {
+		return err
+	}
 	if claimOpts.taskID > 0 {
-		task, err = store.ClaimTask(ctx, project.ID, claimOpts.taskID)
+		task, err = store.ClaimTaskByActor(ctx, project.ID, claimOpts.taskID, actor)
 	} else {
-		task, err = store.ClaimNextReadyTask(ctx, project.ID)
+		task, err = store.ClaimNextReadyTaskByActor(ctx, project.ID, actor)
 	}
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -465,6 +518,53 @@ func parseTaskCreateOptions(args []string) (taskCreateOptions, error) {
 	}
 	if opts.title == "" {
 		return taskCreateOptions{}, &UsageError{Message: "task create requires --title", Code: 2}
+	}
+
+	return opts, nil
+}
+
+func parseTaskListOptions(args []string) (taskListOptions, error) {
+	var opts taskListOptions
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--project":
+			i++
+			if i >= len(args) {
+				return taskListOptions{}, &UsageError{Message: "--project requires a value", Code: 2}
+			}
+			opts.projectName = args[i]
+		case strings.HasPrefix(arg, "--project="):
+			opts.projectName = strings.TrimPrefix(arg, "--project=")
+			if opts.projectName == "" {
+				return taskListOptions{}, &UsageError{Message: "--project requires a value", Code: 2}
+			}
+		case arg == "--status":
+			i++
+			if i >= len(args) {
+				return taskListOptions{}, &UsageError{Message: "--status requires a value", Code: 2}
+			}
+			opts.status = args[i]
+		case strings.HasPrefix(arg, "--status="):
+			opts.status = strings.TrimPrefix(arg, "--status=")
+			if opts.status == "" {
+				return taskListOptions{}, &UsageError{Message: "--status requires a value", Code: 2}
+			}
+		case arg == "--json":
+			opts.json = true
+		default:
+			return taskListOptions{}, &UsageError{Message: fmt.Sprintf("unknown task list option %q", arg), Code: 2}
+		}
+	}
+
+	opts.projectName = strings.TrimSpace(opts.projectName)
+	opts.status = strings.TrimSpace(opts.status)
+	if opts.projectName == "" {
+		return taskListOptions{}, &UsageError{Message: "task list requires --project", Code: 2}
+	}
+	if opts.status != "" && !validTaskStatusOption(opts.status) {
+		return taskListOptions{}, &UsageError{Message: fmt.Sprintf("invalid task status %q", opts.status), Code: 2}
 	}
 
 	return opts, nil
@@ -787,6 +887,9 @@ func printTaskEvents(out io.Writer, events []storage.TaskEvent) {
 		if event.Body != "" {
 			fmt.Fprintf(out, " body: %s", event.Body)
 		}
+		if event.ActorName != "" {
+			fmt.Fprintf(out, " actor: %s/%s", event.ActorKind, event.ActorName)
+		}
 		fmt.Fprintf(out, " created_at: %s\n", event.CreatedAt)
 	}
 }
@@ -796,6 +899,11 @@ func printTaskEvent(out io.Writer, event storage.TaskEvent) {
 	fmt.Fprintf(out, "task_id: %d\n", event.TaskID)
 	fmt.Fprintf(out, "type: %s\n", event.Type)
 	fmt.Fprintf(out, "body: %s\n", event.Body)
+	if event.ActorName != "" {
+		fmt.Fprintf(out, "actor_kind: %s\n", event.ActorKind)
+		fmt.Fprintf(out, "actor_name: %s\n", event.ActorName)
+		fmt.Fprintf(out, "actor_id: %d\n", event.ActorID)
+	}
 	fmt.Fprintf(out, "created_at: %s\n", event.CreatedAt)
 }
 
@@ -820,13 +928,20 @@ type readyTaskOutput struct {
 }
 
 type taskEventOutput struct {
-	ID         int64  `json:"id"`
-	TaskID     int64  `json:"task_id"`
-	Type       string `json:"type"`
-	Body       string `json:"body"`
-	FromStatus string `json:"from_status"`
-	ToStatus   string `json:"to_status"`
-	CreatedAt  string `json:"created_at"`
+	ID         int64        `json:"id"`
+	TaskID     int64        `json:"task_id"`
+	Type       string       `json:"type"`
+	Body       string       `json:"body"`
+	FromStatus string       `json:"from_status"`
+	ToStatus   string       `json:"to_status"`
+	Actor      *actorOutput `json:"actor,omitempty"`
+	CreatedAt  string       `json:"created_at"`
+}
+
+type actorOutput struct {
+	ID   int64  `json:"id"`
+	Kind string `json:"kind"`
+	Name string `json:"name"`
 }
 
 type taskShowOutput struct {
@@ -835,6 +950,10 @@ type taskShowOutput struct {
 }
 
 func printReadyTasksJSON(out io.Writer, tasks []storage.Task) error {
+	return printTasksJSON(out, tasks)
+}
+
+func printTasksJSON(out io.Writer, tasks []storage.Task) error {
 	readyTasks := make([]readyTaskOutput, 0, len(tasks))
 	for _, task := range tasks {
 		readyTasks = append(readyTasks, taskOutputFromStorage(task))
@@ -861,6 +980,7 @@ func printTaskShowJSON(out io.Writer, task storage.Task, events []storage.TaskEv
 			Body:       event.Body,
 			FromStatus: event.FromStatus,
 			ToStatus:   event.ToStatus,
+			Actor:      actorOutputFromSnapshot(event.ActorID, event.ActorKind, event.ActorName),
 			CreatedAt:  event.CreatedAt,
 		})
 	}
@@ -871,6 +991,17 @@ func printTaskShowJSON(out io.Writer, task storage.Task, events []storage.TaskEv
 		Task:   taskOutputFromStorage(task),
 		Events: eventOutputs,
 	})
+}
+
+func actorOutputFromSnapshot(id int64, kind, name string) *actorOutput {
+	if id <= 0 || kind == "" || name == "" {
+		return nil
+	}
+	return &actorOutput{
+		ID:   id,
+		Kind: kind,
+		Name: name,
+	}
 }
 
 func taskOutputFromStorage(task storage.Task) readyTaskOutput {
@@ -884,5 +1015,14 @@ func taskOutputFromStorage(task storage.Task) readyTaskOutput {
 		Notes:              task.Notes,
 		CreatedAt:          task.CreatedAt,
 		UpdatedAt:          task.UpdatedAt,
+	}
+}
+
+func validTaskStatusOption(status string) bool {
+	switch status {
+	case "open", "in_progress", "blocked", "done":
+		return true
+	default:
+		return false
 	}
 }

@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,10 +31,29 @@ func TestCLIIndexUpdateAndSearch(t *testing.T) {
 		"project: tok",
 		"indexed_documents: 1",
 		"skipped_files: 1",
+		"skipped_reasons:",
+		"- env_file: 1",
+		"updated_at:",
 	} {
 		if !strings.Contains(indexOut.String(), want) {
 			t.Fatalf("index output missing %q:\n%s", want, indexOut.String())
 		}
+	}
+
+	var statusOut bytes.Buffer
+	statusCLI := newProjectTestCLI(dataDir, &statusOut)
+	if err := statusCLI.Run(ctx, []string{"index", "status", "--project", "tok", "--json"}); err != nil {
+		t.Fatalf("index status --json returned error: %v", err)
+	}
+	var status indexSummaryOutput
+	if err := json.Unmarshal(statusOut.Bytes(), &status); err != nil {
+		t.Fatalf("parse index status JSON: %v\n%s", err, statusOut.String())
+	}
+	if status.ProjectName != "tok" || status.IndexedDocuments != 1 || status.SkippedFiles != 1 || status.UpdatedAt == "" {
+		t.Fatalf("unexpected index status JSON: %+v", status)
+	}
+	if status.SkippedReasons["env_file"] != 1 {
+		t.Fatalf("unexpected status skipped reasons: %+v", status.SkippedReasons)
 	}
 
 	var searchOut bytes.Buffer

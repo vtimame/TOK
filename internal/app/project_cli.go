@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -49,6 +50,16 @@ type projectAddOptions struct {
 	path        string
 	name        string
 	displayName string
+	json        bool
+}
+
+type projectListOptions struct {
+	json bool
+}
+
+type projectShowOptions struct {
+	name string
+	json bool
 }
 
 func (c *CLI) runProjectAdd(ctx context.Context, store *storage.Store, args []string) error {
@@ -75,19 +86,28 @@ func (c *CLI) runProjectAdd(ctx context.Context, store *storage.Store, args []st
 		return err
 	}
 
+	if addOpts.json {
+		return printProjectJSON(c.out, project)
+	}
+
 	printProject(c.out, project)
 	return nil
 }
 
 func (c *CLI) runProjectList(ctx context.Context, store *storage.Store, args []string) error {
-	if len(args) > 0 {
-		return &UsageError{Message: "project list does not accept arguments", Code: 2}
+	listOpts, err := parseProjectListOptions(args)
+	if err != nil {
+		return err
 	}
 
 	projects, err := store.ListProjects(ctx)
 	if err != nil {
 		return err
 	}
+	if listOpts.json {
+		return printProjectsJSON(c.out, projects)
+	}
+
 	if len(projects) == 0 {
 		fmt.Fprintln(c.out, "no projects")
 		return nil
@@ -101,16 +121,21 @@ func (c *CLI) runProjectList(ctx context.Context, store *storage.Store, args []s
 }
 
 func (c *CLI) runProjectShow(ctx context.Context, store *storage.Store, args []string) error {
-	if len(args) != 1 {
-		return &UsageError{Message: "project show requires a project name", Code: 2}
+	showOpts, err := parseProjectShowOptions(args)
+	if err != nil {
+		return err
 	}
 
-	project, err := store.GetProject(ctx, args[0])
+	project, err := store.GetProject(ctx, showOpts.name)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("project not found: %s", args[0])
+			return fmt.Errorf("project not found: %s", showOpts.name)
 		}
 		return err
+	}
+
+	if showOpts.json {
+		return printProjectJSON(c.out, project)
 	}
 
 	printProject(c.out, project)
@@ -145,6 +170,8 @@ func parseProjectAddOptions(args []string) (projectAddOptions, error) {
 			if opts.displayName == "" {
 				return projectAddOptions{}, &UsageError{Message: "--display-name requires a value", Code: 2}
 			}
+		case arg == "--json":
+			opts.json = true
 		case strings.HasPrefix(arg, "-"):
 			return projectAddOptions{}, &UsageError{Message: fmt.Sprintf("unknown project add option %q", arg), Code: 2}
 		default:
@@ -166,6 +193,42 @@ func parseProjectAddOptions(args []string) (projectAddOptions, error) {
 	}
 	opts.name = strings.TrimSpace(opts.name)
 
+	return opts, nil
+}
+
+func parseProjectListOptions(args []string) (projectListOptions, error) {
+	var opts projectListOptions
+	for _, arg := range args {
+		switch arg {
+		case "--json":
+			opts.json = true
+		default:
+			return projectListOptions{}, &UsageError{Message: fmt.Sprintf("unknown project list option %q", arg), Code: 2}
+		}
+	}
+	return opts, nil
+}
+
+func parseProjectShowOptions(args []string) (projectShowOptions, error) {
+	var opts projectShowOptions
+	for _, arg := range args {
+		switch {
+		case arg == "--json":
+			opts.json = true
+		case strings.HasPrefix(arg, "-"):
+			return projectShowOptions{}, &UsageError{Message: fmt.Sprintf("unknown project show option %q", arg), Code: 2}
+		default:
+			if opts.name != "" {
+				return projectShowOptions{}, &UsageError{Message: "project show accepts exactly one project name", Code: 2}
+			}
+			opts.name = arg
+		}
+	}
+
+	opts.name = strings.TrimSpace(opts.name)
+	if opts.name == "" {
+		return projectShowOptions{}, &UsageError{Message: "project show requires a project name", Code: 2}
+	}
 	return opts, nil
 }
 
@@ -200,4 +263,32 @@ func printProject(out io.Writer, project storage.Project) {
 	fmt.Fprintf(out, "path: %s\n", project.Path)
 	fmt.Fprintf(out, "created_at: %s\n", project.CreatedAt)
 	fmt.Fprintf(out, "updated_at: %s\n", project.UpdatedAt)
+}
+
+func printProjectJSON(out io.Writer, project storage.Project) error {
+	encoder := json.NewEncoder(out)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(projectOutputFromStorage(project))
+}
+
+func printProjectsJSON(out io.Writer, projects []storage.Project) error {
+	projectOutputs := make([]projectOutput, 0, len(projects))
+	for _, project := range projects {
+		projectOutputs = append(projectOutputs, projectOutputFromStorage(project))
+	}
+
+	encoder := json.NewEncoder(out)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(projectOutputs)
+}
+
+func projectOutputFromStorage(project storage.Project) projectOutput {
+	return projectOutput{
+		ID:          project.ID,
+		Name:        project.Name,
+		DisplayName: project.DisplayName,
+		Path:        project.Path,
+		CreatedAt:   project.CreatedAt,
+		UpdatedAt:   project.UpdatedAt,
+	}
 }

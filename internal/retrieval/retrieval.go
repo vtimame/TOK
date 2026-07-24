@@ -3,6 +3,8 @@ package retrieval
 import (
 	"bufio"
 	"context"
+	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -12,7 +14,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -29,6 +33,8 @@ var tokenPattern = regexp.MustCompile(`[\pL\pN_]+`)
 type Store interface {
 	ReplaceIndexedDocuments(ctx context.Context, projectID int64, docs []storage.IndexedDocumentInput) (int, error)
 	ListIndexedDocuments(ctx context.Context, projectID int64) ([]storage.IndexedDocument, error)
+	UpsertIndexMetadata(ctx context.Context, projectID int64, sourceID sql.NullInt64, key, value string) (storage.IndexMetadata, error)
+	ListProjectIndexMetadata(ctx context.Context, projectID int64) ([]storage.IndexMetadata, error)
 }
 
 type Service struct {
@@ -40,6 +46,16 @@ type IndexSummary struct {
 	ProjectName      string
 	IndexedDocuments int
 	SkippedFiles     int
+	SkippedReasons   map[string]int
+	UpdatedAt        string
+}
+
+type IndexStatus struct {
+	ProjectName      string
+	IndexedDocuments int
+	SkippedFiles     int
+	SkippedReasons   map[string]int
+	UpdatedAt        string
 }
 
 type SearchResult struct {
@@ -69,13 +85,13 @@ func (s *Service) IndexProject(ctx context.Context, project storage.Project) (In
 		return IndexSummary{}, errors.New("project path is required")
 	}
 
-	files, skipped, err := discoverFiles(project.Path, s.maxFileSize)
+	discovery, err := discoverFiles(project.Path, s.maxFileSize)
 	if err != nil {
 		return IndexSummary{}, err
 	}
 
-	docs := make([]storage.IndexedDocumentInput, 0, len(files))
-	for _, file := range files {
+	docs := make([]storage.IndexedDocumentInput, 0, len(discovery.files))
+	for _, file := range discovery.files {
 		content, err := os.ReadFile(file.absPath)
 		if err != nil {
 			return IndexSummary{}, fmt.Errorf("read project file %q: %w", file.relPath, err)
@@ -94,11 +110,85 @@ func (s *Service) IndexProject(ctx context.Context, project storage.Project) (In
 		return IndexSummary{}, err
 	}
 
-	return IndexSummary{
+	summary := IndexSummary{
 		ProjectName:      project.Name,
 		IndexedDocuments: indexed,
-		SkippedFiles:     skipped,
-	}, nil
+		SkippedFiles:     discovery.skippedFiles(),
+		SkippedReasons:   cloneReasonCounts(discovery.skippedReasons),
+		UpdatedAt:        time.Now().UTC().Format(time.RFC3339Nano),
+	}
+	if err := s.storeIndexSummary(ctx, project.ID, summary); err != nil {
+		return IndexSummary{}, err
+	}
+
+	return summary, nil
+}
+
+func (s *Service) IndexStatus(ctx context.Context, project storage.Project) (IndexStatus, error) {
+	if s == nil || s.store == nil {
+		return IndexStatus{}, errors.New("retrieval service store is required")
+	}
+	if project.ID <= 0 {
+		return IndexStatus{}, errors.New("project id is required")
+	}
+
+	metadata, err := s.store.ListProjectIndexMetadata(ctx, project.ID)
+	if err != nil {
+		return IndexStatus{}, err
+	}
+
+	status := IndexStatus{
+		ProjectName:    project.Name,
+		SkippedReasons: map[string]int{},
+	}
+	for _, item := range metadata {
+		switch item.Key {
+		case "retrieval_documents":
+			status.IndexedDocuments, _ = strconv.Atoi(item.Value)
+			if status.UpdatedAt == "" {
+				status.UpdatedAt = item.UpdatedAt
+			}
+		case "skipped_files":
+			status.SkippedFiles, _ = strconv.Atoi(item.Value)
+		case "skipped_reasons":
+			_ = json.Unmarshal([]byte(item.Value), &status.SkippedReasons)
+		case "indexed_at":
+			status.UpdatedAt = item.Value
+		}
+	}
+	if status.SkippedReasons == nil {
+		status.SkippedReasons = map[string]int{}
+	}
+
+	return status, nil
+}
+
+func (s *Service) storeIndexSummary(ctx context.Context, projectID int64, summary IndexSummary) error {
+	reasonsJSON, err := json.Marshal(summary.SkippedReasons)
+	if err != nil {
+		return fmt.Errorf("encode skipped reasons: %w", err)
+	}
+
+	metadata := map[string]string{
+		"retrieval_documents": strconv.Itoa(summary.IndexedDocuments),
+		"skipped_files":       strconv.Itoa(summary.SkippedFiles),
+		"skipped_reasons":     string(reasonsJSON),
+		"indexed_at":          summary.UpdatedAt,
+	}
+	for key, value := range metadata {
+		if _, err := s.store.UpsertIndexMetadata(ctx, projectID, sql.NullInt64{}, key, value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func cloneReasonCounts(input map[string]int) map[string]int {
+	output := make(map[string]int, len(input))
+	for key, value := range input {
+		output[key] = value
+	}
+	return output
 }
 
 func (s *Service) Search(ctx context.Context, project storage.Project, query string, limit int) ([]SearchResult, error) {
@@ -167,11 +257,29 @@ type discoveredFile struct {
 	relPath string
 }
 
-func discoverFiles(root string, maxFileSize int64) ([]discoveredFile, int, error) {
-	var files []discoveredFile
-	var skipped int
+type discoverySummary struct {
+	files          []discoveredFile
+	skippedReasons map[string]int
+}
 
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+func (s discoverySummary) skippedFiles() int {
+	var total int
+	for _, count := range s.skippedReasons {
+		total += count
+	}
+	return total
+}
+
+func discoverFiles(root string, maxFileSize int64) (discoverySummary, error) {
+	summary := discoverySummary{
+		skippedReasons: map[string]int{},
+	}
+	ignoreRules, err := loadIgnoreRules(root)
+	if err != nil {
+		return discoverySummary{}, err
+	}
+
+	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -180,21 +288,31 @@ func discoverFiles(root string, maxFileSize int64) ([]discoveredFile, int, error
 		}
 
 		name := entry.Name()
-		if entry.IsDir() {
-			if shouldSkipDir(name) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
 		relPath, err := filepath.Rel(root, path)
 		if err != nil {
 			return err
 		}
 		relPath = filepath.ToSlash(relPath)
 
+		if entry.IsDir() {
+			if shouldSkipDir(name) {
+				summary.addSkip("ignored_directory")
+				return filepath.SkipDir
+			}
+			if ignoreRules.Ignore(relPath, true) {
+				summary.addSkip("gitignore")
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		if ignoreRules.Ignore(relPath, false) {
+			summary.addSkip("gitignore")
+			return nil
+		}
+
 		if !shouldIndexFile(relPath, name) {
-			skipped++
+			summary.addSkip(skipFileReason(relPath, name))
 			return nil
 		}
 
@@ -203,7 +321,7 @@ func discoverFiles(root string, maxFileSize int64) ([]discoveredFile, int, error
 			return err
 		}
 		if info.Size() > maxFileSize {
-			skipped++
+			summary.addSkip("too_large")
 			return nil
 		}
 
@@ -212,22 +330,29 @@ func discoverFiles(root string, maxFileSize int64) ([]discoveredFile, int, error
 			return err
 		}
 		if !text {
-			skipped++
+			summary.addSkip("binary_or_non_utf8")
 			return nil
 		}
 
-		files = append(files, discoveredFile{absPath: path, relPath: relPath})
+		summary.files = append(summary.files, discoveredFile{absPath: path, relPath: relPath})
 		return nil
 	})
 	if err != nil {
-		return nil, 0, fmt.Errorf("discover project files: %w", err)
+		return discoverySummary{}, fmt.Errorf("discover project files: %w", err)
 	}
 
-	sort.Slice(files, func(i, j int) bool {
-		return files[i].relPath < files[j].relPath
+	sort.Slice(summary.files, func(i, j int) bool {
+		return summary.files[i].relPath < summary.files[j].relPath
 	})
 
-	return files, skipped, nil
+	return summary, nil
+}
+
+func (s discoverySummary) addSkip(reason string) {
+	if reason == "" {
+		reason = "other"
+	}
+	s.skippedReasons[reason]++
 }
 
 func shouldSkipDir(name string) bool {
@@ -249,6 +374,127 @@ func shouldIndexFile(relPath, name string) bool {
 	default:
 		return relPath == "Makefile" || relPath == "Dockerfile"
 	}
+}
+
+func skipFileReason(relPath, name string) string {
+	if strings.HasPrefix(name, ".env") {
+		return "env_file"
+	}
+	return "unsupported_extension"
+}
+
+type ignoreRules []ignoreRule
+
+type ignoreRule struct {
+	pattern  string
+	negated  bool
+	dirOnly  bool
+	anchored bool
+}
+
+func loadIgnoreRules(root string) (ignoreRules, error) {
+	data, err := os.ReadFile(filepath.Join(root, ".gitignore"))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read .gitignore: %w", err)
+	}
+
+	var rules ignoreRules
+	scanner := bufio.NewScanner(strings.NewReader(string(data)))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, `\#`) {
+			line = strings.TrimPrefix(line, `\`)
+		}
+
+		rule := ignoreRule{}
+		if strings.HasPrefix(line, "!") {
+			rule.negated = true
+			line = strings.TrimPrefix(line, "!")
+		}
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		line = filepath.ToSlash(line)
+		rule.anchored = strings.HasPrefix(line, "/")
+		line = strings.TrimPrefix(line, "/")
+		rule.dirOnly = strings.HasSuffix(line, "/")
+		line = strings.TrimSuffix(line, "/")
+		if line == "" {
+			continue
+		}
+		rule.pattern = line
+		rules = append(rules, rule)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("parse .gitignore: %w", err)
+	}
+
+	return rules, nil
+}
+
+func (rules ignoreRules) Ignore(relPath string, isDir bool) bool {
+	relPath = filepath.ToSlash(strings.TrimPrefix(relPath, "./"))
+	var ignored bool
+	for _, rule := range rules {
+		if rule.matches(relPath, isDir) {
+			ignored = !rule.negated
+		}
+	}
+	return ignored
+}
+
+func (rule ignoreRule) matches(relPath string, isDir bool) bool {
+	if rule.dirOnly && !isDir {
+		return false
+	}
+	pattern := rule.pattern
+	if pattern == "" || relPath == "" {
+		return false
+	}
+
+	if strings.HasSuffix(pattern, "/**") {
+		prefix := strings.TrimSuffix(pattern, "/**")
+		return relPath == prefix || strings.HasPrefix(relPath, prefix+"/")
+	}
+
+	if rule.anchored {
+		return matchPathPattern(pattern, relPath)
+	}
+
+	if !strings.Contains(pattern, "/") {
+		for _, part := range strings.Split(relPath, "/") {
+			if matchPathPattern(pattern, part) {
+				return true
+			}
+		}
+		return false
+	}
+
+	if matchPathPattern(pattern, relPath) {
+		return true
+	}
+	parts := strings.Split(relPath, "/")
+	for i := 1; i < len(parts); i++ {
+		if matchPathPattern(pattern, strings.Join(parts[i:], "/")) {
+			return true
+		}
+	}
+	return false
+}
+
+func matchPathPattern(pattern, value string) bool {
+	if pattern == value {
+		return true
+	}
+	matched, err := filepath.Match(pattern, value)
+	return err == nil && matched
 }
 
 func looksTextFile(path string) (bool, error) {

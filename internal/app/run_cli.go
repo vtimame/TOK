@@ -95,6 +95,10 @@ func (c *CLI) runRunStart(ctx context.Context, store *storage.Store, args []stri
 	if err != nil {
 		return err
 	}
+	actor, err := currentLocalHumanActor(ctx, store)
+	if err != nil {
+		return err
+	}
 	gitState := contextpkg.CommandGitInspector{}.Inspect(ctx, project.Path)
 
 	run, err := store.CreateRun(ctx, storage.CreateRunInput{
@@ -104,6 +108,7 @@ func (c *CLI) runRunStart(ctx context.Context, store *storage.Store, args []stri
 		RetrievalLimit:         startOpts.retrievalLimit,
 		BaseBranch:             gitState.Branch,
 		BaseHead:               gitState.Head,
+		Actor:                  actor,
 	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -114,7 +119,7 @@ func (c *CLI) runRunStart(ctx context.Context, store *storage.Store, args []stri
 
 	var artifacts []storage.RunArtifact
 	if startOpts.handoffOutput != "" {
-		artifact, err := writeRunHandoffArtifact(ctx, store, project, task, run, startOpts)
+		artifact, err := writeRunHandoffArtifact(ctx, store, project, task, run, startOpts, actor)
 		if err != nil {
 			return err
 		}
@@ -159,10 +164,16 @@ func (c *CLI) runRunFinish(ctx context.Context, store *storage.Store, args []str
 		return err
 	}
 
+	actor, err := currentLocalHumanActor(ctx, store)
+	if err != nil {
+		return err
+	}
+
 	run, err := store.FinishRun(ctx, storage.FinishRunInput{
 		ID:            finishOpts.runID,
 		Status:        finishOpts.status,
 		ResultSummary: finishOpts.summary,
+		Actor:         actor,
 	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -198,10 +209,16 @@ func (c *CLI) runRunRecordValidation(ctx context.Context, store *storage.Store, 
 	if err != nil {
 		return err
 	}
+	actor, err := currentLocalHumanActor(ctx, store)
+	if err != nil {
+		return err
+	}
+
 	artifact, err := store.AddRunArtifact(ctx, storage.AddRunArtifactInput{
 		RunID:    recordOpts.runID,
 		Kind:     "validation",
 		Metadata: metadata,
+		Actor:    actor,
 	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -436,17 +453,20 @@ type runOutput struct {
 	BaseBranch             string              `json:"base_branch"`
 	BaseHead               string              `json:"base_head"`
 	ResultSummary          string              `json:"result_summary"`
+	StartedBy              *actorOutput        `json:"started_by,omitempty"`
+	FinishedBy             *actorOutput        `json:"finished_by,omitempty"`
 	Artifacts              []runArtifactOutput `json:"artifacts"`
 }
 
 type runArtifactOutput struct {
-	ID          int64  `json:"id"`
-	RunID       int64  `json:"run_id"`
-	Kind        string `json:"kind"`
-	Path        string `json:"path"`
-	ContentHash string `json:"content_hash"`
-	Metadata    string `json:"metadata"`
-	CreatedAt   string `json:"created_at"`
+	ID          int64        `json:"id"`
+	RunID       int64        `json:"run_id"`
+	Kind        string       `json:"kind"`
+	Path        string       `json:"path"`
+	ContentHash string       `json:"content_hash"`
+	Metadata    string       `json:"metadata"`
+	Actor       *actorOutput `json:"actor,omitempty"`
+	CreatedAt   string       `json:"created_at"`
 }
 
 func printRun(out io.Writer, run storage.Run) {
@@ -460,6 +480,12 @@ func printRun(out io.Writer, run storage.Run) {
 	fmt.Fprintf(out, "base_branch: %s\n", run.BaseBranch)
 	fmt.Fprintf(out, "base_head: %s\n", run.BaseHead)
 	fmt.Fprintf(out, "result_summary: %s\n", run.ResultSummary)
+	if run.ActorName != "" {
+		fmt.Fprintf(out, "started_by: %s/%s\n", run.ActorKind, run.ActorName)
+	}
+	if run.FinishedActorName != "" {
+		fmt.Fprintf(out, "finished_by: %s/%s\n", run.FinishedActorKind, run.FinishedActorName)
+	}
 }
 
 func printRunArtifact(out io.Writer, artifact storage.RunArtifact) {
@@ -469,6 +495,9 @@ func printRunArtifact(out io.Writer, artifact storage.RunArtifact) {
 	fmt.Fprintf(out, "path: %s\n", artifact.Path)
 	fmt.Fprintf(out, "content_hash: %s\n", artifact.ContentHash)
 	fmt.Fprintf(out, "metadata: %s\n", artifact.Metadata)
+	if artifact.ActorName != "" {
+		fmt.Fprintf(out, "actor: %s/%s\n", artifact.ActorKind, artifact.ActorName)
+	}
 	fmt.Fprintf(out, "created_at: %s\n", artifact.CreatedAt)
 }
 
@@ -501,6 +530,8 @@ func runOutputFromStorage(run storage.Run, artifacts []storage.RunArtifact) runO
 		BaseBranch:             run.BaseBranch,
 		BaseHead:               run.BaseHead,
 		ResultSummary:          run.ResultSummary,
+		StartedBy:              actorOutputFromSnapshot(run.ActorID, run.ActorKind, run.ActorName),
+		FinishedBy:             actorOutputFromSnapshot(run.FinishedActorID, run.FinishedActorKind, run.FinishedActorName),
 		Artifacts:              artifactOutputs,
 	}
 }
@@ -513,6 +544,7 @@ func runArtifactOutputFromStorage(artifact storage.RunArtifact) runArtifactOutpu
 		Path:        artifact.Path,
 		ContentHash: artifact.ContentHash,
 		Metadata:    artifact.Metadata,
+		Actor:       actorOutputFromSnapshot(artifact.ActorID, artifact.ActorKind, artifact.ActorName),
 		CreatedAt:   artifact.CreatedAt,
 	}
 }
@@ -525,7 +557,7 @@ func parseRunID(value string) (int64, error) {
 	return id, nil
 }
 
-func writeRunHandoffArtifact(ctx context.Context, store *storage.Store, project storage.Project, task storage.Task, run storage.Run, opts runStartOptions) (storage.RunArtifact, error) {
+func writeRunHandoffArtifact(ctx context.Context, store *storage.Store, project storage.Project, task storage.Task, run storage.Run, opts runStartOptions, actor storage.ActorRef) (storage.RunArtifact, error) {
 	outputPath := opts.handoffOutput
 	if !filepath.IsAbs(outputPath) {
 		absPath, err := filepath.Abs(outputPath)
@@ -556,6 +588,7 @@ func writeRunHandoffArtifact(ctx context.Context, store *storage.Store, project 
 		Path:        outputPath,
 		ContentHash: sha256ContentHash(text),
 		Metadata:    `{"format":"text"}`,
+		Actor:       actor,
 	})
 }
 
