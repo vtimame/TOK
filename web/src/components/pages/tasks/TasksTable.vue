@@ -55,15 +55,15 @@ function updatePageSize(value: AcceptableValue) {
 </script>
 
 <template>
-  <Table container-class="max-h-full min-h-0 custom-scrollbar">
+  <Table class="min-w-[58rem] table-fixed" container-class="max-h-full min-h-0 custom-scrollbar">
     <TableHeader class="sticky top-0 z-10 bg-card shadow-[0_1px_0_hsl(var(--border))]">
       <TableRow>
         <TableHead class="w-16 pl-4">ID</TableHead>
-        <TableHead>Task</TableHead>
-        <TableHead>Project</TableHead>
-        <TableHead>Status</TableHead>
-        <TableHead>Agents</TableHead>
-        <TableHead class="text-right pr-4">Updated</TableHead>
+        <TableHead class="w-[24rem]">Task</TableHead>
+        <TableHead class="w-44">Project</TableHead>
+        <TableHead class="w-32">Status</TableHead>
+        <TableHead class="w-28">Agents</TableHead>
+        <TableHead class="w-36 text-right pr-4">Updated</TableHead>
       </TableRow>
     </TableHeader>
     <TableBody>

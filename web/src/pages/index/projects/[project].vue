@@ -87,6 +87,10 @@ const ruleDraft = reactive<ProjectInstructionDraft>({
 
 const initTab = route.query?.tab as Tab | undefined;
 const tab = ref<Tab>(initTab && availableTabs.includes(initTab) ? initTab : "tasks");
+const projectName = computed(() => {
+  const value = route.params.project;
+  return Array.isArray(value) ? value[0] : value;
+});
 const pageSize = ref(25);
 const page = ref(1);
 const offset = computed(() => (page.value - 1) * pageSize.value);
@@ -95,10 +99,6 @@ const taskListParams = computed<ListProjectTasksQueryParams>(() => ({
   offset: String(offset.value),
 }));
 
-const projectName = computed(() => {
-  const value = route.params.project;
-  return Array.isArray(value) ? value[0] : value;
-});
 const projectQuery = useShowProject(
   { project: projectName },
   {
@@ -387,14 +387,17 @@ watch(tab, (v: Tab) => router.replace({ query: { ...route.query, tab: v } }));
         <div
           class="flex max-h-full min-h-0 flex-col overflow-hidden rounded-lg bg-card shadow ring-1 ring-foreground/5"
         >
-          <Table container-class="max-h-full min-h-0 custom-scrollbar">
+          <Table
+            class="min-w-[48rem] table-fixed"
+            container-class="max-h-full min-h-0 custom-scrollbar"
+          >
             <TableHeader class="sticky top-0 z-10 bg-card shadow-[0_1px_0_hsl(var(--border))]">
               <TableRow>
                 <TableHead class="w-16 pl-4">ID</TableHead>
-                <TableHead>Task</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Agents</TableHead>
-                <TableHead class="text-right pr-4">Updated</TableHead>
+                <TableHead class="w-[24rem]">Task</TableHead>
+                <TableHead class="w-32">Status</TableHead>
+                <TableHead class="w-28">Agents</TableHead>
+                <TableHead class="w-36 text-right pr-4">Updated</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -429,13 +432,13 @@ watch(tab, (v: Tab) => router.replace({ query: { ...route.query, tab: v } }));
                   "
                 >
                   <TableCell class="pl-4 text-muted-foreground">#{{ task.id }}</TableCell>
-                  <TableCell class="min-w-[18rem]">
+                  <TableCell class="w-[24rem] max-w-[24rem]">
                     <div class="truncate font-medium">{{ task.title }}</div>
                     <div class="truncate text-sm text-muted-foreground">
                       {{ task.description || "No description" }}
                     </div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell class="w-32">
                     <span
                       class="rounded-full border px-2 py-0.5 text-xs"
                       :class="statusTone(task.status)"
@@ -443,7 +446,7 @@ watch(tab, (v: Tab) => router.replace({ query: { ...route.query, tab: v } }));
                       {{ statusLabel(task.status) }}
                     </span>
                   </TableCell>
-                  <TableCell>
+                  <TableCell class="w-28">
                     <div v-if="task.agents.length" class="flex -space-x-1.5">
                       <AgentIcon
                         v-for="agent in task.agents"
@@ -454,7 +457,7 @@ watch(tab, (v: Tab) => router.replace({ query: { ...route.query, tab: v } }));
                     </div>
                     <span v-else class="text-sm text-muted-foreground">No agents</span>
                   </TableCell>
-                  <TableCell class="pr-4 text-right text-muted-foreground">{{
+                  <TableCell class="w-36 pr-4 text-right text-muted-foreground">{{
                     formatDate(task.updatedAt)
                   }}</TableCell>
                 </TableRow>

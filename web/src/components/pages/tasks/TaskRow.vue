@@ -32,26 +32,26 @@ function openTask() {
 <template>
   <TableRow class="cursor-pointer" @click="openTask">
     <TableCell class="text-muted-foreground pl-4">#{{ task.id }}</TableCell>
-    <TableCell class="min-w-[18rem] font-medium">
+    <TableCell class="w-[24rem] max-w-[24rem] font-medium">
       <div class="truncate">{{ task.title }}</div>
       <div class="truncate text-sm font-normal text-muted-foreground">
         {{ task.description || "No description" }}
       </div>
     </TableCell>
-    <TableCell class="max-w-40 truncate text-muted-foreground">
+    <TableCell class="w-44 max-w-44 truncate text-muted-foreground">
       {{ task.project.displayName || `#${task.projectId}` }}
     </TableCell>
-    <TableCell>
+    <TableCell class="w-32">
       <span class="rounded-full border px-2 py-0.5 text-xs" :class="statusTone(task.status)">
         {{ statusLabel(task.status) }}
       </span>
     </TableCell>
-    <TableCell>
+    <TableCell class="w-28">
       <div class="flex -space-x-1.5">
         <AgentIcon v-for="agent in task.agents" :key="agent" :value="agent" class="size-5" />
       </div>
       <span v-if="task.agents.length === 0" class="text-sm text-muted-foreground">No agents</span>
     </TableCell>
-    <TableCell class="text-right pr-4 text-muted-foreground">{{ updatedAt }}</TableCell>
+    <TableCell class="w-36 text-right pr-4 text-muted-foreground">{{ updatedAt }}</TableCell>
   </TableRow>
 </template>
