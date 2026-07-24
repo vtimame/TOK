@@ -6,7 +6,7 @@ LDFLAGS := -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DA
 
 DEVCTL := ./scripts/devctl.sh
 
-.PHONY: test build run fmt dev-start dev-stop dev-restart dev-status dev-logs dev-api-start dev-api-stop dev-app-start dev-app-stop
+.PHONY: test build web-build install run fmt dev-start dev-stop dev-restart dev-status dev-logs dev-api-start dev-api-stop dev-app-start dev-app-stop
 
 test:
 	go test ./...
@@ -14,6 +14,9 @@ test:
 build:
 	mkdir -p $(dir $(BINARY))
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/tok
+
+web-build:
+	cd web && pnpm build
 
 run:
 	go run -ldflags "$(LDFLAGS)" ./cmd/tok $(ARGS)
@@ -48,5 +51,9 @@ dev-app-start:
 dev-app-stop:
 	$(DEVCTL) app-stop
 
-install: build
-	cp $(BINARY) ~/.local/bin/tok
+install: web-build build
+	mkdir -p ~/.local/bin
+	tmp="$$(mktemp ~/.local/bin/tok.XXXXXX)" && \
+		cp $(BINARY) "$$tmp" && \
+		chmod 755 "$$tmp" && \
+		mv -f "$$tmp" ~/.local/bin/tok
