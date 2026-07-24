@@ -1,41 +1,80 @@
 <script lang="ts" setup="">
 import type { Project } from "@/components/pages/projects/index.ts";
-import AgentIcon from "@/components/common/agent/AgentIcon.vue";
-import IcBaselineTaskAlt from "~icons/ic/baseline-task-alt";
+import { TableCell, TableRow } from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
+import { FolderSync, Pen, Trash } from "@lucide/vue";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Ellipsis } from "@lucide/vue";
+import { computed } from "vue";
+import { RouterLink } from "vue-router";
+
+const emits = defineEmits<{
+  edit: [];
+  delete: [];
+  updateIndex: [];
+}>();
 
 const props = defineProps<{
   project: Project;
+  updatingIndex?: boolean;
 }>();
+
+const status = computed(() => {
+  if (props.project.taskCounts.blocked > 0) return "Blocked";
+  if (props.project.taskCounts.in_progress > 0) return "In progress";
+  if (props.project.taskCounts.ready > 0) return "Ready";
+  if (props.project.taskCounts.done === props.project.taskCounts.total && props.project.taskCounts.total > 0) {
+    return "Done";
+  }
+  return "Open";
+});
 </script>
 
 <template>
-  <div class="flex items-center gap-4 px-4 py-2">
-    <div>
-      <div class="font-medium">{{ props.project.displayName }}</div>
-      <div class="text-sm text-muted-foreground">{{ props.project.path }}</div>
-    </div>
-    <div class="ml-auto flex items-center gap-x-4">
-      <div class="flex -space-x-1.5">
-        <div
-          v-for="a in props.project.agents"
-          :key="a"
-          class="rounded-full ring-1 ring-foreground/10 transition-all hover:z-10 hover:scale-110 flex items-center justify-center"
-        >
-          <AgentIcon :value="a" class="size-6" />
-        </div>
-      </div>
-
-      <div class="flex space-x-1.5">
-        <IcBaselineTaskAlt class="size-5" />
-        <div class="min-w-10 text-sm">{{ props.project.tasksCount }}</div>
-      </div>
-
-      <!--      <div class="flex items-center -gap-x-2">-->
-      <!--        <div-->
-      <!--          v-for="a in props.project.agents"-->
-      <!--          class="size-8 rounded-full bg-accent/50 flex items-center justify-center"-->
-      <!--        ></div>-->
-      <!--      </div>-->
-    </div>
-  </div>
+  <TableRow>
+    <TableCell class="text-muted-foreground pl-4">#{{ project.id }}</TableCell>
+    <TableCell class="font-medium">
+      <RouterLink :to="`/projects/${project.name}`" class="hover:underline">
+        {{ project.displayName }}
+      </RouterLink>
+    </TableCell>
+    <TableCell class="max-w-[22rem] truncate text-muted-foreground">{{ project.path }}</TableCell>
+    <TableCell>
+      <span class="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
+        {{ status }}
+      </span>
+    </TableCell>
+    <TableCell class="text-right">{{ project.taskCounts.ready }}</TableCell>
+    <TableCell class="text-right">{{ project.taskCounts.blocked }}</TableCell>
+    <TableCell class="text-right">{{ project.taskCounts.done }}</TableCell>
+    <TableCell class="text-right font-medium">{{ project.taskCounts.total }}</TableCell>
+    <TableCell class="text-right pr-4">
+      <DropdownMenu>
+        <DropdownMenuTrigger as-child>
+          <Button size="icon-xs" class="translate-y-0.5" variant="ghost">
+            <Ellipsis />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent>
+          <DropdownMenuItem @click="emits('updateIndex')" :disabled="props.updatingIndex">
+            <FolderSync />
+            Update index
+          </DropdownMenuItem>
+          <DropdownMenuItem @click="emits('edit')">
+            <Pen />
+            Rename
+          </DropdownMenuItem>
+          <DropdownMenuItem variant="destructive" @click="emits('delete')">
+            <Trash />
+            Delete
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </TableCell>
+  </TableRow>
 </template>
