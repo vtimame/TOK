@@ -14,13 +14,6 @@ export type ShowProjectPathParams = {
   project: string;
 };
 
-export type ShowProjectHeaderParams = {
-  /**
-   * @type string | undefined
-   */
-  accept?: string;
-};
-
 /**
  * @description OK
  */
@@ -41,6 +34,5 @@ export type ShowProjectQueryResponse = ShowProject200;
 export type ShowProjectQuery = {
   Response: ShowProject200;
   PathParams: ShowProjectPathParams;
-  HeaderParams: ShowProjectHeaderParams;
   Errors: ShowProject400 | ShowProject500;
 };

@@ -7,7 +7,6 @@
 import type { Client, RequestConfig, ResponseErrorConfig } from "../.kubb/fetch.ts";
 import type {
   ListProjectsQueryResponse,
-  ListProjectsHeaderParams,
   ListProjects400,
   ListProjects500,
 } from "../models/ListProjects.ts";
@@ -23,23 +22,13 @@ function getListProjectsUrl() {
  * @summary List registered projects
  * {@link /api/projects}
  */
-export async function listProjects(
-  { headers }: { headers?: ListProjectsHeaderParams } = {},
-  config: Partial<RequestConfig> & { client?: Client } = {},
-) {
+export async function listProjects(config: Partial<RequestConfig> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config;
-
-  const mappedHeaders = headers ? { Accept: headers.accept } : undefined;
 
   const res = await request<
     ListProjectsQueryResponse,
     ResponseErrorConfig<ListProjects400 | ListProjects500>,
     unknown
-  >({
-    method: "GET",
-    url: getListProjectsUrl().url.toString(),
-    ...requestConfig,
-    headers: { ...mappedHeaders, ...requestConfig.headers },
-  });
+  >({ method: "GET", url: getListProjectsUrl().url.toString(), ...requestConfig });
   return res.data;
 }

@@ -9,7 +9,6 @@ import type {
   CreateTaskMutationRequest,
   CreateTaskMutationResponse,
   CreateTaskPathParams,
-  CreateTaskHeaderParams,
   CreateTask400,
   CreateTask500,
 } from "../models/CreateTask.ts";
@@ -26,20 +25,10 @@ function getCreateTaskUrl({ project }: { project: CreateTaskPathParams["project"
  * {@link /api/projects/:project/tasks}
  */
 export async function createTask(
-  {
-    project,
-    data,
-    headers,
-  }: {
-    project: CreateTaskPathParams["project"];
-    data: CreateTaskMutationRequest;
-    headers?: CreateTaskHeaderParams;
-  },
+  { project, data }: { project: CreateTaskPathParams["project"]; data: CreateTaskMutationRequest },
   config: Partial<RequestConfig<CreateTaskMutationRequest>> & { client?: Client } = {},
 ) {
   const { client: request = fetch, ...requestConfig } = config;
-
-  const mappedHeaders = headers ? { Accept: headers.accept } : undefined;
 
   const requestData = data;
 
@@ -52,7 +41,6 @@ export async function createTask(
     url: getCreateTaskUrl({ project }).url.toString(),
     data: requestData,
     ...requestConfig,
-    headers: { ...mappedHeaders, ...requestConfig.headers },
   });
   return res.data;
 }

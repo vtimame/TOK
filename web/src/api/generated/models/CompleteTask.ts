@@ -15,13 +15,6 @@ export type CompleteTaskPathParams = {
   id: string;
 };
 
-export type CompleteTaskHeaderParams = {
-  /**
-   * @type string | undefined
-   */
-  accept?: string;
-};
-
 /**
  * @description OK
  */
@@ -48,6 +41,5 @@ export type CompleteTaskMutation = {
   Response: CompleteTask200;
   Request: CompleteTaskMutationRequest;
   PathParams: CompleteTaskPathParams;
-  HeaderParams: CompleteTaskHeaderParams;
   Errors: CompleteTask400 | CompleteTask500;
 };

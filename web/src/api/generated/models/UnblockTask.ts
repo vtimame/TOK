@@ -15,13 +15,6 @@ export type UnblockTaskPathParams = {
   id: string;
 };
 
-export type UnblockTaskHeaderParams = {
-  /**
-   * @type string | undefined
-   */
-  accept?: string;
-};
-
 /**
  * @description OK
  */
@@ -48,6 +41,5 @@ export type UnblockTaskMutation = {
   Response: UnblockTask200;
   Request: UnblockTaskMutationRequest;
   PathParams: UnblockTaskPathParams;
-  HeaderParams: UnblockTaskHeaderParams;
   Errors: UnblockTask400 | UnblockTask500;
 };

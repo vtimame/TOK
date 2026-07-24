@@ -11,15 +11,18 @@ import {
   useProjectsQuery,
 } from "@/api/queries/projects.ts";
 import { toastApiError } from "@/api/axios.ts";
+import { useRoute } from "vue-router";
 
+const route = useRoute();
 const showProjectDialog = ref(false);
 const projectsQuery = useProjectsQuery();
 const createProjectMutation = useCreateProjectMutation();
 const projects = computed(() => projectsQuery.data.value ?? []);
+const hasProjectRoute = computed(() => "project" in route.params);
 
 async function saveProject(input: ProjectDraft) {
   try {
-    await createProjectMutation.mutateAsync(input);
+    await createProjectMutation.mutateAsync({ data: input });
     showProjectDialog.value = false;
   } catch (error) {
     toastApiError(error, {
@@ -32,7 +35,9 @@ useTitle("Projects");
 </script>
 
 <template>
-  <div class="mx-auto flex h-svh w-full max-w-5xl flex-col gap-4 overflow-hidden px-4 py-18">
+  <RouterView v-if="hasProjectRoute" />
+
+  <div v-else class="mx-auto flex h-svh w-full max-w-5xl flex-col gap-4 overflow-hidden px-4 py-18">
     <div class="flex shrink-0 items-center justify-between">
       <div class="text-2xl font-bold">Projects</div>
       <Button @click="showProjectDialog = true">New project</Button>

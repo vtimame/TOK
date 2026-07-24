@@ -15,13 +15,6 @@ export type BlockTaskPathParams = {
   id: string;
 };
 
-export type BlockTaskHeaderParams = {
-  /**
-   * @type string | undefined
-   */
-  accept?: string;
-};
-
 /**
  * @description OK
  */
@@ -48,6 +41,5 @@ export type BlockTaskMutation = {
   Response: BlockTask200;
   Request: BlockTaskMutationRequest;
   PathParams: BlockTaskPathParams;
-  HeaderParams: BlockTaskHeaderParams;
   Errors: BlockTask400 | BlockTask500;
 };

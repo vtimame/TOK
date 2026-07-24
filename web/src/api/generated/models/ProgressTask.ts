@@ -15,13 +15,6 @@ export type ProgressTaskPathParams = {
   id: string;
 };
 
-export type ProgressTaskHeaderParams = {
-  /**
-   * @type string | undefined
-   */
-  accept?: string;
-};
-
 /**
  * @description OK
  */
@@ -48,6 +41,5 @@ export type ProgressTaskMutation = {
   Response: ProgressTask200;
   Request: ProgressTaskMutationRequest;
   PathParams: ProgressTaskPathParams;
-  HeaderParams: ProgressTaskHeaderParams;
   Errors: ProgressTask400 | ProgressTask500;
 };

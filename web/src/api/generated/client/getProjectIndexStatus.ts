@@ -8,7 +8,6 @@ import type { Client, RequestConfig, ResponseErrorConfig } from "../.kubb/fetch.
 import type {
   GetProjectIndexStatusQueryResponse,
   GetProjectIndexStatusPathParams,
-  GetProjectIndexStatusHeaderParams,
   GetProjectIndexStatus400,
   GetProjectIndexStatus500,
 } from "../models/GetProjectIndexStatus.ts";
@@ -29,18 +28,10 @@ function getGetProjectIndexStatusUrl({
  * {@link /api/projects/:project/index}
  */
 export async function getProjectIndexStatus(
-  {
-    project,
-    headers,
-  }: {
-    project: GetProjectIndexStatusPathParams["project"];
-    headers?: GetProjectIndexStatusHeaderParams;
-  },
+  { project }: { project: GetProjectIndexStatusPathParams["project"] },
   config: Partial<RequestConfig> & { client?: Client } = {},
 ) {
   const { client: request = fetch, ...requestConfig } = config;
-
-  const mappedHeaders = headers ? { Accept: headers.accept } : undefined;
 
   const res = await request<
     GetProjectIndexStatusQueryResponse,
@@ -50,7 +41,6 @@ export async function getProjectIndexStatus(
     method: "GET",
     url: getGetProjectIndexStatusUrl({ project }).url.toString(),
     ...requestConfig,
-    headers: { ...mappedHeaders, ...requestConfig.headers },
   });
   return res.data;
 }

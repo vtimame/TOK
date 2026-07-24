@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -100,9 +101,13 @@ func (c *CLI) runUIOpenAPI(ctx context.Context, opts runtimeOptions) error {
 	if recorder.Code != http.StatusOK {
 		return fmt.Errorf("render OpenAPI spec: status %d: %s", recorder.Code, strings.TrimSpace(recorder.Body.String()))
 	}
+	spec, err := sanitizeUIOpenAPISpec(recorder.Body.Bytes())
+	if err != nil {
+		return err
+	}
 
 	if openAPIOpts.out == "" {
-		_, err := c.out.Write(recorder.Body.Bytes())
+		_, err := c.out.Write(spec)
 		return err
 	}
 
@@ -112,11 +117,55 @@ func (c *CLI) runUIOpenAPI(ctx context.Context, opts runtimeOptions) error {
 			return err
 		}
 	}
-	if err := os.WriteFile(openAPIOpts.out, recorder.Body.Bytes(), 0o644); err != nil {
+	if err := os.WriteFile(openAPIOpts.out, spec, 0o644); err != nil {
 		return err
 	}
 	fmt.Fprintf(c.out, "wrote OpenAPI spec: %s\n", openAPIOpts.out)
 	return nil
+}
+
+func sanitizeUIOpenAPISpec(data []byte) ([]byte, error) {
+	var spec map[string]any
+	if err := json.Unmarshal(data, &spec); err != nil {
+		return nil, fmt.Errorf("decode OpenAPI spec: %w", err)
+	}
+
+	paths, _ := spec["paths"].(map[string]any)
+	for _, pathItem := range paths {
+		operations, _ := pathItem.(map[string]any)
+		for _, operation := range operations {
+			op, _ := operation.(map[string]any)
+			params, ok := op["parameters"].([]any)
+			if !ok {
+				continue
+			}
+
+			filtered := params[:0]
+			for _, param := range params {
+				if !isAcceptHeaderParam(param) {
+					filtered = append(filtered, param)
+				}
+			}
+			if len(filtered) == 0 {
+				delete(op, "parameters")
+			} else {
+				op["parameters"] = filtered
+			}
+		}
+	}
+
+	out, err := json.MarshalIndent(spec, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("encode OpenAPI spec: %w", err)
+	}
+	return append(out, '\n'), nil
+}
+
+func isAcceptHeaderParam(param any) bool {
+	p, _ := param.(map[string]any)
+	location, _ := p["in"].(string)
+	name, _ := p["name"].(string)
+	return strings.EqualFold(location, "header") && strings.EqualFold(name, "accept")
 }
 
 func parseUIServeOptions(args []string) (uiServeOptions, error) {

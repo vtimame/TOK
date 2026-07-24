@@ -14,13 +14,6 @@ export type ShowTaskPathParams = {
   id: string;
 };
 
-export type ShowTaskHeaderParams = {
-  /**
-   * @type string | undefined
-   */
-  accept?: string;
-};
-
 /**
  * @description OK
  */
@@ -41,6 +34,5 @@ export type ShowTaskQueryResponse = ShowTask200;
 export type ShowTaskQuery = {
   Response: ShowTask200;
   PathParams: ShowTaskPathParams;
-  HeaderParams: ShowTaskHeaderParams;
   Errors: ShowTask400 | ShowTask500;
 };

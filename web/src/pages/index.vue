@@ -2,6 +2,19 @@
 import Logo from "@/components/Logo.vue";
 import { Button } from "@/components/ui/button";
 import { version } from "../../package.json";
+import { useRoute, useRouter } from "vue-router";
+import { cn } from "@/lib/utils.ts";
+
+type NavItem = { href: string; label: string };
+
+const route = useRoute();
+const router = useRouter();
+
+const navItems: NavItem[] = [
+  { href: "/projects", label: "Projects" },
+  { href: "/tasks", label: "Tasks" },
+  { href: "/agents", label: "Agents" },
+];
 </script>
 
 <template>
@@ -9,9 +22,17 @@ import { version } from "../../package.json";
     <div class="h-14 mx-auto w-full max-w-5xl px-4 flex items-center gap-x-6">
       <Logo />
       <nav class="flex items-center gap-x-0.5 ml-auto">
-        <Button size="sm" variant="ghost">Projects</Button>
-        <Button size="sm" variant="ghost">Tasks</Button>
-        <Button size="sm" variant="ghost">Agents</Button>
+        <Button
+          v-for="ni in navItems"
+          :key="ni.href"
+          :class="cn(route.path.startsWith(ni.href) && 'bg-accent/50')"
+          size="sm"
+          variant="ghost"
+          as-child
+          @click.prevent="router.push(ni.href)"
+        >
+          <a :href="ni.href">{{ ni.label }}</a>
+        </Button>
       </nav>
     </div>
   </header>

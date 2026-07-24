@@ -36,13 +36,44 @@ declare module 'vue-router/auto-routes' {
       '/',
       Record<never, never>,
       Record<never, never>,
+      | '//agents'
       | '//projects'
+      | '//projects/[project]'
+      | '//tasks'
+    >,
+    '//agents': RouteRecordInfo<
+      '//agents',
+      '/agents',
+      Record<never, never>,
+      Record<never, never>,
+      | never
     >,
     '//projects': RouteRecordInfo<
       '//projects',
       '/projects',
       Record<never, never>,
       Record<never, never>,
+      | '//projects/[project]'
+    >,
+    '//projects/[project]': RouteRecordInfo<
+      '//projects/[project]',
+      '/projects/:project',
+      { project: ParamValue<true> },
+      { project: ParamValue<false> },
+      | never
+    >,
+    '//tasks': RouteRecordInfo<
+      '//tasks',
+      '/tasks',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
+    '/[...path]': RouteRecordInfo<
+      '/[...path]',
+      '/:path(.*)',
+      { path: ParamValue<true> },
+      { path: ParamValue<false> },
       | never
     >,
   }
@@ -61,19 +92,55 @@ declare module 'vue-router/auto-routes' {
     'src/pages/index.vue': {
       routes:
         | '/'
+        | '//agents'
         | '//projects'
+        | '//projects/[project]'
+        | '//tasks'
       views:
         | 'default'
+      pathParamNames:
+        | never
+    }
+    'src/pages/index/agents.vue': {
+      routes:
+        | '//agents'
+      views:
+        | never
       pathParamNames:
         | never
     }
     'src/pages/index/projects.vue': {
       routes:
         | '//projects'
+        | '//projects/[project]'
+      views:
+        | 'default'
+      pathParamNames:
+        | never
+    }
+    'src/pages/index/projects/[project].vue': {
+      routes:
+        | '//projects/[project]'
+      views:
+        | never
+      pathParamNames:
+        | 'project'
+    }
+    'src/pages/index/tasks.vue': {
+      routes:
+        | '//tasks'
       views:
         | never
       pathParamNames:
         | never
+    }
+    'src/pages/[...path].vue': {
+      routes:
+        | '/[...path]'
+      views:
+        | never
+      pathParamNames:
+        | 'path'
     }
   }
 

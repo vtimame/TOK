@@ -14,13 +14,6 @@ export type ListReadyTasksPathParams = {
   project: string;
 };
 
-export type ListReadyTasksHeaderParams = {
-  /**
-   * @type string | undefined
-   */
-  accept?: string;
-};
-
 /**
  * @description OK
  */
@@ -41,6 +34,5 @@ export type ListReadyTasksQueryResponse = ListReadyTasks200;
 export type ListReadyTasksQuery = {
   Response: ListReadyTasks200;
   PathParams: ListReadyTasksPathParams;
-  HeaderParams: ListReadyTasksHeaderParams;
   Errors: ListReadyTasks400 | ListReadyTasks500;
 };

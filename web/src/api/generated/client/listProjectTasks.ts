@@ -9,7 +9,6 @@ import type {
   ListProjectTasksQueryResponse,
   ListProjectTasksPathParams,
   ListProjectTasksQueryParams,
-  ListProjectTasksHeaderParams,
   ListProjectTasks400,
   ListProjectTasks500,
 } from "../models/ListProjectTasks.ts";
@@ -29,17 +28,10 @@ export async function listProjectTasks(
   {
     project,
     params,
-    headers,
-  }: {
-    project: ListProjectTasksPathParams["project"];
-    params?: ListProjectTasksQueryParams;
-    headers?: ListProjectTasksHeaderParams;
-  },
+  }: { project: ListProjectTasksPathParams["project"]; params?: ListProjectTasksQueryParams },
   config: Partial<RequestConfig> & { client?: Client } = {},
 ) {
   const { client: request = fetch, ...requestConfig } = config;
-
-  const mappedHeaders = headers ? { Accept: headers.accept } : undefined;
 
   const res = await request<
     ListProjectTasksQueryResponse,
@@ -50,7 +42,6 @@ export async function listProjectTasks(
     url: getListProjectTasksUrl({ project }).url.toString(),
     params,
     ...requestConfig,
-    headers: { ...mappedHeaders, ...requestConfig.headers },
   });
   return res.data;
 }

@@ -15,13 +15,6 @@ export type CommentTaskPathParams = {
   id: string;
 };
 
-export type CommentTaskHeaderParams = {
-  /**
-   * @type string | undefined
-   */
-  accept?: string;
-};
-
 /**
  * @description OK
  */
@@ -48,6 +41,5 @@ export type CommentTaskMutation = {
   Response: CommentTask200;
   Request: CommentTaskMutationRequest;
   PathParams: CommentTaskPathParams;
-  HeaderParams: CommentTaskHeaderParams;
   Errors: CommentTask400 | CommentTask500;
 };

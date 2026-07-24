@@ -8,7 +8,6 @@ import type { Client, RequestConfig, ResponseErrorConfig } from "../.kubb/fetch.
 import type {
   ListReadyTasksQueryResponse,
   ListReadyTasksPathParams,
-  ListReadyTasksHeaderParams,
   ListReadyTasks400,
   ListReadyTasks500,
 } from "../models/ListReadyTasks.ts";
@@ -25,25 +24,15 @@ function getListReadyTasksUrl({ project }: { project: ListReadyTasksPathParams["
  * {@link /api/projects/:project/tasks/ready}
  */
 export async function listReadyTasks(
-  {
-    project,
-    headers,
-  }: { project: ListReadyTasksPathParams["project"]; headers?: ListReadyTasksHeaderParams },
+  { project }: { project: ListReadyTasksPathParams["project"] },
   config: Partial<RequestConfig> & { client?: Client } = {},
 ) {
   const { client: request = fetch, ...requestConfig } = config;
-
-  const mappedHeaders = headers ? { Accept: headers.accept } : undefined;
 
   const res = await request<
     ListReadyTasksQueryResponse,
     ResponseErrorConfig<ListReadyTasks400 | ListReadyTasks500>,
     unknown
-  >({
-    method: "GET",
-    url: getListReadyTasksUrl({ project }).url.toString(),
-    ...requestConfig,
-    headers: { ...mappedHeaders, ...requestConfig.headers },
-  });
+  >({ method: "GET", url: getListReadyTasksUrl({ project }).url.toString(), ...requestConfig });
   return res.data;
 }

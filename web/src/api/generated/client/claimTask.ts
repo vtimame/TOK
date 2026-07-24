@@ -9,7 +9,6 @@ import type {
   ClaimTaskMutationRequest,
   ClaimTaskMutationResponse,
   ClaimTaskPathParams,
-  ClaimTaskHeaderParams,
   ClaimTask400,
   ClaimTask500,
 } from "../models/ClaimTask.ts";
@@ -26,20 +25,10 @@ function getClaimTaskUrl({ project }: { project: ClaimTaskPathParams["project"] 
  * {@link /api/projects/:project/tasks/claim}
  */
 export async function claimTask(
-  {
-    project,
-    data,
-    headers,
-  }: {
-    project: ClaimTaskPathParams["project"];
-    data: ClaimTaskMutationRequest;
-    headers?: ClaimTaskHeaderParams;
-  },
+  { project, data }: { project: ClaimTaskPathParams["project"]; data: ClaimTaskMutationRequest },
   config: Partial<RequestConfig<ClaimTaskMutationRequest>> & { client?: Client } = {},
 ) {
   const { client: request = fetch, ...requestConfig } = config;
-
-  const mappedHeaders = headers ? { Accept: headers.accept } : undefined;
 
   const requestData = data;
 
@@ -52,7 +41,6 @@ export async function claimTask(
     url: getClaimTaskUrl({ project }).url.toString(),
     data: requestData,
     ...requestConfig,
-    headers: { ...mappedHeaders, ...requestConfig.headers },
   });
   return res.data;
 }

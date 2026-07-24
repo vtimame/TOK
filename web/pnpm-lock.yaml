@@ -108,6 +108,9 @@ importers:
       '@kubb/plugin-ts':
         specifier: ^4.39.2
         version: 4.39.2(@kubb/react-fabric@0.14.0)
+      '@kubb/plugin-vue-query':
+        specifier: 4.39.2
+        version: 4.39.2(@kubb/fabric-core@0.14.0)(@kubb/react-fabric@0.14.0)(axios@1.18.1)
       '@types/node':
         specifier: ^24.13.3
         version: 24.13.3
@@ -379,6 +382,13 @@ packages:
     resolution: {integrity: sha512-lgFWClMNAPv1zg7jnG5TLtnCAEE5sUNioq3KyylgwsmfhhgZYMFPcFM1tPJlfivT+w74hSqHPZBUqF86rrrnaw==}
     engines: {node: '>=20'}
     peerDependencies:
+      '@kubb/react-fabric': 0.14.0
+
+  '@kubb/plugin-vue-query@4.39.2':
+    resolution: {integrity: sha512-jy4g7n9041D7c5hZgj8rbUVBbWuZHw+PpkJAoCgActlHdwXLF2HZi4CQLTJIE7oc+sbzswvG2NtsZ9ZnbsH9KQ==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      '@kubb/fabric-core': 0.14.0
       '@kubb/react-fabric': 0.14.0
 
   '@kubb/plugin-zod@4.39.2':
@@ -2898,6 +2908,23 @@ snapshots:
       typescript: 5.9.3
     transitivePeerDependencies:
       - encoding
+
+  '@kubb/plugin-vue-query@4.39.2(@kubb/fabric-core@0.14.0)(@kubb/react-fabric@0.14.0)(axios@1.18.1)':
+    dependencies:
+      '@kubb/core': 4.39.2(@kubb/fabric-core@0.14.0)(@kubb/react-fabric@0.14.0)
+      '@kubb/fabric-core': 0.14.0
+      '@kubb/oas': 4.39.2(@kubb/fabric-core@0.14.0)(@kubb/react-fabric@0.14.0)
+      '@kubb/plugin-client': 4.39.2(@kubb/fabric-core@0.14.0)(@kubb/react-fabric@0.14.0)(axios@1.18.1)
+      '@kubb/plugin-oas': 4.39.2(@kubb/fabric-core@0.14.0)(@kubb/react-fabric@0.14.0)
+      '@kubb/plugin-ts': 4.39.2(@kubb/react-fabric@0.14.0)
+      '@kubb/plugin-zod': 4.39.2(@kubb/fabric-core@0.14.0)
+      '@kubb/react-fabric': 0.14.0
+      remeda: 2.39.0
+    transitivePeerDependencies:
+      - axios
+      - bufferutil
+      - encoding
+      - utf-8-validate
 
   '@kubb/plugin-zod@4.39.2(@kubb/fabric-core@0.14.0)':
     dependencies:

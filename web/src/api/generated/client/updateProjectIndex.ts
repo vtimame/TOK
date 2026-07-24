@@ -8,7 +8,6 @@ import type { Client, RequestConfig, ResponseErrorConfig } from "../.kubb/fetch.
 import type {
   UpdateProjectIndexMutationResponse,
   UpdateProjectIndexPathParams,
-  UpdateProjectIndexHeaderParams,
   UpdateProjectIndex400,
   UpdateProjectIndex500,
 } from "../models/UpdateProjectIndex.ts";
@@ -29,15 +28,10 @@ function getUpdateProjectIndexUrl({
  * {@link /api/projects/:project/index/update}
  */
 export async function updateProjectIndex(
-  {
-    project,
-    headers,
-  }: { project: UpdateProjectIndexPathParams["project"]; headers?: UpdateProjectIndexHeaderParams },
+  { project }: { project: UpdateProjectIndexPathParams["project"] },
   config: Partial<RequestConfig> & { client?: Client } = {},
 ) {
   const { client: request = fetch, ...requestConfig } = config;
-
-  const mappedHeaders = headers ? { Accept: headers.accept } : undefined;
 
   const res = await request<
     UpdateProjectIndexMutationResponse,
@@ -47,7 +41,6 @@ export async function updateProjectIndex(
     method: "POST",
     url: getUpdateProjectIndexUrl({ project }).url.toString(),
     ...requestConfig,
-    headers: { ...mappedHeaders, ...requestConfig.headers },
   });
   return res.data;
 }

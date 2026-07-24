@@ -9,7 +9,6 @@ import type {
   CompleteTaskMutationRequest,
   CompleteTaskMutationResponse,
   CompleteTaskPathParams,
-  CompleteTaskHeaderParams,
   CompleteTask400,
   CompleteTask500,
 } from "../models/CompleteTask.ts";
@@ -26,20 +25,10 @@ function getCompleteTaskUrl({ id }: { id: CompleteTaskPathParams["id"] }) {
  * {@link /api/tasks/:id/done}
  */
 export async function completeTask(
-  {
-    id,
-    data,
-    headers,
-  }: {
-    id: CompleteTaskPathParams["id"];
-    data: CompleteTaskMutationRequest;
-    headers?: CompleteTaskHeaderParams;
-  },
+  { id, data }: { id: CompleteTaskPathParams["id"]; data: CompleteTaskMutationRequest },
   config: Partial<RequestConfig<CompleteTaskMutationRequest>> & { client?: Client } = {},
 ) {
   const { client: request = fetch, ...requestConfig } = config;
-
-  const mappedHeaders = headers ? { Accept: headers.accept } : undefined;
 
   const requestData = data;
 
@@ -52,7 +41,6 @@ export async function completeTask(
     url: getCompleteTaskUrl({ id }).url.toString(),
     data: requestData,
     ...requestConfig,
-    headers: { ...mappedHeaders, ...requestConfig.headers },
   });
   return res.data;
 }

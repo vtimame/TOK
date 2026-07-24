@@ -47,6 +47,7 @@
     "@kubb/plugin-client": "4.39.2",
     "@kubb/plugin-oas": "^4.39.2",
     "@kubb/plugin-ts": "^4.39.2",
+    "@kubb/plugin-vue-query": "4.39.2",
     "@types/node": "^24.13.3",
     "@vitejs/plugin-vue": "^6.0.7",
     "@vue/tsconfig": "^0.9.1",

@@ -7,13 +7,6 @@
 import type { HTTPError } from "./HTTPError.ts";
 import type { ProjectListResponse } from "./ProjectListResponse.ts";
 
-export type ListProjectsHeaderParams = {
-  /**
-   * @type string | undefined
-   */
-  accept?: string;
-};
-
 /**
  * @description OK
  */
@@ -33,6 +26,5 @@ export type ListProjectsQueryResponse = ListProjects200;
 
 export type ListProjectsQuery = {
   Response: ListProjects200;
-  HeaderParams: ListProjectsHeaderParams;
   Errors: ListProjects400 | ListProjects500;
 };

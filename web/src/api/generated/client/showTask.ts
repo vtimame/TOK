@@ -8,7 +8,6 @@ import type { Client, RequestConfig, ResponseErrorConfig } from "../.kubb/fetch.
 import type {
   ShowTaskQueryResponse,
   ShowTaskPathParams,
-  ShowTaskHeaderParams,
   ShowTask400,
   ShowTask500,
 } from "../models/ShowTask.ts";
@@ -25,22 +24,15 @@ function getShowTaskUrl({ id }: { id: ShowTaskPathParams["id"] }) {
  * {@link /api/tasks/:id}
  */
 export async function showTask(
-  { id, headers }: { id: ShowTaskPathParams["id"]; headers?: ShowTaskHeaderParams },
+  { id }: { id: ShowTaskPathParams["id"] },
   config: Partial<RequestConfig> & { client?: Client } = {},
 ) {
   const { client: request = fetch, ...requestConfig } = config;
-
-  const mappedHeaders = headers ? { Accept: headers.accept } : undefined;
 
   const res = await request<
     ShowTaskQueryResponse,
     ResponseErrorConfig<ShowTask400 | ShowTask500>,
     unknown
-  >({
-    method: "GET",
-    url: getShowTaskUrl({ id }).url.toString(),
-    ...requestConfig,
-    headers: { ...mappedHeaders, ...requestConfig.headers },
-  });
+  >({ method: "GET", url: getShowTaskUrl({ id }).url.toString(), ...requestConfig });
   return res.data;
 }

@@ -9,7 +9,6 @@ import type {
   BlockTaskMutationRequest,
   BlockTaskMutationResponse,
   BlockTaskPathParams,
-  BlockTaskHeaderParams,
   BlockTask400,
   BlockTask500,
 } from "../models/BlockTask.ts";
@@ -26,20 +25,10 @@ function getBlockTaskUrl({ id }: { id: BlockTaskPathParams["id"] }) {
  * {@link /api/tasks/:id/block}
  */
 export async function blockTask(
-  {
-    id,
-    data,
-    headers,
-  }: {
-    id: BlockTaskPathParams["id"];
-    data: BlockTaskMutationRequest;
-    headers?: BlockTaskHeaderParams;
-  },
+  { id, data }: { id: BlockTaskPathParams["id"]; data: BlockTaskMutationRequest },
   config: Partial<RequestConfig<BlockTaskMutationRequest>> & { client?: Client } = {},
 ) {
   const { client: request = fetch, ...requestConfig } = config;
-
-  const mappedHeaders = headers ? { Accept: headers.accept } : undefined;
 
   const requestData = data;
 
@@ -52,7 +41,6 @@ export async function blockTask(
     url: getBlockTaskUrl({ id }).url.toString(),
     data: requestData,
     ...requestConfig,
-    headers: { ...mappedHeaders, ...requestConfig.headers },
   });
   return res.data;
 }

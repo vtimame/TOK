@@ -9,7 +9,6 @@ import type {
   ProgressTaskMutationRequest,
   ProgressTaskMutationResponse,
   ProgressTaskPathParams,
-  ProgressTaskHeaderParams,
   ProgressTask400,
   ProgressTask500,
 } from "../models/ProgressTask.ts";
@@ -26,20 +25,10 @@ function getProgressTaskUrl({ id }: { id: ProgressTaskPathParams["id"] }) {
  * {@link /api/tasks/:id/progress}
  */
 export async function progressTask(
-  {
-    id,
-    data,
-    headers,
-  }: {
-    id: ProgressTaskPathParams["id"];
-    data: ProgressTaskMutationRequest;
-    headers?: ProgressTaskHeaderParams;
-  },
+  { id, data }: { id: ProgressTaskPathParams["id"]; data: ProgressTaskMutationRequest },
   config: Partial<RequestConfig<ProgressTaskMutationRequest>> & { client?: Client } = {},
 ) {
   const { client: request = fetch, ...requestConfig } = config;
-
-  const mappedHeaders = headers ? { Accept: headers.accept } : undefined;
 
   const requestData = data;
 
@@ -52,7 +41,6 @@ export async function progressTask(
     url: getProgressTaskUrl({ id }).url.toString(),
     data: requestData,
     ...requestConfig,
-    headers: { ...mappedHeaders, ...requestConfig.headers },
   });
   return res.data;
 }

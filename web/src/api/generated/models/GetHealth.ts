@@ -7,13 +7,6 @@
 import type { HTTPError } from "./HTTPError.ts";
 import type { HealthOutput } from "./HealthOutput.ts";
 
-export type GetHealthHeaderParams = {
-  /**
-   * @type string | undefined
-   */
-  accept?: string;
-};
-
 /**
  * @description OK
  */
@@ -33,6 +26,5 @@ export type GetHealthQueryResponse = GetHealth200;
 
 export type GetHealthQuery = {
   Response: GetHealth200;
-  HeaderParams: GetHealthHeaderParams;
   Errors: GetHealth400 | GetHealth500;
 };

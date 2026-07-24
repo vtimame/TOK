@@ -15,13 +15,6 @@ export type ClaimTaskPathParams = {
   project: string;
 };
 
-export type ClaimTaskHeaderParams = {
-  /**
-   * @type string | undefined
-   */
-  accept?: string;
-};
-
 /**
  * @description OK
  */
@@ -48,6 +41,5 @@ export type ClaimTaskMutation = {
   Response: ClaimTask200;
   Request: ClaimTaskMutationRequest;
   PathParams: ClaimTaskPathParams;
-  HeaderParams: ClaimTaskHeaderParams;
   Errors: ClaimTask400 | ClaimTask500;
 };

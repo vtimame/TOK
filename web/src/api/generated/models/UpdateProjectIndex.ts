@@ -14,13 +14,6 @@ export type UpdateProjectIndexPathParams = {
   project: string;
 };
 
-export type UpdateProjectIndexHeaderParams = {
-  /**
-   * @type string | undefined
-   */
-  accept?: string;
-};
-
 /**
  * @description OK
  */
@@ -41,6 +34,5 @@ export type UpdateProjectIndexMutationResponse = UpdateProjectIndex200;
 export type UpdateProjectIndexMutation = {
   Response: UpdateProjectIndex200;
   PathParams: UpdateProjectIndexPathParams;
-  HeaderParams: UpdateProjectIndexHeaderParams;
   Errors: UpdateProjectIndex400 | UpdateProjectIndex500;
 };

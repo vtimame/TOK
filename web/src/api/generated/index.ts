@@ -1,9 +1,24 @@
+export type { BlockTaskMutationKey } from "./hooks/useBlockTask.ts";
+export type { ClaimTaskMutationKey } from "./hooks/useClaimTask.ts";
+export type { CommentTaskMutationKey } from "./hooks/useCommentTask.ts";
+export type { CompleteTaskMutationKey } from "./hooks/useCompleteTask.ts";
+export type { CreateProjectMutationKey } from "./hooks/useCreateProject.ts";
+export type { CreateTaskMutationKey } from "./hooks/useCreateTask.ts";
+export type { GetHealthQueryKey } from "./hooks/useGetHealth.ts";
+export type { GetProjectIndexStatusQueryKey } from "./hooks/useGetProjectIndexStatus.ts";
+export type { ListProjectTasksQueryKey } from "./hooks/useListProjectTasks.ts";
+export type { ListProjectsQueryKey } from "./hooks/useListProjects.ts";
+export type { ListReadyTasksQueryKey } from "./hooks/useListReadyTasks.ts";
+export type { ProgressTaskMutationKey } from "./hooks/useProgressTask.ts";
+export type { ShowProjectQueryKey } from "./hooks/useShowProject.ts";
+export type { ShowTaskQueryKey } from "./hooks/useShowTask.ts";
+export type { UnblockTaskMutationKey } from "./hooks/useUnblockTask.ts";
+export type { UpdateProjectIndexMutationKey } from "./hooks/useUpdateProjectIndex.ts";
 export type { ActorOutput } from "./models/ActorOutput.ts";
 export type {
   BlockTask200,
   BlockTask400,
   BlockTask500,
-  BlockTaskHeaderParams,
   BlockTaskMutation,
   BlockTaskMutationRequest,
   BlockTaskMutationResponse,
@@ -13,7 +28,6 @@ export type {
   ClaimTask200,
   ClaimTask400,
   ClaimTask500,
-  ClaimTaskHeaderParams,
   ClaimTaskMutation,
   ClaimTaskMutationRequest,
   ClaimTaskMutationResponse,
@@ -24,7 +38,6 @@ export type {
   CommentTask200,
   CommentTask400,
   CommentTask500,
-  CommentTaskHeaderParams,
   CommentTaskMutation,
   CommentTaskMutationRequest,
   CommentTaskMutationResponse,
@@ -34,7 +47,6 @@ export type {
   CompleteTask200,
   CompleteTask400,
   CompleteTask500,
-  CompleteTaskHeaderParams,
   CompleteTaskMutation,
   CompleteTaskMutationRequest,
   CompleteTaskMutationResponse,
@@ -44,7 +56,6 @@ export type {
   CreateProject200,
   CreateProject400,
   CreateProject500,
-  CreateProjectHeaderParams,
   CreateProjectMutation,
   CreateProjectMutationRequest,
   CreateProjectMutationResponse,
@@ -54,7 +65,6 @@ export type {
   CreateTask200,
   CreateTask400,
   CreateTask500,
-  CreateTaskHeaderParams,
   CreateTaskMutation,
   CreateTaskMutationRequest,
   CreateTaskMutationResponse,
@@ -66,7 +76,6 @@ export type {
   GetHealth200,
   GetHealth400,
   GetHealth500,
-  GetHealthHeaderParams,
   GetHealthQuery,
   GetHealthQueryResponse,
 } from "./models/GetHealth.ts";
@@ -74,7 +83,6 @@ export type {
   GetProjectIndexStatus200,
   GetProjectIndexStatus400,
   GetProjectIndexStatus500,
-  GetProjectIndexStatusHeaderParams,
   GetProjectIndexStatusPathParams,
   GetProjectIndexStatusQuery,
   GetProjectIndexStatusQueryResponse,
@@ -86,7 +94,6 @@ export type {
   ListProjectTasks200,
   ListProjectTasks400,
   ListProjectTasks500,
-  ListProjectTasksHeaderParams,
   ListProjectTasksPathParams,
   ListProjectTasksQuery,
   ListProjectTasksQueryParams,
@@ -96,7 +103,6 @@ export type {
   ListProjects200,
   ListProjects400,
   ListProjects500,
-  ListProjectsHeaderParams,
   ListProjectsQuery,
   ListProjectsQueryResponse,
 } from "./models/ListProjects.ts";
@@ -104,7 +110,6 @@ export type {
   ListReadyTasks200,
   ListReadyTasks400,
   ListReadyTasks500,
-  ListReadyTasksHeaderParams,
   ListReadyTasksPathParams,
   ListReadyTasksQuery,
   ListReadyTasksQueryResponse,
@@ -113,7 +118,6 @@ export type {
   ProgressTask200,
   ProgressTask400,
   ProgressTask500,
-  ProgressTaskHeaderParams,
   ProgressTaskMutation,
   ProgressTaskMutationRequest,
   ProgressTaskMutationResponse,
@@ -126,7 +130,6 @@ export type {
   ShowProject200,
   ShowProject400,
   ShowProject500,
-  ShowProjectHeaderParams,
   ShowProjectPathParams,
   ShowProjectQuery,
   ShowProjectQueryResponse,
@@ -135,7 +138,6 @@ export type {
   ShowTask200,
   ShowTask400,
   ShowTask500,
-  ShowTaskHeaderParams,
   ShowTaskPathParams,
   ShowTaskQuery,
   ShowTaskQueryResponse,
@@ -155,7 +157,6 @@ export type {
   UnblockTask200,
   UnblockTask400,
   UnblockTask500,
-  UnblockTaskHeaderParams,
   UnblockTaskMutation,
   UnblockTaskMutationRequest,
   UnblockTaskMutationResponse,
@@ -166,7 +167,6 @@ export type {
   UpdateProjectIndex200,
   UpdateProjectIndex400,
   UpdateProjectIndex500,
-  UpdateProjectIndexHeaderParams,
   UpdateProjectIndexMutation,
   UpdateProjectIndexMutationResponse,
   UpdateProjectIndexPathParams,
@@ -187,3 +187,42 @@ export { showProject } from "./client/showProject.ts";
 export { showTask } from "./client/showTask.ts";
 export { unblockTask } from "./client/unblockTask.ts";
 export { updateProjectIndex } from "./client/updateProjectIndex.ts";
+export { blockTaskMutationKey } from "./hooks/useBlockTask.ts";
+export { useBlockTask } from "./hooks/useBlockTask.ts";
+export { claimTaskMutationKey } from "./hooks/useClaimTask.ts";
+export { useClaimTask } from "./hooks/useClaimTask.ts";
+export { commentTaskMutationKey } from "./hooks/useCommentTask.ts";
+export { useCommentTask } from "./hooks/useCommentTask.ts";
+export { completeTaskMutationKey } from "./hooks/useCompleteTask.ts";
+export { useCompleteTask } from "./hooks/useCompleteTask.ts";
+export { createProjectMutationKey } from "./hooks/useCreateProject.ts";
+export { useCreateProject } from "./hooks/useCreateProject.ts";
+export { createTaskMutationKey } from "./hooks/useCreateTask.ts";
+export { useCreateTask } from "./hooks/useCreateTask.ts";
+export { getHealthQueryKey } from "./hooks/useGetHealth.ts";
+export { getHealthQueryOptions } from "./hooks/useGetHealth.ts";
+export { useGetHealth } from "./hooks/useGetHealth.ts";
+export { getProjectIndexStatusQueryKey } from "./hooks/useGetProjectIndexStatus.ts";
+export { getProjectIndexStatusQueryOptions } from "./hooks/useGetProjectIndexStatus.ts";
+export { useGetProjectIndexStatus } from "./hooks/useGetProjectIndexStatus.ts";
+export { listProjectTasksQueryKey } from "./hooks/useListProjectTasks.ts";
+export { listProjectTasksQueryOptions } from "./hooks/useListProjectTasks.ts";
+export { useListProjectTasks } from "./hooks/useListProjectTasks.ts";
+export { listProjectsQueryKey } from "./hooks/useListProjects.ts";
+export { listProjectsQueryOptions } from "./hooks/useListProjects.ts";
+export { useListProjects } from "./hooks/useListProjects.ts";
+export { listReadyTasksQueryKey } from "./hooks/useListReadyTasks.ts";
+export { listReadyTasksQueryOptions } from "./hooks/useListReadyTasks.ts";
+export { useListReadyTasks } from "./hooks/useListReadyTasks.ts";
+export { progressTaskMutationKey } from "./hooks/useProgressTask.ts";
+export { useProgressTask } from "./hooks/useProgressTask.ts";
+export { showProjectQueryKey } from "./hooks/useShowProject.ts";
+export { showProjectQueryOptions } from "./hooks/useShowProject.ts";
+export { useShowProject } from "./hooks/useShowProject.ts";
+export { showTaskQueryKey } from "./hooks/useShowTask.ts";
+export { showTaskQueryOptions } from "./hooks/useShowTask.ts";
+export { useShowTask } from "./hooks/useShowTask.ts";
+export { unblockTaskMutationKey } from "./hooks/useUnblockTask.ts";
+export { useUnblockTask } from "./hooks/useUnblockTask.ts";
+export { updateProjectIndexMutationKey } from "./hooks/useUpdateProjectIndex.ts";
+export { useUpdateProjectIndex } from "./hooks/useUpdateProjectIndex.ts";

@@ -8,7 +8,6 @@ import type { Client, RequestConfig, ResponseErrorConfig } from "../.kubb/fetch.
 import type {
   CreateProjectMutationRequest,
   CreateProjectMutationResponse,
-  CreateProjectHeaderParams,
   CreateProject400,
   CreateProject500,
 } from "../models/CreateProject.ts";
@@ -25,12 +24,10 @@ function getCreateProjectUrl() {
  * {@link /api/projects}
  */
 export async function createProject(
-  { data, headers }: { data: CreateProjectMutationRequest; headers?: CreateProjectHeaderParams },
+  { data }: { data: CreateProjectMutationRequest },
   config: Partial<RequestConfig<CreateProjectMutationRequest>> & { client?: Client } = {},
 ) {
   const { client: request = fetch, ...requestConfig } = config;
-
-  const mappedHeaders = headers ? { Accept: headers.accept } : undefined;
 
   const requestData = data;
 
@@ -43,7 +40,6 @@ export async function createProject(
     url: getCreateProjectUrl().url.toString(),
     data: requestData,
     ...requestConfig,
-    headers: { ...mappedHeaders, ...requestConfig.headers },
   });
   return res.data;
 }

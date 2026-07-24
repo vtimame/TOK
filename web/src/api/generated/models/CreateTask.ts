@@ -15,13 +15,6 @@ export type CreateTaskPathParams = {
   project: string;
 };
 
-export type CreateTaskHeaderParams = {
-  /**
-   * @type string | undefined
-   */
-  accept?: string;
-};
-
 /**
  * @description OK
  */
@@ -48,6 +41,5 @@ export type CreateTaskMutation = {
   Response: CreateTask200;
   Request: CreateTaskMutationRequest;
   PathParams: CreateTaskPathParams;
-  HeaderParams: CreateTaskHeaderParams;
   Errors: CreateTask400 | CreateTask500;
 };

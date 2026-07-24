@@ -5,12 +5,7 @@
  */
 
 import type { Client, RequestConfig, ResponseErrorConfig } from "../.kubb/fetch.ts";
-import type {
-  GetHealthQueryResponse,
-  GetHealthHeaderParams,
-  GetHealth400,
-  GetHealth500,
-} from "../models/GetHealth.ts";
+import type { GetHealthQueryResponse, GetHealth400, GetHealth500 } from "../models/GetHealth.ts";
 import { fetch } from "../.kubb/fetch.ts";
 
 function getGetHealthUrl() {
@@ -23,23 +18,13 @@ function getGetHealthUrl() {
  * @summary Show local TOK UI API health
  * {@link /api/health}
  */
-export async function getHealth(
-  { headers }: { headers?: GetHealthHeaderParams } = {},
-  config: Partial<RequestConfig> & { client?: Client } = {},
-) {
+export async function getHealth(config: Partial<RequestConfig> & { client?: Client } = {}) {
   const { client: request = fetch, ...requestConfig } = config;
-
-  const mappedHeaders = headers ? { Accept: headers.accept } : undefined;
 
   const res = await request<
     GetHealthQueryResponse,
     ResponseErrorConfig<GetHealth400 | GetHealth500>,
     unknown
-  >({
-    method: "GET",
-    url: getGetHealthUrl().url.toString(),
-    ...requestConfig,
-    headers: { ...mappedHeaders, ...requestConfig.headers },
-  });
+  >({ method: "GET", url: getGetHealthUrl().url.toString(), ...requestConfig });
   return res.data;
 }

@@ -9,7 +9,6 @@ import type {
   CommentTaskMutationRequest,
   CommentTaskMutationResponse,
   CommentTaskPathParams,
-  CommentTaskHeaderParams,
   CommentTask400,
   CommentTask500,
 } from "../models/CommentTask.ts";
@@ -26,20 +25,10 @@ function getCommentTaskUrl({ id }: { id: CommentTaskPathParams["id"] }) {
  * {@link /api/tasks/:id/comment}
  */
 export async function commentTask(
-  {
-    id,
-    data,
-    headers,
-  }: {
-    id: CommentTaskPathParams["id"];
-    data: CommentTaskMutationRequest;
-    headers?: CommentTaskHeaderParams;
-  },
+  { id, data }: { id: CommentTaskPathParams["id"]; data: CommentTaskMutationRequest },
   config: Partial<RequestConfig<CommentTaskMutationRequest>> & { client?: Client } = {},
 ) {
   const { client: request = fetch, ...requestConfig } = config;
-
-  const mappedHeaders = headers ? { Accept: headers.accept } : undefined;
 
   const requestData = data;
 
@@ -52,7 +41,6 @@ export async function commentTask(
     url: getCommentTaskUrl({ id }).url.toString(),
     data: requestData,
     ...requestConfig,
-    headers: { ...mappedHeaders, ...requestConfig.headers },
   });
   return res.data;
 }

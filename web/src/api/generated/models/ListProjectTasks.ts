@@ -22,13 +22,6 @@ export type ListProjectTasksQueryParams = {
   status?: string;
 };
 
-export type ListProjectTasksHeaderParams = {
-  /**
-   * @type string | undefined
-   */
-  accept?: string;
-};
-
 /**
  * @description OK
  */
@@ -50,6 +43,5 @@ export type ListProjectTasksQuery = {
   Response: ListProjectTasks200;
   PathParams: ListProjectTasksPathParams;
   QueryParams: ListProjectTasksQueryParams;
-  HeaderParams: ListProjectTasksHeaderParams;
   Errors: ListProjectTasks400 | ListProjectTasks500;
 };

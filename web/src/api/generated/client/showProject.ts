@@ -8,7 +8,6 @@ import type { Client, RequestConfig, ResponseErrorConfig } from "../.kubb/fetch.
 import type {
   ShowProjectQueryResponse,
   ShowProjectPathParams,
-  ShowProjectHeaderParams,
   ShowProject400,
   ShowProject500,
 } from "../models/ShowProject.ts";
@@ -25,25 +24,15 @@ function getShowProjectUrl({ project }: { project: ShowProjectPathParams["projec
  * {@link /api/projects/:project}
  */
 export async function showProject(
-  {
-    project,
-    headers,
-  }: { project: ShowProjectPathParams["project"]; headers?: ShowProjectHeaderParams },
+  { project }: { project: ShowProjectPathParams["project"] },
   config: Partial<RequestConfig> & { client?: Client } = {},
 ) {
   const { client: request = fetch, ...requestConfig } = config;
-
-  const mappedHeaders = headers ? { Accept: headers.accept } : undefined;
 
   const res = await request<
     ShowProjectQueryResponse,
     ResponseErrorConfig<ShowProject400 | ShowProject500>,
     unknown
-  >({
-    method: "GET",
-    url: getShowProjectUrl({ project }).url.toString(),
-    ...requestConfig,
-    headers: { ...mappedHeaders, ...requestConfig.headers },
-  });
+  >({ method: "GET", url: getShowProjectUrl({ project }).url.toString(), ...requestConfig });
   return res.data;
 }

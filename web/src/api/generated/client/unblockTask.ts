@@ -9,7 +9,6 @@ import type {
   UnblockTaskMutationRequest,
   UnblockTaskMutationResponse,
   UnblockTaskPathParams,
-  UnblockTaskHeaderParams,
   UnblockTask400,
   UnblockTask500,
 } from "../models/UnblockTask.ts";
@@ -26,20 +25,10 @@ function getUnblockTaskUrl({ id }: { id: UnblockTaskPathParams["id"] }) {
  * {@link /api/tasks/:id/unblock}
  */
 export async function unblockTask(
-  {
-    id,
-    data,
-    headers,
-  }: {
-    id: UnblockTaskPathParams["id"];
-    data: UnblockTaskMutationRequest;
-    headers?: UnblockTaskHeaderParams;
-  },
+  { id, data }: { id: UnblockTaskPathParams["id"]; data: UnblockTaskMutationRequest },
   config: Partial<RequestConfig<UnblockTaskMutationRequest>> & { client?: Client } = {},
 ) {
   const { client: request = fetch, ...requestConfig } = config;
-
-  const mappedHeaders = headers ? { Accept: headers.accept } : undefined;
 
   const requestData = data;
 
@@ -52,7 +41,6 @@ export async function unblockTask(
     url: getUnblockTaskUrl({ id }).url.toString(),
     data: requestData,
     ...requestConfig,
-    headers: { ...mappedHeaders, ...requestConfig.headers },
   });
   return res.data;
 }

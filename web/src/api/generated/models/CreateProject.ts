@@ -8,13 +8,6 @@ import type { CreateProjectInput } from "./CreateProjectInput.ts";
 import type { HTTPError } from "./HTTPError.ts";
 import type { ProjectResponse } from "./ProjectResponse.ts";
 
-export type CreateProjectHeaderParams = {
-  /**
-   * @type string | undefined
-   */
-  accept?: string;
-};
-
 /**
  * @description OK
  */
@@ -40,6 +33,5 @@ export type CreateProjectMutationResponse = CreateProject200;
 export type CreateProjectMutation = {
   Response: CreateProject200;
   Request: CreateProjectMutationRequest;
-  HeaderParams: CreateProjectHeaderParams;
   Errors: CreateProject400 | CreateProject500;
 };

@@ -14,13 +14,6 @@ export type GetProjectIndexStatusPathParams = {
   project: string;
 };
 
-export type GetProjectIndexStatusHeaderParams = {
-  /**
-   * @type string | undefined
-   */
-  accept?: string;
-};
-
 /**
  * @description OK
  */
@@ -41,6 +34,5 @@ export type GetProjectIndexStatusQueryResponse = GetProjectIndexStatus200;
 export type GetProjectIndexStatusQuery = {
   Response: GetProjectIndexStatus200;
   PathParams: GetProjectIndexStatusPathParams;
-  HeaderParams: GetProjectIndexStatusHeaderParams;
   Errors: GetProjectIndexStatus400 | GetProjectIndexStatus500;
 };
