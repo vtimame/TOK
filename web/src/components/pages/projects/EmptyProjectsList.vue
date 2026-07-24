@@ -9,6 +9,8 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
+
+const emits = defineEmits<{ create: [] }>();
 </script>
 
 <template>
@@ -24,7 +26,7 @@ import {
     </EmptyHeader>
     <EmptyContent>
       <div class="flex gap-2">
-        <Button>Create Project</Button>
+        <Button @click="emits('create')">Create Project</Button>
       </div>
     </EmptyContent>
   </Empty>
