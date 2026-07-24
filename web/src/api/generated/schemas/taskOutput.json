@@ -1,0 +1,40 @@
+{
+  "properties": {
+    "acceptance_criteria": { "type": "string" },
+    "agents": {
+      "items": {
+        "properties": {
+          "id": { "format": "int64", "type": "integer" },
+          "kind": { "type": "string" },
+          "name": { "type": "string" }
+        },
+        "required": ["id", "kind", "name"],
+        "type": "object",
+        "x-readme-ref-name": "ActorOutput"
+      },
+      "type": ["array", "null"]
+    },
+    "created_at": { "type": "string" },
+    "description": { "type": "string" },
+    "id": { "format": "int64", "type": "integer" },
+    "notes": { "type": "string" },
+    "project_id": { "format": "int64", "type": "integer" },
+    "status": { "type": "string" },
+    "title": { "type": "string" },
+    "updated_at": { "type": "string" }
+  },
+  "required": [
+    "acceptance_criteria",
+    "agents",
+    "created_at",
+    "description",
+    "id",
+    "notes",
+    "project_id",
+    "status",
+    "title",
+    "updated_at"
+  ],
+  "type": "object",
+  "x-readme-ref-name": "TaskOutput"
+}

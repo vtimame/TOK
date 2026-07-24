@@ -1,0 +1,6 @@
+{
+  "description": "ClaimTaskInput schema",
+  "properties": { "id": { "format": "int64", "type": "integer" } },
+  "type": "object",
+  "x-readme-ref-name": "ClaimTaskInput"
+}

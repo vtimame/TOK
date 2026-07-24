@@ -1,0 +1,7 @@
+{
+  "description": "TaskDoneInput schema",
+  "properties": { "note": { "type": "string" } },
+  "required": ["note"],
+  "type": "object",
+  "x-readme-ref-name": "TaskDoneInput"
+}

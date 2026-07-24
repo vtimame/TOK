@@ -1,0 +1,22 @@
+{
+  "description": "IndexResponse schema",
+  "properties": {
+    "indexed_documents": { "type": "integer" },
+    "project_name": { "type": "string" },
+    "skipped_files": { "type": "integer" },
+    "skipped_reasons": {
+      "additionalProperties": { "type": "integer" },
+      "type": ["object", "null"]
+    },
+    "updated_at": { "type": "string" }
+  },
+  "required": [
+    "indexed_documents",
+    "project_name",
+    "skipped_files",
+    "skipped_reasons",
+    "updated_at"
+  ],
+  "type": "object",
+  "x-readme-ref-name": "IndexResponse"
+}

@@ -1,0 +1,13 @@
+{
+  "properties": {
+    "blocked": { "type": "integer" },
+    "done": { "type": "integer" },
+    "in_progress": { "type": "integer" },
+    "open": { "type": "integer" },
+    "ready": { "type": "integer" },
+    "total": { "type": "integer" }
+  },
+  "required": ["blocked", "done", "in_progress", "open", "ready", "total"],
+  "type": "object",
+  "x-readme-ref-name": "TaskCounts"
+}

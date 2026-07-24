@@ -1,0 +1,12 @@
+{
+  "description": "CreateTaskInput schema",
+  "properties": {
+    "acceptance_criteria": { "type": "string" },
+    "description": { "type": "string" },
+    "notes": { "type": "string" },
+    "title": { "type": "string" }
+  },
+  "required": ["title"],
+  "type": "object",
+  "x-readme-ref-name": "CreateTaskInput"
+}

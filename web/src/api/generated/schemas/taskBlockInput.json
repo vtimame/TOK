@@ -1,0 +1,7 @@
+{
+  "description": "TaskBlockInput schema",
+  "properties": { "reason": { "type": "string" } },
+  "required": ["reason"],
+  "type": "object",
+  "x-readme-ref-name": "TaskBlockInput"
+}

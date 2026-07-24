@@ -1,0 +1,7 @@
+{
+  "description": "HealthOutput schema",
+  "properties": { "status": { "type": "string" }, "version": { "type": "string" } },
+  "required": ["status", "version"],
+  "type": "object",
+  "x-readme-ref-name": "HealthOutput"
+}

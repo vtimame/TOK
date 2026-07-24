@@ -1,0 +1,35 @@
+{
+  "description": "HTTPError schema",
+  "properties": {
+    "detail": { "description": "Human readable error message", "type": "string" },
+    "errors": {
+      "items": {
+        "properties": {
+          "more": {
+            "additionalProperties": { "description": "Additional information about the error" },
+            "description": "Additional information about the error",
+            "type": ["object", "null"]
+          },
+          "name": {
+            "description": "For example, name of the parameter that caused the error",
+            "type": "string"
+          },
+          "reason": { "description": "Human readable error message", "type": "string" }
+        },
+        "required": ["name", "reason"],
+        "type": "object",
+        "x-readme-ref-name": "ErrorItem"
+      },
+      "type": ["array", "null"]
+    },
+    "instance": { "type": "string" },
+    "status": { "description": "HTTP status code", "example": 403, "type": "integer" },
+    "title": { "description": "Short title of the error", "type": "string" },
+    "type": {
+      "description": "URL of the error type. Can be used to lookup the error in a documentation",
+      "type": "string"
+    }
+  },
+  "type": "object",
+  "x-readme-ref-name": "HTTPError"
+}

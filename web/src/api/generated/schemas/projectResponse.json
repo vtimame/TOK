@@ -1,0 +1,58 @@
+{
+  "description": "ProjectResponse schema",
+  "properties": {
+    "project": {
+      "properties": {
+        "agents": {
+          "items": {
+            "properties": {
+              "id": { "format": "int64", "type": "integer" },
+              "kind": { "type": "string" },
+              "name": { "type": "string" }
+            },
+            "required": ["id", "kind", "name"],
+            "type": "object",
+            "x-readme-ref-name": "ActorOutput"
+          },
+          "type": ["array", "null"]
+        },
+        "created_at": { "type": "string" },
+        "display_name": { "type": "string" },
+        "id": { "format": "int64", "type": "integer" },
+        "name": { "type": "string" },
+        "path": { "type": "string" },
+        "task_counts": {
+          "properties": {
+            "blocked": { "type": "integer" },
+            "done": { "type": "integer" },
+            "in_progress": { "type": "integer" },
+            "open": { "type": "integer" },
+            "ready": { "type": "integer" },
+            "total": { "type": "integer" }
+          },
+          "required": ["blocked", "done", "in_progress", "open", "ready", "total"],
+          "type": "object",
+          "x-readme-ref-name": "TaskCounts"
+        },
+        "tasks_count": { "type": "integer" },
+        "updated_at": { "type": "string" }
+      },
+      "required": [
+        "agents",
+        "created_at",
+        "display_name",
+        "id",
+        "name",
+        "path",
+        "task_counts",
+        "tasks_count",
+        "updated_at"
+      ],
+      "type": "object",
+      "x-readme-ref-name": "ProjectOutput"
+    }
+  },
+  "required": ["project"],
+  "type": "object",
+  "x-readme-ref-name": "ProjectResponse"
+}

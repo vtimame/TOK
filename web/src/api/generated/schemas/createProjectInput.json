@@ -1,0 +1,11 @@
+{
+  "description": "CreateProjectInput schema",
+  "properties": {
+    "display_name": { "type": "string" },
+    "name": { "type": "string" },
+    "path": { "type": "string" }
+  },
+  "required": ["name", "path"],
+  "type": "object",
+  "x-readme-ref-name": "CreateProjectInput"
+}

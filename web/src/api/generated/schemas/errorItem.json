@@ -1,0 +1,17 @@
+{
+  "properties": {
+    "more": {
+      "additionalProperties": { "description": "Additional information about the error" },
+      "description": "Additional information about the error",
+      "type": ["object", "null"]
+    },
+    "name": {
+      "description": "For example, name of the parameter that caused the error",
+      "type": "string"
+    },
+    "reason": { "description": "Human readable error message", "type": "string" }
+  },
+  "required": ["name", "reason"],
+  "type": "object",
+  "x-readme-ref-name": "ErrorItem"
+}
