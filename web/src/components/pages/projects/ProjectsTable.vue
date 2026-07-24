@@ -51,18 +51,6 @@ const updateIndexMutation = useUpdateProjectIndex({
   },
 });
 
-const totals = computed(() =>
-  props.projects.reduce(
-    (sum, project) => {
-      sum.ready += project.taskCounts.ready;
-      sum.blocked += project.taskCounts.blocked;
-      sum.done += project.taskCounts.done;
-      sum.total += project.taskCounts.total;
-      return sum;
-    },
-    { ready: 0, blocked: 0, done: 0, total: 0 },
-  ),
-);
 const pageSizes = [10, 25, 50, 100];
 const currentFrom = computed(() => (props.total === 0 ? 0 : props.offset + 1));
 const currentTo = computed(() => Math.min(props.offset + props.projects.length, props.total));
@@ -128,17 +116,6 @@ function updatePageSize(event: Event) {
       />
     </TableBody>
     <TableFooter class="sticky bottom-0 z-10 bg-muted shadow-[0_-1px_0_hsl(var(--border))]">
-      <TableRow>
-        <TableCell colspan="3">
-          Page totals
-        </TableCell>
-        <TableCell class="text-right text-muted-foreground">This page</TableCell>
-        <TableCell class="text-right">{{ totals.ready }}</TableCell>
-        <TableCell class="text-right">{{ totals.blocked }}</TableCell>
-        <TableCell class="text-right">{{ totals.done }}</TableCell>
-        <TableCell class="text-right font-medium">{{ totals.total }}</TableCell>
-        <TableCell />
-      </TableRow>
       <TableRow>
         <TableCell colspan="9">
           <div class="flex flex-wrap items-center justify-between gap-3 py-1">
