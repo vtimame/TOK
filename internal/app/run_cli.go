@@ -11,11 +11,14 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	contextpkg "s26.sh/tok/internal/context"
 	"s26.sh/tok/internal/retrieval"
 	"s26.sh/tok/internal/storage"
 )
+
+const defaultRunLeaseTTL = 15 * time.Minute
 
 func (c *CLI) runRun(ctx context.Context, opts runtimeOptions) error {
 	if err := ctx.Err(); err != nil {
@@ -43,6 +46,10 @@ func (c *CLI) runRun(ctx context.Context, opts runtimeOptions) error {
 		return c.runRunShow(ctx, store, opts.args[2:])
 	case "record-validation":
 		return c.runRunRecordValidation(ctx, store, opts.args[2:])
+	case "heartbeat":
+		return c.runRunHeartbeat(ctx, store, opts.args[2:])
+	case "recover":
+		return c.runRunRecover(ctx, store, opts.args[2:])
 	case "cancel":
 		return c.runRunCancel(ctx, store, opts.args[2:])
 	case "finish":
@@ -59,6 +66,7 @@ type runStartOptions struct {
 	taskID         int64
 	retrievalLimit int
 	handoffOutput  string
+	allowActive    bool
 	json           bool
 }
 
@@ -76,6 +84,19 @@ type runShowOptions struct {
 
 type runCancelOptions struct {
 	runID   int64
+	summary string
+	json    bool
+}
+
+type runHeartbeatOptions struct {
+	runID int64
+	owner string
+	ttl   time.Duration
+	json  bool
+}
+
+type runRecoverOptions struct {
+	now     string
 	summary string
 	json    bool
 }
@@ -117,6 +138,7 @@ func (c *CLI) runRunStart(ctx context.Context, store *storage.Store, args []stri
 		return err
 	}
 	gitState := contextpkg.CommandGitInspector{}.Inspect(ctx, project.Path)
+	now := time.Now().UTC()
 
 	run, err := store.CreateRun(ctx, storage.CreateRunInput{
 		TaskID:                 startOpts.taskID,
@@ -125,11 +147,18 @@ func (c *CLI) runRunStart(ctx context.Context, store *storage.Store, args []stri
 		RetrievalLimit:         startOpts.retrievalLimit,
 		BaseBranch:             gitState.Branch,
 		BaseHead:               gitState.Head,
+		LeaseOwner:             runLeaseOwner(actor),
+		HeartbeatAt:            formatRunTimestamp(now),
+		ExpiresAt:              formatRunTimestamp(now.Add(defaultRunLeaseTTL)),
+		AllowActive:            startOpts.allowActive,
 		Actor:                  actor,
 	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("task not found: %d", startOpts.taskID)
+		}
+		if errors.Is(err, storage.ErrActiveRunExists) {
+			return fmt.Errorf("active run already exists for task %d; use --allow-active to override", startOpts.taskID)
 		}
 		return err
 	}
@@ -265,6 +294,95 @@ func (c *CLI) runRunCancel(ctx context.Context, store *storage.Store, args []str
 	return nil
 }
 
+func (c *CLI) runRunHeartbeat(ctx context.Context, store *storage.Store, args []string) error {
+	heartbeatOpts, err := parseRunHeartbeatOptions(args)
+	if err != nil {
+		return err
+	}
+
+	actor, err := currentLocalHumanActor(ctx, store)
+	if err != nil {
+		return err
+	}
+	owner := heartbeatOpts.owner
+	if owner == "" {
+		owner = runLeaseOwner(actor)
+	}
+	now := time.Now().UTC()
+	run, err := store.HeartbeatRun(ctx, storage.HeartbeatRunInput{
+		ID:        heartbeatOpts.runID,
+		Owner:     owner,
+		Now:       formatRunTimestamp(now),
+		ExpiresAt: formatRunTimestamp(now.Add(heartbeatOpts.ttl)),
+		Actor:     actor,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("run not found: %d", heartbeatOpts.runID)
+		}
+		if errors.Is(err, storage.ErrInvalidRunTransition) {
+			return fmt.Errorf("run cannot be heartbeated from current status")
+		}
+		return err
+	}
+
+	artifacts, err := store.ListRunArtifacts(ctx, run.ID)
+	if err != nil {
+		return err
+	}
+	if heartbeatOpts.json {
+		return printRunJSON(c.out, run, artifacts)
+	}
+	printRun(c.out, run)
+	return nil
+}
+
+func (c *CLI) runRunRecover(ctx context.Context, store *storage.Store, args []string) error {
+	recoverOpts, err := parseRunRecoverOptions(args)
+	if err != nil {
+		return err
+	}
+
+	actor, err := currentLocalHumanActor(ctx, store)
+	if err != nil {
+		return err
+	}
+	now := recoverOpts.now
+	if now == "" {
+		now = formatRunTimestamp(time.Now().UTC())
+	}
+	runs, err := store.RecoverStaleRuns(ctx, storage.RecoverStaleRunsInput{
+		Now:           now,
+		ResultSummary: recoverOpts.summary,
+		Actor:         actor,
+	})
+	if err != nil {
+		if errors.Is(err, storage.ErrRunResultSummaryEmpty) {
+			return fmt.Errorf("run recover requires --summary")
+		}
+		return err
+	}
+
+	if recoverOpts.json {
+		return printRunsJSON(c.out, runs)
+	}
+	if len(runs) == 0 {
+		fmt.Fprintln(c.out, "no stale runs")
+		return nil
+	}
+	rows := [][]string{{"id", "task_id", "status", "finished_at", "summary"}}
+	for _, run := range runs {
+		rows = append(rows, []string{
+			strconv.FormatInt(run.ID, 10),
+			strconv.FormatInt(run.TaskID, 10),
+			run.Status,
+			run.FinishedAt,
+			run.ResultSummary,
+		})
+	}
+	return printTerminalTable(c.out, rows)
+}
+
 func (c *CLI) runRunFinish(ctx context.Context, store *storage.Store, args []string) error {
 	finishOpts, err := parseRunFinishOptions(args)
 	if err != nil {
@@ -393,6 +511,8 @@ func parseRunStartOptions(args []string) (runStartOptions, error) {
 			if strings.TrimSpace(opts.handoffOutput) == "" {
 				return runStartOptions{}, &UsageError{Message: "--handoff-output requires a path", Code: 2}
 			}
+		case arg == "--allow-active":
+			opts.allowActive = true
 		case arg == "--json":
 			opts.json = true
 		default:
@@ -594,6 +714,101 @@ func parseRunCancelOptions(args []string) (runCancelOptions, error) {
 	return opts, nil
 }
 
+func parseRunHeartbeatOptions(args []string) (runHeartbeatOptions, error) {
+	if len(args) == 0 {
+		return runHeartbeatOptions{}, &UsageError{Message: "run heartbeat requires a run id", Code: 2}
+	}
+
+	runID, err := parseRunID(args[0])
+	if err != nil {
+		return runHeartbeatOptions{}, err
+	}
+
+	opts := runHeartbeatOptions{runID: runID, ttl: defaultRunLeaseTTL}
+	for i := 1; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--owner":
+			i++
+			if i >= len(args) {
+				return runHeartbeatOptions{}, &UsageError{Message: "--owner requires a value", Code: 2}
+			}
+			opts.owner = args[i]
+		case strings.HasPrefix(arg, "--owner="):
+			opts.owner = strings.TrimPrefix(arg, "--owner=")
+			if opts.owner == "" {
+				return runHeartbeatOptions{}, &UsageError{Message: "--owner requires a value", Code: 2}
+			}
+		case arg == "--ttl":
+			i++
+			if i >= len(args) {
+				return runHeartbeatOptions{}, &UsageError{Message: "--ttl requires a value", Code: 2}
+			}
+			ttl, err := parseRunTTL(args[i])
+			if err != nil {
+				return runHeartbeatOptions{}, err
+			}
+			opts.ttl = ttl
+		case strings.HasPrefix(arg, "--ttl="):
+			ttl, err := parseRunTTL(strings.TrimPrefix(arg, "--ttl="))
+			if err != nil {
+				return runHeartbeatOptions{}, err
+			}
+			opts.ttl = ttl
+		case arg == "--json":
+			opts.json = true
+		default:
+			return runHeartbeatOptions{}, &UsageError{Message: fmt.Sprintf("unknown run heartbeat option %q", arg), Code: 2}
+		}
+	}
+
+	opts.owner = strings.TrimSpace(opts.owner)
+	return opts, nil
+}
+
+func parseRunRecoverOptions(args []string) (runRecoverOptions, error) {
+	var opts runRecoverOptions
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--summary":
+			i++
+			if i >= len(args) {
+				return runRecoverOptions{}, &UsageError{Message: "--summary requires a value", Code: 2}
+			}
+			opts.summary = args[i]
+		case strings.HasPrefix(arg, "--summary="):
+			opts.summary = strings.TrimPrefix(arg, "--summary=")
+			if opts.summary == "" {
+				return runRecoverOptions{}, &UsageError{Message: "--summary requires a value", Code: 2}
+			}
+		case arg == "--now":
+			i++
+			if i >= len(args) {
+				return runRecoverOptions{}, &UsageError{Message: "--now requires a value", Code: 2}
+			}
+			opts.now = args[i]
+		case strings.HasPrefix(arg, "--now="):
+			opts.now = strings.TrimPrefix(arg, "--now=")
+			if opts.now == "" {
+				return runRecoverOptions{}, &UsageError{Message: "--now requires a value", Code: 2}
+			}
+		case arg == "--json":
+			opts.json = true
+		default:
+			return runRecoverOptions{}, &UsageError{Message: fmt.Sprintf("unknown run recover option %q", arg), Code: 2}
+		}
+	}
+
+	opts.now = strings.TrimSpace(opts.now)
+	opts.summary = strings.TrimSpace(opts.summary)
+	if opts.summary == "" {
+		return runRecoverOptions{}, &UsageError{Message: "run recover requires --summary", Code: 2}
+	}
+	return opts, nil
+}
+
 func parseRunFinishOptions(args []string) (runFinishOptions, error) {
 	if len(args) == 0 {
 		return runFinishOptions{}, &UsageError{Message: "run finish requires a run id", Code: 2}
@@ -659,6 +874,9 @@ type runOutput struct {
 	BaseBranch             string              `json:"base_branch"`
 	BaseHead               string              `json:"base_head"`
 	ResultSummary          string              `json:"result_summary"`
+	LeaseOwner             string              `json:"lease_owner"`
+	HeartbeatAt            string              `json:"heartbeat_at"`
+	ExpiresAt              string              `json:"expires_at"`
 	StartedBy              *actorOutput        `json:"started_by,omitempty"`
 	FinishedBy             *actorOutput        `json:"finished_by,omitempty"`
 	Artifacts              []runArtifactOutput `json:"artifacts"`
@@ -686,6 +904,9 @@ func printRun(out io.Writer, run storage.Run) {
 	fmt.Fprintf(out, "base_branch: %s\n", run.BaseBranch)
 	fmt.Fprintf(out, "base_head: %s\n", run.BaseHead)
 	fmt.Fprintf(out, "result_summary: %s\n", run.ResultSummary)
+	fmt.Fprintf(out, "lease_owner: %s\n", run.LeaseOwner)
+	fmt.Fprintf(out, "heartbeat_at: %s\n", run.HeartbeatAt)
+	fmt.Fprintf(out, "expires_at: %s\n", run.ExpiresAt)
 	if run.ActorName != "" {
 		fmt.Fprintf(out, "started_by: %s/%s\n", run.ActorKind, run.ActorName)
 	}
@@ -746,6 +967,9 @@ func runOutputFromStorage(run storage.Run, artifacts []storage.RunArtifact) runO
 		BaseBranch:             run.BaseBranch,
 		BaseHead:               run.BaseHead,
 		ResultSummary:          run.ResultSummary,
+		LeaseOwner:             run.LeaseOwner,
+		HeartbeatAt:            run.HeartbeatAt,
+		ExpiresAt:              run.ExpiresAt,
 		StartedBy:              actorOutputFromSnapshot(run.ActorID, run.ActorKind, run.ActorName),
 		FinishedBy:             actorOutputFromSnapshot(run.FinishedActorID, run.FinishedActorKind, run.FinishedActorName),
 		Artifacts:              artifactOutputs,
@@ -771,6 +995,31 @@ func parseRunID(value string) (int64, error) {
 		return 0, &UsageError{Message: fmt.Sprintf("invalid run id: %s", value), Code: 2}
 	}
 	return id, nil
+}
+
+func parseRunTTL(value string) (time.Duration, error) {
+	ttl, err := time.ParseDuration(strings.TrimSpace(value))
+	if err != nil || ttl <= 0 {
+		return 0, &UsageError{Message: fmt.Sprintf("invalid run ttl: %s", value), Code: 2}
+	}
+	return ttl, nil
+}
+
+func formatRunTimestamp(t time.Time) string {
+	return t.UTC().Format("2006-01-02T15:04:05.000Z")
+}
+
+func runLeaseOwner(actor storage.ActorRef) string {
+	if actor.Kind != "" && actor.Name != "" {
+		return actor.Kind + "/" + actor.Name
+	}
+	if actor.Name != "" {
+		return actor.Name
+	}
+	if actor.Kind != "" {
+		return actor.Kind
+	}
+	return "local"
 }
 
 func writeRunHandoffArtifact(ctx context.Context, store *storage.Store, project storage.Project, task storage.Task, run storage.Run, opts runStartOptions, actor storage.ActorRef) (storage.RunArtifact, error) {

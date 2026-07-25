@@ -48,7 +48,10 @@ tok context build \
 
 tok context build --project tok --task <task-id> --json
 tok task progress <task-id> --body "Implemented the first slice."
+tok run list --project tok --status in_progress --json
 tok run show <run-id> --json
+tok run heartbeat <run-id> --ttl 15m --json
+tok run recover --summary "Recovered stale run." --json
 tok run record-validation <run-id> --command "go test ./..." --status passed --summary "Tests pass."
 tok run finish <run-id> --status succeeded --summary "Run completed."
 tok task block <task-id> --reason "Waiting for a decision."
@@ -90,6 +93,10 @@ The core invariants are:
   retrieval limit and git start snapshot. With `--handoff-output`, it also
   writes the handoff package and records it as a run artifact. `run finish`
   records the attempt outcome without closing the task automatically.
+- Active runs carry a local lease with owner, heartbeat timestamp and expiry.
+  `run heartbeat` refreshes that lease, `run recover` cancels expired active
+  runs, and `run start` refuses a second active run for the same task unless
+  `--allow-active` is passed explicitly.
 - `run record-validation` stores a manual validation result as a run artifact;
   it records the command text and outcome, but does not execute anything.
 - `progress`, `block` and `unblock` record typed task events; blocked tasks are

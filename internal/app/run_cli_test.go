@@ -57,6 +57,9 @@ func TestCLIRunStartShowFinish(t *testing.T) {
 	if started.HandoffContractVersion != "tok.handoff.v0" || started.StartedAt == "" || started.FinishedAt != "" {
 		t.Fatalf("unexpected started run contract fields: %+v", started)
 	}
+	if started.LeaseOwner == "" || started.HeartbeatAt == "" || started.ExpiresAt == "" {
+		t.Fatalf("started run missing lease fields: %+v", started)
+	}
 	if started.RetrievalLimit != 3 || started.BaseBranch != "main" || started.BaseHead != initialHead {
 		t.Fatalf("unexpected started run snapshot: %+v", started)
 	}
@@ -329,12 +332,110 @@ func TestCLIRunListAndCancel(t *testing.T) {
 	}
 }
 
+func TestCLIRunHeartbeatRecoverAndActiveGuard(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	projectDir := t.TempDir()
+
+	projectCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	if err := projectCLI.Run(ctx, []string{"project", "add", projectDir, "--name", "tok"}); err != nil {
+		t.Fatalf("project add returned error: %v", err)
+	}
+	taskID := createTaskForTest(t, ctx, dataDir, "tok", "Heartbeat task")
+	started := startRunForTest(t, ctx, dataDir, taskID)
+	if started.LeaseOwner == "" || started.HeartbeatAt == "" || started.ExpiresAt == "" {
+		t.Fatalf("run start should set lease fields: %+v", started)
+	}
+
+	duplicateCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	err := duplicateCLI.Run(ctx, []string{"run", "start", "--task", strconv.FormatInt(taskID, 10)})
+	if err == nil || !strings.Contains(err.Error(), "active run already exists for task") {
+		t.Fatalf("expected active run guard error, got %v", err)
+	}
+
+	override := startRunForTestWithArgs(t, ctx, dataDir, []string{"run", "start", "--task", strconv.FormatInt(taskID, 10), "--allow-active", "--json"})
+	if override.ID == started.ID {
+		t.Fatalf("expected allow-active to create distinct run, got %+v", override)
+	}
+	finishOverrideCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	if err := finishOverrideCLI.Run(ctx, []string{
+		"run", "finish",
+		strconv.FormatInt(override.ID, 10),
+		"--status", "failed",
+		"--summary", "Override finished.",
+	}); err != nil {
+		t.Fatalf("finish override returned error: %v", err)
+	}
+
+	var heartbeatOut bytes.Buffer
+	heartbeatCLI := newProjectTestCLI(dataDir, &heartbeatOut)
+	if err := heartbeatCLI.Run(ctx, []string{
+		"run", "heartbeat",
+		strconv.FormatInt(started.ID, 10),
+		"--owner", "agent/test",
+		"--ttl", "1ms",
+		"--json",
+	}); err != nil {
+		t.Fatalf("run heartbeat --json returned error: %v", err)
+	}
+	var heartbeated runOutput
+	if err := json.Unmarshal(heartbeatOut.Bytes(), &heartbeated); err != nil {
+		t.Fatalf("parse heartbeat run JSON: %v\n%s", err, heartbeatOut.String())
+	}
+	if heartbeated.LeaseOwner != "agent/test" || heartbeated.HeartbeatAt == "" || heartbeated.ExpiresAt == "" {
+		t.Fatalf("unexpected heartbeated run: %+v", heartbeated)
+	}
+
+	var recoverOut bytes.Buffer
+	recoverCLI := newProjectTestCLI(dataDir, &recoverOut)
+	if err := recoverCLI.Run(ctx, []string{
+		"run", "recover",
+		"--now", "9999-01-01T00:00:00.000Z",
+		"--summary", "Recovered stale run.",
+		"--json",
+	}); err != nil {
+		t.Fatalf("run recover --json returned error: %v", err)
+	}
+	var recovered []runOutput
+	if err := json.Unmarshal(recoverOut.Bytes(), &recovered); err != nil {
+		t.Fatalf("parse recovered runs JSON: %v\n%s", err, recoverOut.String())
+	}
+	if len(recovered) != 1 || recovered[0].ID != started.ID || recovered[0].Status != "cancelled" || recovered[0].ResultSummary != "Recovered stale run." {
+		t.Fatalf("unexpected recovered runs: %+v", recovered)
+	}
+
+	heartbeatTerminalCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	err = heartbeatTerminalCLI.Run(ctx, []string{
+		"run", "heartbeat",
+		strconv.FormatInt(started.ID, 10),
+		"--owner", "agent/test",
+	})
+	if err == nil || !strings.Contains(err.Error(), "run cannot be heartbeated from current status") {
+		t.Fatalf("expected terminal heartbeat error, got %v", err)
+	}
+
+	var emptyRecoverOut bytes.Buffer
+	emptyRecoverCLI := newProjectTestCLI(dataDir, &emptyRecoverOut)
+	if err := emptyRecoverCLI.Run(ctx, []string{"run", "recover", "--summary", "No stale runs."}); err != nil {
+		t.Fatalf("empty run recover returned error: %v", err)
+	}
+	if !strings.Contains(emptyRecoverOut.String(), "no stale runs") {
+		t.Fatalf("unexpected empty recover output:\n%s", emptyRecoverOut.String())
+	}
+}
+
 func startRunForTest(t *testing.T, ctx context.Context, dataDir string, taskID int64) runOutput {
+	t.Helper()
+
+	return startRunForTestWithArgs(t, ctx, dataDir, []string{"run", "start", "--task", strconv.FormatInt(taskID, 10), "--json"})
+}
+
+func startRunForTestWithArgs(t *testing.T, ctx context.Context, dataDir string, args []string) runOutput {
 	t.Helper()
 
 	var out bytes.Buffer
 	cli := newProjectTestCLI(dataDir, &out)
-	if err := cli.Run(ctx, []string{"run", "start", "--task", strconv.FormatInt(taskID, 10), "--json"}); err != nil {
+	if err := cli.Run(ctx, args); err != nil {
 		t.Fatalf("run start --json returned error: %v", err)
 	}
 	var run runOutput

@@ -28,6 +28,7 @@ var (
 	ErrTaskNoteEmpty           = errors.New("task note is required")
 	ErrInvalidRunTransition    = errors.New("invalid run status transition")
 	ErrRunResultSummaryEmpty   = errors.New("run result summary is required")
+	ErrActiveRunExists         = errors.New("active run already exists for task")
 )
 
 //go:embed migrations/*.sql
@@ -134,6 +135,9 @@ type Run struct {
 	BaseBranch             string
 	BaseHead               string
 	ResultSummary          string
+	LeaseOwner             string
+	HeartbeatAt            string
+	ExpiresAt              string
 	ActorID                int64
 	ActorKind              string
 	ActorName              string
@@ -162,12 +166,30 @@ type CreateRunInput struct {
 	RetrievalLimit         int
 	BaseBranch             string
 	BaseHead               string
+	LeaseOwner             string
+	HeartbeatAt            string
+	ExpiresAt              string
+	AllowActive            bool
 	Actor                  ActorRef
 }
 
 type FinishRunInput struct {
 	ID            int64
 	Status        string
+	ResultSummary string
+	Actor         ActorRef
+}
+
+type HeartbeatRunInput struct {
+	ID        int64
+	Owner     string
+	Now       string
+	ExpiresAt string
+	Actor     ActorRef
+}
+
+type RecoverStaleRunsInput struct {
+	Now           string
 	ResultSummary string
 	Actor         ActorRef
 }
@@ -996,12 +1018,24 @@ func (s *Store) CreateRun(ctx context.Context, input CreateRunInput) (Run, error
 	if input.RetrievalLimit <= 0 {
 		input.RetrievalLimit = 5
 	}
+	if !input.AllowActive {
+		active, err := s.hasActiveRunForTask(ctx, input.TaskID)
+		if err != nil {
+			return Run{}, err
+		}
+		if active {
+			return Run{}, ErrActiveRunExists
+		}
+	}
+	input.LeaseOwner = strings.TrimSpace(input.LeaseOwner)
+	input.HeartbeatAt = strings.TrimSpace(input.HeartbeatAt)
+	input.ExpiresAt = strings.TrimSpace(input.ExpiresAt)
 
 	actor := sanitizeActorRef(input.Actor)
 	res, err := s.db.ExecContext(ctx, `
-		INSERT INTO runs (task_id, status, handoff_contract_version, retrieval_limit, base_branch, base_head, actor_id, actor_kind, actor_name)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, input.TaskID, status, input.HandoffContractVersion, input.RetrievalLimit, input.BaseBranch, input.BaseHead, actor.ID, actor.Kind, actor.Name)
+		INSERT INTO runs (task_id, status, handoff_contract_version, retrieval_limit, base_branch, base_head, lease_owner, heartbeat_at, expires_at, actor_id, actor_kind, actor_name)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, input.TaskID, status, input.HandoffContractVersion, input.RetrievalLimit, input.BaseBranch, input.BaseHead, input.LeaseOwner, input.HeartbeatAt, input.ExpiresAt, actor.ID, actor.Kind, actor.Name)
 	if err != nil {
 		return Run{}, fmt.Errorf("create run: %w", err)
 	}
@@ -1014,9 +1048,28 @@ func (s *Store) CreateRun(ctx context.Context, input CreateRunInput) (Run, error
 	return s.GetRun(ctx, id)
 }
 
+func (s *Store) hasActiveRunForTask(ctx context.Context, taskID int64) (bool, error) {
+	var id int64
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id
+		FROM runs
+		WHERE task_id = ?
+		  AND status IN ('created', 'in_progress')
+		ORDER BY id
+		LIMIT 1
+	`, taskID).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("find active run: %w", err)
+	}
+	return true, nil
+}
+
 func (s *Store) GetRun(ctx context.Context, id int64) (Run, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, task_id, status, handoff_contract_version, retrieval_limit, started_at, finished_at, base_branch, base_head, result_summary, actor_id, actor_kind, actor_name, finished_actor_id, finished_actor_kind, finished_actor_name
+		SELECT id, task_id, status, handoff_contract_version, retrieval_limit, started_at, finished_at, base_branch, base_head, result_summary, lease_owner, heartbeat_at, expires_at, actor_id, actor_kind, actor_name, finished_actor_id, finished_actor_kind, finished_actor_name
 		FROM runs
 		WHERE id = ?
 	`, id)
@@ -1036,7 +1089,7 @@ func (s *Store) ListRuns(ctx context.Context, opts ListRunsOptions) ([]Run, erro
 	}
 
 	query := `
-		SELECT r.id, r.task_id, r.status, r.handoff_contract_version, r.retrieval_limit, r.started_at, r.finished_at, r.base_branch, r.base_head, r.result_summary, r.actor_id, r.actor_kind, r.actor_name, r.finished_actor_id, r.finished_actor_kind, r.finished_actor_name
+		SELECT r.id, r.task_id, r.status, r.handoff_contract_version, r.retrieval_limit, r.started_at, r.finished_at, r.base_branch, r.base_head, r.result_summary, r.lease_owner, r.heartbeat_at, r.expires_at, r.actor_id, r.actor_kind, r.actor_name, r.finished_actor_id, r.finished_actor_kind, r.finished_actor_name
 		FROM runs r
 	`
 	args := []any{}
@@ -1136,6 +1189,104 @@ func (s *Store) FinishRun(ctx context.Context, input FinishRunInput) (Run, error
 	}
 
 	return s.GetRun(ctx, input.ID)
+}
+
+func (s *Store) HeartbeatRun(ctx context.Context, input HeartbeatRunInput) (Run, error) {
+	if input.ID <= 0 {
+		return Run{}, errors.New("run id is required")
+	}
+	input.Owner = strings.TrimSpace(input.Owner)
+	if input.Owner == "" {
+		return Run{}, errors.New("run heartbeat owner is required")
+	}
+	input.Now = strings.TrimSpace(input.Now)
+	if input.Now == "" {
+		return Run{}, errors.New("run heartbeat timestamp is required")
+	}
+	input.ExpiresAt = strings.TrimSpace(input.ExpiresAt)
+	if input.ExpiresAt == "" {
+		return Run{}, errors.New("run heartbeat expiration is required")
+	}
+
+	current, err := s.GetRun(ctx, input.ID)
+	if err != nil {
+		return Run{}, err
+	}
+	if runStatusTerminal(current.Status) {
+		return Run{}, ErrInvalidRunTransition
+	}
+
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE runs
+		SET lease_owner = ?,
+			heartbeat_at = ?,
+			expires_at = ?
+		WHERE id = ?
+		  AND status IN ('created', 'in_progress')
+	`, input.Owner, input.Now, input.ExpiresAt, input.ID)
+	if err != nil {
+		return Run{}, fmt.Errorf("heartbeat run: %w", err)
+	}
+	updated, err := res.RowsAffected()
+	if err != nil {
+		return Run{}, fmt.Errorf("read heartbeat run count: %w", err)
+	}
+	if updated == 0 {
+		return Run{}, ErrInvalidRunTransition
+	}
+
+	return s.GetRun(ctx, input.ID)
+}
+
+func (s *Store) RecoverStaleRuns(ctx context.Context, input RecoverStaleRunsInput) ([]Run, error) {
+	input.Now = strings.TrimSpace(input.Now)
+	if input.Now == "" {
+		return nil, errors.New("run recovery timestamp is required")
+	}
+	input.ResultSummary = strings.TrimSpace(input.ResultSummary)
+	if input.ResultSummary == "" {
+		return nil, ErrRunResultSummaryEmpty
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id
+		FROM runs
+		WHERE status IN ('created', 'in_progress')
+		  AND expires_at != ''
+		  AND expires_at < ?
+		ORDER BY id
+	`, input.Now)
+	if err != nil {
+		return nil, fmt.Errorf("list stale runs: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan stale run id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate stale runs: %w", err)
+	}
+
+	recovered := make([]Run, 0, len(ids))
+	for _, id := range ids {
+		run, err := s.FinishRun(ctx, FinishRunInput{
+			ID:            id,
+			Status:        "cancelled",
+			ResultSummary: input.ResultSummary,
+			Actor:         input.Actor,
+		})
+		if err != nil {
+			return nil, err
+		}
+		recovered = append(recovered, run)
+	}
+	return recovered, nil
 }
 
 func (s *Store) AddRunArtifact(ctx context.Context, input AddRunArtifactInput) (RunArtifact, error) {
@@ -2149,6 +2300,9 @@ func scanRun(row scanner) (Run, error) {
 		&run.BaseBranch,
 		&run.BaseHead,
 		&run.ResultSummary,
+		&run.LeaseOwner,
+		&run.HeartbeatAt,
+		&run.ExpiresAt,
 		&run.ActorID,
 		&run.ActorKind,
 		&run.ActorName,

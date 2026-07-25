@@ -212,10 +212,11 @@ func tokCommandSpec() *commandSpec {
 						{Name: "--status", ValueName: "<status>", Summary: "Run status", ValueChoices: []string{"created", "in_progress", "succeeded", "failed", "blocked", "cancelled"}},
 						{Name: "--json", Summary: "Print JSON output"},
 					}},
-					{Name: "start", Summary: "Start a run for a task", Usage: "tok run start --task <task-id> [--limit <n>] [--handoff-output <path>] [--json]", Flags: []flagSpec{
+					{Name: "start", Summary: "Start a run for a task", Usage: "tok run start --task <task-id> [--limit <n>] [--handoff-output <path>] [--allow-active] [--json]", Flags: []flagSpec{
 						{Name: "--task", ValueName: "<task-id>", Summary: "Task id"},
 						{Name: "--limit", ValueName: "<n>", Summary: "Maximum retrieval result count"},
 						{Name: "--handoff-output", ValueName: "<path>", Summary: "Write handoff context package"},
+						{Name: "--allow-active", Summary: "Allow another active run for the task"},
 						{Name: "--json", Summary: "Print JSON output"},
 					}},
 					{Name: "show", Summary: "Show a run", Usage: "tok run show <run-id> [--json]", Flags: []flagSpec{{Name: "--json", Summary: "Print JSON output"}}},
@@ -223,6 +224,16 @@ func tokCommandSpec() *commandSpec {
 						{Name: "--command", ValueName: "<cmd>", Summary: "Validation command"},
 						{Name: "--status", ValueName: "<passed|failed>", Summary: "Validation status", ValueChoices: []string{"passed", "failed"}},
 						{Name: "--summary", ValueName: "<text>", Summary: "Validation summary"},
+						{Name: "--json", Summary: "Print JSON output"},
+					}},
+					{Name: "heartbeat", Summary: "Refresh a run lease", Usage: "tok run heartbeat <run-id> [--owner <owner>] [--ttl <duration>] [--json]", Flags: []flagSpec{
+						{Name: "--owner", ValueName: "<owner>", Summary: "Lease owner"},
+						{Name: "--ttl", ValueName: "<duration>", Summary: "Lease time to live"},
+						{Name: "--json", Summary: "Print JSON output"},
+					}},
+					{Name: "recover", Summary: "Recover stale runs", Usage: "tok run recover --summary <text> [--now <timestamp>] [--json]", Flags: []flagSpec{
+						{Name: "--summary", ValueName: "<text>", Summary: "Recovery summary"},
+						{Name: "--now", ValueName: "<timestamp>", Summary: "Recovery timestamp override"},
 						{Name: "--json", Summary: "Print JSON output"},
 					}},
 					{Name: "cancel", Summary: "Cancel a run", Usage: "tok run cancel <run-id> --summary <text> [--json]", Flags: []flagSpec{

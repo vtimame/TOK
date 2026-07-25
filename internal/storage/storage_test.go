@@ -36,8 +36,8 @@ func TestInitAppliesEmbeddedMigrations(t *testing.T) {
 	if err := store.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM schema_migrations").Scan(&applied); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if applied != 11 {
-		t.Fatalf("expected 11 applied migrations, got %d", applied)
+	if applied != 12 {
+		t.Fatalf("expected 12 applied migrations, got %d", applied)
 	}
 }
 
@@ -583,6 +583,120 @@ func TestListRunsFiltersByProjectTaskAndStatus(t *testing.T) {
 	_, err = store.ListRuns(ctx, ListRunsOptions{Status: "paused"})
 	if err == nil || !strings.Contains(err.Error(), `invalid run status "paused"`) {
 		t.Fatalf("expected invalid run status error, got %v", err)
+	}
+}
+
+func TestRunLeaseHeartbeatAndRecovery(t *testing.T) {
+	ctx := context.Background()
+	store := openInitializedTestStore(t)
+
+	project, err := store.CreateProject(ctx, CreateProjectInput{
+		Name:        "tok",
+		DisplayName: "TOK",
+		Path:        "/tmp/tok",
+	})
+	if err != nil {
+		t.Fatalf("CreateProject returned error: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskInput{ProjectID: project.ID, Title: "Lease task"})
+	if err != nil {
+		t.Fatalf("CreateTask returned error: %v", err)
+	}
+
+	run, err := store.CreateRun(ctx, CreateRunInput{
+		TaskID:                 task.ID,
+		Status:                 "in_progress",
+		HandoffContractVersion: "tok.handoff.v0",
+		LeaseOwner:             "agent/one",
+		HeartbeatAt:            "2026-07-25T12:00:00.000Z",
+		ExpiresAt:              "2026-07-25T12:15:00.000Z",
+	})
+	if err != nil {
+		t.Fatalf("CreateRun returned error: %v", err)
+	}
+	if run.LeaseOwner != "agent/one" || run.HeartbeatAt != "2026-07-25T12:00:00.000Z" || run.ExpiresAt != "2026-07-25T12:15:00.000Z" {
+		t.Fatalf("unexpected run lease fields: %+v", run)
+	}
+
+	_, err = store.CreateRun(ctx, CreateRunInput{
+		TaskID:                 task.ID,
+		Status:                 "in_progress",
+		HandoffContractVersion: "tok.handoff.v0",
+	})
+	if !errors.Is(err, ErrActiveRunExists) {
+		t.Fatalf("expected active run guard, got %v", err)
+	}
+
+	overrideRun, err := store.CreateRun(ctx, CreateRunInput{
+		TaskID:                 task.ID,
+		Status:                 "in_progress",
+		HandoffContractVersion: "tok.handoff.v0",
+		AllowActive:            true,
+	})
+	if err != nil {
+		t.Fatalf("CreateRun allow active returned error: %v", err)
+	}
+	if overrideRun.ID == run.ID {
+		t.Fatalf("expected distinct override run, got %+v", overrideRun)
+	}
+	if _, err := store.FinishRun(ctx, FinishRunInput{ID: overrideRun.ID, Status: "failed", ResultSummary: "Override failed."}); err != nil {
+		t.Fatalf("FinishRun override returned error: %v", err)
+	}
+
+	heartbeat, err := store.HeartbeatRun(ctx, HeartbeatRunInput{
+		ID:        run.ID,
+		Owner:     "agent/two",
+		Now:       "2026-07-25T12:10:00.000Z",
+		ExpiresAt: "2026-07-25T12:25:00.000Z",
+	})
+	if err != nil {
+		t.Fatalf("HeartbeatRun returned error: %v", err)
+	}
+	if heartbeat.LeaseOwner != "agent/two" || heartbeat.HeartbeatAt != "2026-07-25T12:10:00.000Z" || heartbeat.ExpiresAt != "2026-07-25T12:25:00.000Z" {
+		t.Fatalf("unexpected heartbeat run: %+v", heartbeat)
+	}
+
+	notStale, err := store.RecoverStaleRuns(ctx, RecoverStaleRunsInput{
+		Now:           "2026-07-25T12:24:59.000Z",
+		ResultSummary: "Recovered stale run.",
+	})
+	if err != nil {
+		t.Fatalf("RecoverStaleRuns before expiry returned error: %v", err)
+	}
+	if len(notStale) != 0 {
+		t.Fatalf("expected no stale runs before expiry, got %+v", notStale)
+	}
+
+	recovered, err := store.RecoverStaleRuns(ctx, RecoverStaleRunsInput{
+		Now:           "2026-07-25T12:25:01.000Z",
+		ResultSummary: "Recovered stale run.",
+	})
+	if err != nil {
+		t.Fatalf("RecoverStaleRuns returned error: %v", err)
+	}
+	if len(recovered) != 1 || recovered[0].ID != run.ID || recovered[0].Status != "cancelled" || recovered[0].ResultSummary != "Recovered stale run." {
+		t.Fatalf("unexpected recovered runs: %+v", recovered)
+	}
+
+	_, err = store.HeartbeatRun(ctx, HeartbeatRunInput{
+		ID:        run.ID,
+		Owner:     "agent/three",
+		Now:       "2026-07-25T12:26:00.000Z",
+		ExpiresAt: "2026-07-25T12:41:00.000Z",
+	})
+	if !errors.Is(err, ErrInvalidRunTransition) {
+		t.Fatalf("expected heartbeat terminal transition error, got %v", err)
+	}
+
+	terminalOnly, err := store.RecoverStaleRuns(ctx, RecoverStaleRunsInput{
+		Now:           "2026-07-25T13:00:00.000Z",
+		ResultSummary: "Should not change terminal runs.",
+	})
+	if err != nil {
+		t.Fatalf("RecoverStaleRuns terminal-only returned error: %v", err)
+	}
+	if len(terminalOnly) != 0 {
+		t.Fatalf("expected terminal runs to be ignored, got %+v", terminalOnly)
 	}
 }
 
