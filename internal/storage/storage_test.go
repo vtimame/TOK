@@ -495,6 +495,97 @@ func TestRunLifecycle(t *testing.T) {
 	}
 }
 
+func TestListRunsFiltersByProjectTaskAndStatus(t *testing.T) {
+	ctx := context.Background()
+	store := openInitializedTestStore(t)
+
+	project, err := store.CreateProject(ctx, CreateProjectInput{
+		Name:        "tok",
+		DisplayName: "TOK",
+		Path:        "/tmp/tok",
+	})
+	if err != nil {
+		t.Fatalf("CreateProject tok returned error: %v", err)
+	}
+	otherProject, err := store.CreateProject(ctx, CreateProjectInput{
+		Name:        "other",
+		DisplayName: "Other",
+		Path:        "/tmp/other",
+	})
+	if err != nil {
+		t.Fatalf("CreateProject other returned error: %v", err)
+	}
+	firstTask, err := store.CreateTask(ctx, CreateTaskInput{ProjectID: project.ID, Title: "First"})
+	if err != nil {
+		t.Fatalf("CreateTask first returned error: %v", err)
+	}
+	secondTask, err := store.CreateTask(ctx, CreateTaskInput{ProjectID: project.ID, Title: "Second"})
+	if err != nil {
+		t.Fatalf("CreateTask second returned error: %v", err)
+	}
+	otherTask, err := store.CreateTask(ctx, CreateTaskInput{ProjectID: otherProject.ID, Title: "Other"})
+	if err != nil {
+		t.Fatalf("CreateTask other returned error: %v", err)
+	}
+
+	firstRun, err := store.CreateRun(ctx, CreateRunInput{
+		TaskID:                 firstTask.ID,
+		Status:                 "in_progress",
+		HandoffContractVersion: "tok.handoff.v0",
+	})
+	if err != nil {
+		t.Fatalf("CreateRun first returned error: %v", err)
+	}
+	secondRun, err := store.CreateRun(ctx, CreateRunInput{
+		TaskID:                 secondTask.ID,
+		Status:                 "in_progress",
+		HandoffContractVersion: "tok.handoff.v0",
+	})
+	if err != nil {
+		t.Fatalf("CreateRun second returned error: %v", err)
+	}
+	if _, err := store.FinishRun(ctx, FinishRunInput{ID: secondRun.ID, Status: "failed", ResultSummary: "Tests failed."}); err != nil {
+		t.Fatalf("FinishRun second returned error: %v", err)
+	}
+	otherRun, err := store.CreateRun(ctx, CreateRunInput{
+		TaskID:                 otherTask.ID,
+		Status:                 "in_progress",
+		HandoffContractVersion: "tok.handoff.v0",
+	})
+	if err != nil {
+		t.Fatalf("CreateRun other returned error: %v", err)
+	}
+
+	projectRuns, err := store.ListRuns(ctx, ListRunsOptions{ProjectID: project.ID})
+	if err != nil {
+		t.Fatalf("ListRuns project returned error: %v", err)
+	}
+	if len(projectRuns) != 2 || projectRuns[0].ID != secondRun.ID || projectRuns[1].ID != firstRun.ID {
+		t.Fatalf("unexpected project runs: %+v", projectRuns)
+	}
+
+	taskRuns, err := store.ListRuns(ctx, ListRunsOptions{TaskID: firstTask.ID})
+	if err != nil {
+		t.Fatalf("ListRuns task returned error: %v", err)
+	}
+	if len(taskRuns) != 1 || taskRuns[0].ID != firstRun.ID {
+		t.Fatalf("unexpected task runs: %+v", taskRuns)
+	}
+
+	activeRuns, err := store.ListRuns(ctx, ListRunsOptions{Status: "in_progress"})
+	if err != nil {
+		t.Fatalf("ListRuns status returned error: %v", err)
+	}
+	if len(activeRuns) != 2 || activeRuns[0].ID != otherRun.ID || activeRuns[1].ID != firstRun.ID {
+		t.Fatalf("unexpected active runs: %+v", activeRuns)
+	}
+
+	_, err = store.ListRuns(ctx, ListRunsOptions{Status: "paused"})
+	if err == nil || !strings.Contains(err.Error(), `invalid run status "paused"`) {
+		t.Fatalf("expected invalid run status error, got %v", err)
+	}
+}
+
 func TestRunLifecycleValidation(t *testing.T) {
 	ctx := context.Background()
 	store := openInitializedTestStore(t)

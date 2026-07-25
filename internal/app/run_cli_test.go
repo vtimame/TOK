@@ -188,6 +188,162 @@ func TestCLIRunStartPrintsTextOutput(t *testing.T) {
 	}
 }
 
+func TestCLIRunListAndCancel(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	projectDir := t.TempDir()
+	otherProjectDir := t.TempDir()
+
+	projectCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	if err := projectCLI.Run(ctx, []string{"project", "add", projectDir, "--name", "tok"}); err != nil {
+		t.Fatalf("project add tok returned error: %v", err)
+	}
+	otherProjectCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	if err := otherProjectCLI.Run(ctx, []string{"project", "add", otherProjectDir, "--name", "other"}); err != nil {
+		t.Fatalf("project add other returned error: %v", err)
+	}
+
+	firstTaskID := createTaskForTest(t, ctx, dataDir, "tok", "First run task")
+	secondTaskID := createTaskForTest(t, ctx, dataDir, "tok", "Second run task")
+	otherTaskID := createTaskForTest(t, ctx, dataDir, "other", "Other run task")
+
+	firstRun := startRunForTest(t, ctx, dataDir, firstTaskID)
+	secondRun := startRunForTest(t, ctx, dataDir, secondTaskID)
+	otherRun := startRunForTest(t, ctx, dataDir, otherTaskID)
+
+	var finishOut bytes.Buffer
+	finishCLI := newProjectTestCLI(dataDir, &finishOut)
+	if err := finishCLI.Run(ctx, []string{
+		"run", "finish",
+		strconv.FormatInt(secondRun.ID, 10),
+		"--status", "failed",
+		"--summary", "Tests failed.",
+		"--json",
+	}); err != nil {
+		t.Fatalf("run finish failed run returned error: %v", err)
+	}
+
+	var textListOut bytes.Buffer
+	textListCLI := newProjectTestCLI(dataDir, &textListOut)
+	if err := textListCLI.Run(ctx, []string{"run", "list", "--project", "tok"}); err != nil {
+		t.Fatalf("run list text returned error: %v", err)
+	}
+	for _, want := range []string{
+		"id | task_id | status",
+		"started_at",
+		"finished_at",
+		"summary",
+		strconv.FormatInt(firstRun.ID, 10),
+		strconv.FormatInt(secondRun.ID, 10),
+		"failed",
+		"Tests failed.",
+	} {
+		if !strings.Contains(textListOut.String(), want) {
+			t.Fatalf("run list text output missing %q:\n%s", want, textListOut.String())
+		}
+	}
+
+	var projectListOut bytes.Buffer
+	projectListCLI := newProjectTestCLI(dataDir, &projectListOut)
+	if err := projectListCLI.Run(ctx, []string{"run", "list", "--project", "tok", "--json"}); err != nil {
+		t.Fatalf("run list --project --json returned error: %v", err)
+	}
+	var projectRuns []runOutput
+	if err := json.Unmarshal(projectListOut.Bytes(), &projectRuns); err != nil {
+		t.Fatalf("parse project run list JSON: %v\n%s", err, projectListOut.String())
+	}
+	if len(projectRuns) != 2 || projectRuns[0].ID != secondRun.ID || projectRuns[1].ID != firstRun.ID {
+		t.Fatalf("unexpected project run list: %+v", projectRuns)
+	}
+	if projectRuns[0].Artifacts == nil || len(projectRuns[0].Artifacts) != 0 {
+		t.Fatalf("run list JSON should include empty artifacts array, got %+v", projectRuns[0].Artifacts)
+	}
+
+	var taskListOut bytes.Buffer
+	taskListCLI := newProjectTestCLI(dataDir, &taskListOut)
+	if err := taskListCLI.Run(ctx, []string{"run", "list", "--task", strconv.FormatInt(firstTaskID, 10), "--json"}); err != nil {
+		t.Fatalf("run list --task --json returned error: %v", err)
+	}
+	var taskRuns []runOutput
+	if err := json.Unmarshal(taskListOut.Bytes(), &taskRuns); err != nil {
+		t.Fatalf("parse task run list JSON: %v\n%s", err, taskListOut.String())
+	}
+	if len(taskRuns) != 1 || taskRuns[0].ID != firstRun.ID {
+		t.Fatalf("unexpected task run list: %+v", taskRuns)
+	}
+
+	var activeListOut bytes.Buffer
+	activeListCLI := newProjectTestCLI(dataDir, &activeListOut)
+	if err := activeListCLI.Run(ctx, []string{"run", "list", "--status=in_progress", "--json"}); err != nil {
+		t.Fatalf("run list --status --json returned error: %v", err)
+	}
+	var activeRuns []runOutput
+	if err := json.Unmarshal(activeListOut.Bytes(), &activeRuns); err != nil {
+		t.Fatalf("parse active run list JSON: %v\n%s", err, activeListOut.String())
+	}
+	if len(activeRuns) != 2 || activeRuns[0].ID != otherRun.ID || activeRuns[1].ID != firstRun.ID {
+		t.Fatalf("unexpected active run list: %+v", activeRuns)
+	}
+
+	var cancelOut bytes.Buffer
+	cancelCLI := newProjectTestCLI(dataDir, &cancelOut)
+	if err := cancelCLI.Run(ctx, []string{
+		"run", "cancel",
+		strconv.FormatInt(firstRun.ID, 10),
+		"--summary", "Stopped by operator.",
+		"--json",
+	}); err != nil {
+		t.Fatalf("run cancel --json returned error: %v", err)
+	}
+	var cancelled runOutput
+	if err := json.Unmarshal(cancelOut.Bytes(), &cancelled); err != nil {
+		t.Fatalf("parse cancelled run JSON: %v\n%s", err, cancelOut.String())
+	}
+	if cancelled.Status != "cancelled" || cancelled.FinishedAt == "" || cancelled.ResultSummary != "Stopped by operator." || cancelled.FinishedBy == nil {
+		t.Fatalf("unexpected cancelled run: %+v", cancelled)
+	}
+
+	var cancelledListOut bytes.Buffer
+	cancelledListCLI := newProjectTestCLI(dataDir, &cancelledListOut)
+	if err := cancelledListCLI.Run(ctx, []string{"run", "list", "--project=tok", "--status", "cancelled", "--json"}); err != nil {
+		t.Fatalf("run list cancelled returned error: %v", err)
+	}
+	var cancelledRuns []runOutput
+	if err := json.Unmarshal(cancelledListOut.Bytes(), &cancelledRuns); err != nil {
+		t.Fatalf("parse cancelled run list JSON: %v\n%s", err, cancelledListOut.String())
+	}
+	if len(cancelledRuns) != 1 || cancelledRuns[0].ID != firstRun.ID {
+		t.Fatalf("unexpected cancelled run list: %+v", cancelledRuns)
+	}
+
+	cancelTerminalCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	err := cancelTerminalCLI.Run(ctx, []string{"run", "cancel", strconv.FormatInt(firstRun.ID, 10), "--summary", "Again."})
+	if err == nil || !strings.Contains(err.Error(), "run cannot be cancelled from current status") {
+		t.Fatalf("expected terminal cancel error, got %v", err)
+	}
+
+	cancelMissingCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	err = cancelMissingCLI.Run(ctx, []string{"run", "cancel", "999999", "--summary", "Missing."})
+	if err == nil || !strings.Contains(err.Error(), "run not found: 999999") {
+		t.Fatalf("expected missing run error, got %v", err)
+	}
+}
+
+func startRunForTest(t *testing.T, ctx context.Context, dataDir string, taskID int64) runOutput {
+	t.Helper()
+
+	var out bytes.Buffer
+	cli := newProjectTestCLI(dataDir, &out)
+	if err := cli.Run(ctx, []string{"run", "start", "--task", strconv.FormatInt(taskID, 10), "--json"}); err != nil {
+		t.Fatalf("run start --json returned error: %v", err)
+	}
+	var run runOutput
+	if err := json.Unmarshal(out.Bytes(), &run); err != nil {
+		t.Fatalf("parse run start JSON: %v\n%s", err, out.String())
+	}
+	return run
+}
+
 func TestCLIRunRecordValidationArtifact(t *testing.T) {
 	ctx := context.Background()
 	dataDir := t.TempDir()

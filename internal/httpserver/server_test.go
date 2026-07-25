@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"s26.sh/tok/internal/storage"
 )
@@ -166,6 +168,63 @@ func TestServerListsProjectsAndExposesOpenAPI(t *testing.T) {
 	updateAgent := spec.Paths["/api/agents/{id}"]["patch"]
 	if updateAgent.RequestBody == nil || !slices.Contains(updateAgent.RequestBody.ContentTypes(), "application/json") {
 		t.Fatalf("update agent request body should be application/json, got %+v", updateAgent.RequestBody)
+	}
+}
+
+func TestServerServesWebUIAssetsAndSPAFallback(t *testing.T) {
+	store := openTestStore(t)
+
+	server, err := New(Config{
+		Addr:    "127.0.0.1:0",
+		Store:   store,
+		Version: "test",
+		WebFS:   testWebFS(),
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	handler := server.Handler()
+
+	for _, requestPath := range []string{"/", "/projects/tok"} {
+		res := doJSON(t, handler, http.MethodGet, requestPath, nil)
+		defer res.Body.Close()
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("GET %s status = %d", requestPath, res.StatusCode)
+		}
+		body := readBody(t, res)
+		if !strings.Contains(body, "TOK UI") {
+			t.Fatalf("GET %s body = %q, want web UI index", requestPath, body)
+		}
+	}
+
+	assetRes := doJSON(t, handler, http.MethodGet, "/assets/app.js", nil)
+	defer assetRes.Body.Close()
+	if assetRes.StatusCode != http.StatusOK {
+		t.Fatalf("GET /assets/app.js status = %d", assetRes.StatusCode)
+	}
+	if body := readBody(t, assetRes); !strings.Contains(body, "console.log") {
+		t.Fatalf("asset body = %q", body)
+	}
+
+	underscoreAssetRes := doJSON(t, handler, http.MethodGet, "/assets/_project_.js", nil)
+	defer underscoreAssetRes.Body.Close()
+	if underscoreAssetRes.StatusCode != http.StatusOK {
+		t.Fatalf("GET /assets/_project_.js status = %d", underscoreAssetRes.StatusCode)
+	}
+	if contentType := underscoreAssetRes.Header.Get("Content-Type"); strings.Contains(contentType, "text/html") {
+		t.Fatalf("underscore asset content type = %q, want script asset", contentType)
+	}
+	if body := readBody(t, underscoreAssetRes); !strings.Contains(body, "project chunk") {
+		t.Fatalf("underscore asset body = %q", body)
+	}
+
+	apiRes := doJSON(t, handler, http.MethodGet, "/api/not-found", nil)
+	defer apiRes.Body.Close()
+	if apiRes.StatusCode != http.StatusNotFound {
+		t.Fatalf("GET /api/not-found status = %d", apiRes.StatusCode)
+	}
+	if body := readBody(t, apiRes); strings.Contains(body, "TOK UI") {
+		t.Fatalf("unknown API route served web UI: %q", body)
 	}
 }
 
@@ -730,6 +789,14 @@ func newTestHandler(t *testing.T, store *storage.Store) http.Handler {
 	return server.Handler()
 }
 
+func testWebFS() fstest.MapFS {
+	return fstest.MapFS{
+		"index.html":          {Data: []byte("<!doctype html><title>TOK UI</title><div id=\"app\"></div>")},
+		"assets/app.js":       {Data: []byte("console.log('tok')")},
+		"assets/_project_.js": {Data: []byte("console.log('project chunk')")},
+	}
+}
+
 func openTestStore(t *testing.T) *storage.Store {
 	t.Helper()
 	store, err := storage.Open(context.Background(), ":memory:")
@@ -775,6 +842,15 @@ func decodeJSON(t *testing.T, res *http.Response, dst any) {
 	if err := json.NewDecoder(res.Body).Decode(dst); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
+}
+
+func readBody(t *testing.T, res *http.Response) string {
+	t.Helper()
+	data, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatalf("read response body: %v", err)
+	}
+	return string(data)
 }
 
 func jsonNumber(id int64) string {

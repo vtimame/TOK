@@ -35,12 +35,16 @@ func (c *CLI) runRun(ctx context.Context, opts runtimeOptions) error {
 	defer store.Close()
 
 	switch opts.args[1] {
+	case "list":
+		return c.runRunList(ctx, store, opts.args[2:])
 	case "start":
 		return c.runRunStart(ctx, store, opts.args[2:])
 	case "show":
 		return c.runRunShow(ctx, store, opts.args[2:])
 	case "record-validation":
 		return c.runRunRecordValidation(ctx, store, opts.args[2:])
+	case "cancel":
+		return c.runRunCancel(ctx, store, opts.args[2:])
 	case "finish":
 		return c.runRunFinish(ctx, store, opts.args[2:])
 	default:
@@ -58,9 +62,22 @@ type runStartOptions struct {
 	json           bool
 }
 
+type runListOptions struct {
+	projectName string
+	taskID      int64
+	status      string
+	json        bool
+}
+
 type runShowOptions struct {
 	runID int64
 	json  bool
+}
+
+type runCancelOptions struct {
+	runID   int64
+	summary string
+	json    bool
 }
 
 type runFinishOptions struct {
@@ -133,6 +150,55 @@ func (c *CLI) runRunStart(ctx context.Context, store *storage.Store, args []stri
 	return nil
 }
 
+func (c *CLI) runRunList(ctx context.Context, store *storage.Store, args []string) error {
+	listOpts, err := parseRunListOptions(args)
+	if err != nil {
+		return err
+	}
+
+	var projectID int64
+	if listOpts.projectName != "" {
+		project, err := store.GetProject(ctx, listOpts.projectName)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("project not found: %s", listOpts.projectName)
+			}
+			return err
+		}
+		projectID = project.ID
+	}
+
+	runs, err := store.ListRuns(ctx, storage.ListRunsOptions{
+		ProjectID: projectID,
+		TaskID:    listOpts.taskID,
+		Status:    listOpts.status,
+	})
+	if err != nil {
+		return err
+	}
+
+	if listOpts.json {
+		return printRunsJSON(c.out, runs)
+	}
+	if len(runs) == 0 {
+		fmt.Fprintln(c.out, "no runs")
+		return nil
+	}
+
+	rows := [][]string{{"id", "task_id", "status", "started_at", "finished_at", "summary"}}
+	for _, run := range runs {
+		rows = append(rows, []string{
+			strconv.FormatInt(run.ID, 10),
+			strconv.FormatInt(run.TaskID, 10),
+			run.Status,
+			run.StartedAt,
+			run.FinishedAt,
+			run.ResultSummary,
+		})
+	}
+	return printTerminalTable(c.out, rows)
+}
+
 func (c *CLI) runRunShow(ctx context.Context, store *storage.Store, args []string) error {
 	showOpts, err := parseRunShowOptions(args)
 	if err != nil {
@@ -152,6 +218,47 @@ func (c *CLI) runRunShow(ctx context.Context, store *storage.Store, args []strin
 		return err
 	}
 	if showOpts.json {
+		return printRunJSON(c.out, run, artifacts)
+	}
+	printRun(c.out, run)
+	return nil
+}
+
+func (c *CLI) runRunCancel(ctx context.Context, store *storage.Store, args []string) error {
+	cancelOpts, err := parseRunCancelOptions(args)
+	if err != nil {
+		return err
+	}
+
+	actor, err := currentLocalHumanActor(ctx, store)
+	if err != nil {
+		return err
+	}
+
+	run, err := store.FinishRun(ctx, storage.FinishRunInput{
+		ID:            cancelOpts.runID,
+		Status:        "cancelled",
+		ResultSummary: cancelOpts.summary,
+		Actor:         actor,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("run not found: %d", cancelOpts.runID)
+		}
+		if errors.Is(err, storage.ErrInvalidRunTransition) {
+			return fmt.Errorf("run cannot be cancelled from current status")
+		}
+		if errors.Is(err, storage.ErrRunResultSummaryEmpty) {
+			return fmt.Errorf("run cancel requires --summary")
+		}
+		return err
+	}
+
+	artifacts, err := store.ListRunArtifacts(ctx, run.ID)
+	if err != nil {
+		return err
+	}
+	if cancelOpts.json {
 		return printRunJSON(c.out, run, artifacts)
 	}
 	printRun(c.out, run)
@@ -303,6 +410,66 @@ func parseRunStartOptions(args []string) (runStartOptions, error) {
 	return opts, nil
 }
 
+func parseRunListOptions(args []string) (runListOptions, error) {
+	var opts runListOptions
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--project":
+			i++
+			if i >= len(args) {
+				return runListOptions{}, &UsageError{Message: "--project requires a value", Code: 2}
+			}
+			opts.projectName = args[i]
+		case strings.HasPrefix(arg, "--project="):
+			opts.projectName = strings.TrimPrefix(arg, "--project=")
+			if opts.projectName == "" {
+				return runListOptions{}, &UsageError{Message: "--project requires a value", Code: 2}
+			}
+		case arg == "--task":
+			i++
+			if i >= len(args) {
+				return runListOptions{}, &UsageError{Message: "--task requires a value", Code: 2}
+			}
+			taskID, err := parseTaskID(args[i])
+			if err != nil {
+				return runListOptions{}, err
+			}
+			opts.taskID = taskID
+		case strings.HasPrefix(arg, "--task="):
+			taskID, err := parseTaskID(strings.TrimPrefix(arg, "--task="))
+			if err != nil {
+				return runListOptions{}, err
+			}
+			opts.taskID = taskID
+		case arg == "--status":
+			i++
+			if i >= len(args) {
+				return runListOptions{}, &UsageError{Message: "--status requires a value", Code: 2}
+			}
+			opts.status = args[i]
+		case strings.HasPrefix(arg, "--status="):
+			opts.status = strings.TrimPrefix(arg, "--status=")
+			if opts.status == "" {
+				return runListOptions{}, &UsageError{Message: "--status requires a value", Code: 2}
+			}
+		case arg == "--json":
+			opts.json = true
+		default:
+			return runListOptions{}, &UsageError{Message: fmt.Sprintf("unknown run list option %q", arg), Code: 2}
+		}
+	}
+
+	opts.projectName = strings.TrimSpace(opts.projectName)
+	opts.status = strings.TrimSpace(opts.status)
+	if opts.status != "" && !validRunStatusOption(opts.status) {
+		return runListOptions{}, &UsageError{Message: fmt.Sprintf("invalid run status %q", opts.status), Code: 2}
+	}
+
+	return opts, nil
+}
+
 func parseRunRecordValidationOptions(args []string) (runRecordValidationOptions, error) {
 	if len(args) == 0 {
 		return runRecordValidationOptions{}, &UsageError{Message: "run record-validation requires a run id", Code: 2}
@@ -384,6 +551,45 @@ func parseRunShowOptions(args []string) (runShowOptions, error) {
 
 	if opts.runID == 0 {
 		return runShowOptions{}, &UsageError{Message: "run show requires a run id", Code: 2}
+	}
+	return opts, nil
+}
+
+func parseRunCancelOptions(args []string) (runCancelOptions, error) {
+	if len(args) == 0 {
+		return runCancelOptions{}, &UsageError{Message: "run cancel requires a run id", Code: 2}
+	}
+
+	runID, err := parseRunID(args[0])
+	if err != nil {
+		return runCancelOptions{}, err
+	}
+
+	opts := runCancelOptions{runID: runID}
+	for i := 1; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--summary":
+			i++
+			if i >= len(args) {
+				return runCancelOptions{}, &UsageError{Message: "--summary requires a value", Code: 2}
+			}
+			opts.summary = args[i]
+		case strings.HasPrefix(arg, "--summary="):
+			opts.summary = strings.TrimPrefix(arg, "--summary=")
+			if opts.summary == "" {
+				return runCancelOptions{}, &UsageError{Message: "--summary requires a value", Code: 2}
+			}
+		case arg == "--json":
+			opts.json = true
+		default:
+			return runCancelOptions{}, &UsageError{Message: fmt.Sprintf("unknown run cancel option %q", arg), Code: 2}
+		}
+	}
+
+	opts.summary = strings.TrimSpace(opts.summary)
+	if opts.summary == "" {
+		return runCancelOptions{}, &UsageError{Message: "run cancel requires --summary", Code: 2}
 	}
 	return opts, nil
 }
@@ -507,6 +713,16 @@ func printRunJSON(out io.Writer, run storage.Run, artifacts []storage.RunArtifac
 	return encoder.Encode(runOutputFromStorage(run, artifacts))
 }
 
+func printRunsJSON(out io.Writer, runs []storage.Run) error {
+	outputs := make([]runOutput, 0, len(runs))
+	for _, run := range runs {
+		outputs = append(outputs, runOutputFromStorage(run, nil))
+	}
+	encoder := json.NewEncoder(out)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(outputs)
+}
+
 func printRunArtifactJSON(out io.Writer, artifact storage.RunArtifact) error {
 	encoder := json.NewEncoder(out)
 	encoder.SetIndent("", "  ")
@@ -611,4 +827,13 @@ func validationArtifactMetadata(opts runRecordValidationOptions) (string, error)
 		return "", err
 	}
 	return string(raw), nil
+}
+
+func validRunStatusOption(status string) bool {
+	switch status {
+	case "created", "in_progress", "succeeded", "failed", "blocked", "cancelled":
+		return true
+	default:
+		return false
+	}
 }

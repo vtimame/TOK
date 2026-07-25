@@ -93,6 +93,15 @@ type ListTasksOptions struct {
 	Offset    int
 }
 
+type ListRunsOptions struct {
+	ProjectID int64
+	TaskID    int64
+	Status    string
+	Statuses  []string
+	Limit     int
+	Offset    int
+}
+
 type TaskEvent struct {
 	ID         int64
 	TaskID     int64
@@ -656,6 +665,27 @@ func normalizeTaskStatuses(opts ListTasksOptions) ([]string, error) {
 	return statuses, nil
 }
 
+func normalizeRunStatuses(opts ListRunsOptions) ([]string, error) {
+	raw := opts.Statuses
+	if len(raw) == 0 && strings.TrimSpace(opts.Status) != "" {
+		raw = []string{opts.Status}
+	}
+	statuses := make([]string, 0, len(raw))
+	seen := map[string]bool{}
+	for _, item := range raw {
+		status := strings.TrimSpace(item)
+		if status == "" || seen[status] {
+			continue
+		}
+		if !validRunStatus(status) {
+			return nil, fmt.Errorf("invalid run status %q", status)
+		}
+		seen[status] = true
+		statuses = append(statuses, status)
+	}
+	return statuses, nil
+}
+
 func queryPlaceholders(count int) string {
 	if count <= 0 {
 		return ""
@@ -991,6 +1021,74 @@ func (s *Store) GetRun(ctx context.Context, id int64) (Run, error) {
 		WHERE id = ?
 	`, id)
 	return scanRun(row)
+}
+
+func (s *Store) ListRuns(ctx context.Context, opts ListRunsOptions) ([]Run, error) {
+	statuses, err := normalizeRunStatuses(opts)
+	if err != nil {
+		return nil, err
+	}
+	if opts.TaskID < 0 {
+		return nil, errors.New("run task id must be positive")
+	}
+	if opts.ProjectID < 0 {
+		return nil, errors.New("run project id must be positive")
+	}
+
+	query := `
+		SELECT r.id, r.task_id, r.status, r.handoff_contract_version, r.retrieval_limit, r.started_at, r.finished_at, r.base_branch, r.base_head, r.result_summary, r.actor_id, r.actor_kind, r.actor_name, r.finished_actor_id, r.finished_actor_kind, r.finished_actor_name
+		FROM runs r
+	`
+	args := []any{}
+	where := []string{}
+	if opts.ProjectID > 0 {
+		query += " JOIN tasks t ON t.id = r.task_id"
+		where = append(where, "t.project_id = ?")
+		args = append(args, opts.ProjectID)
+	}
+	if opts.TaskID > 0 {
+		where = append(where, "r.task_id = ?")
+		args = append(args, opts.TaskID)
+	}
+	switch len(statuses) {
+	case 0:
+	case 1:
+		where = append(where, "r.status = ?")
+		args = append(args, statuses[0])
+	default:
+		where = append(where, "r.status IN ("+queryPlaceholders(len(statuses))+")")
+		for _, status := range statuses {
+			args = append(args, status)
+		}
+	}
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
+	}
+	query += " ORDER BY r.id DESC"
+	if opts.Limit > 0 {
+		query += " LIMIT ? OFFSET ?"
+		args = append(args, opts.Limit, max(opts.Offset, 0))
+	}
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list runs: %w", err)
+	}
+	defer rows.Close()
+
+	var runs []Run
+	for rows.Next() {
+		run, err := scanRun(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan run: %w", err)
+		}
+		runs = append(runs, run)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate runs: %w", err)
+	}
+
+	return runs, nil
 }
 
 func (s *Store) FinishRun(ctx context.Context, input FinishRunInput) (Run, error) {

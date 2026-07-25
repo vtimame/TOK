@@ -1,0 +1,1 @@
+Generated web UI assets are copied here by `make web-embed`.

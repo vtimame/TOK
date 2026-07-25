@@ -206,6 +206,12 @@ func tokCommandSpec() *commandSpec {
 				Summary: "Record agent run attempts",
 				Usage:   "tok run <command>",
 				Children: []*commandSpec{
+					{Name: "list", Summary: "List runs", Usage: "tok run list [--project <name>] [--task <task-id>] [--status <status>] [--json]", Flags: []flagSpec{
+						projectFlag(),
+						{Name: "--task", ValueName: "<task-id>", Summary: "Task id"},
+						{Name: "--status", ValueName: "<status>", Summary: "Run status", ValueChoices: []string{"created", "in_progress", "succeeded", "failed", "blocked", "cancelled"}},
+						{Name: "--json", Summary: "Print JSON output"},
+					}},
 					{Name: "start", Summary: "Start a run for a task", Usage: "tok run start --task <task-id> [--limit <n>] [--handoff-output <path>] [--json]", Flags: []flagSpec{
 						{Name: "--task", ValueName: "<task-id>", Summary: "Task id"},
 						{Name: "--limit", ValueName: "<n>", Summary: "Maximum retrieval result count"},
@@ -219,8 +225,12 @@ func tokCommandSpec() *commandSpec {
 						{Name: "--summary", ValueName: "<text>", Summary: "Validation summary"},
 						{Name: "--json", Summary: "Print JSON output"},
 					}},
+					{Name: "cancel", Summary: "Cancel a run", Usage: "tok run cancel <run-id> --summary <text> [--json]", Flags: []flagSpec{
+						{Name: "--summary", ValueName: "<text>", Summary: "Cancellation summary"},
+						{Name: "--json", Summary: "Print JSON output"},
+					}},
 					{Name: "finish", Summary: "Finish a run", Usage: "tok run finish <run-id> --status <status> --summary <text> [--json]", Flags: []flagSpec{
-						{Name: "--status", ValueName: "<status>", Summary: "Final run status", ValueChoices: []string{"succeeded", "failed"}},
+						{Name: "--status", ValueName: "<status>", Summary: "Final run status", ValueChoices: []string{"succeeded", "failed", "blocked", "cancelled"}},
 						{Name: "--summary", ValueName: "<text>", Summary: "Result summary"},
 						{Name: "--json", Summary: "Print JSON output"},
 					}},
