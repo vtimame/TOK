@@ -1,5 +1,7 @@
 BINARY ?= bin/tok
 VERSION ?= dev
+INSTALL_BIN ?= $(HOME)/go/bin/tok
+TOK_SYSTEMD_UNITS ?= tok-ui.service tok-index-watch.service
 COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 DATE := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS := -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
@@ -58,8 +60,20 @@ dev-app-stop:
 	$(DEVCTL) app-stop
 
 install: build
-	mkdir -p ~/go/bin
-	tmp="$$(mktemp ~/go/bin/tok.XXXXXX)" && \
+	mkdir -p "$(dir $(INSTALL_BIN))"
+	tmp="$$(mktemp "$(dir $(INSTALL_BIN))tok.XXXXXX")" && \
 		cp $(BINARY) "$$tmp" && \
 		chmod 755 "$$tmp" && \
-		mv -f "$$tmp" ~/go/bin/tok
+		mv -f "$$tmp" "$(INSTALL_BIN)"
+	@if command -v systemctl >/dev/null 2>&1; then \
+		systemctl --user daemon-reload; \
+		for unit in $(TOK_SYSTEMD_UNITS); do \
+			if systemctl --user list-unit-files "$$unit" --no-legend 2>/dev/null | grep -q .; then \
+				if systemctl --user is-active --quiet "$$unit"; then \
+					systemctl --user restart "$$unit"; \
+				else \
+					systemctl --user start "$$unit"; \
+				fi; \
+			fi; \
+		done; \
+	fi

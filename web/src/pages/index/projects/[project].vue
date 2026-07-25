@@ -1,16 +1,15 @@
 <script lang="ts" setup>
 import AgentIcon from "@/components/common/agent/AgentIcon.vue";
 import { toastApiError } from "@/api/axios.ts";
-import { projectFromApi, statusLabel, statusTone, taskFromApi } from "@/api/mappers.ts";
+import { projectFromApi, statusLabel, statusTone } from "@/api/mappers.ts";
 import { useGetProjectIndexIgnorePolicy } from "@/api/generated/hooks/useGetProjectIndexIgnorePolicy.ts";
 import { useGetProjectIndexStatus } from "@/api/generated/hooks/useGetProjectIndexStatus.ts";
-import { useListProjectTasks } from "@/api/generated/hooks/useListProjectTasks.ts";
 import { useShowProject } from "@/api/generated/hooks/useShowProject.ts";
 import { useUpdateProjectIndex } from "@/api/generated/hooks/useUpdateProjectIndex.ts";
 import type { ListProjectTasksQueryParams } from "@/api/generated/models/ListProjectTasks.ts";
 import type { ProjectResponse } from "@/api/generated/models/ProjectResponse.ts";
-import type { TaskListResponse } from "@/api/generated/models/TaskListResponse.ts";
 import {
+  useProjectTasksQuery,
   type ProjectInstructionDraft,
   useCreateProjectInstructionMutation,
   useDeleteProjectInstructionMutation,
@@ -18,7 +17,6 @@ import {
   useEnableProjectInstructionMutation,
   useProjectInstructionsQuery,
 } from "@/api/queries/projects.ts";
-import type { Task } from "@/components/pages/tasks";
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -68,12 +66,6 @@ import type { AcceptableValue } from "reka-ui";
 
 const availableTabs = ["tasks", "context"] as const;
 type Tab = (typeof availableTabs)[number];
-type ProjectTasksPage = {
-  tasks: Task[];
-  total: number;
-  limit: number;
-  offset: number;
-};
 
 const route = useRoute<"//projects/[project]">();
 const router = useRouter();
@@ -107,19 +99,7 @@ const projectQuery = useShowProject(
     },
   },
 );
-const tasksQuery = useListProjectTasks(
-  { project: projectName, params: taskListParams },
-  {
-    query: {
-      select: (response: TaskListResponse): ProjectTasksPage => ({
-        tasks: (response.tasks ?? []).map(taskFromApi),
-        total: response.total,
-        limit: response.limit,
-        offset: response.offset,
-      }),
-    },
-  },
-);
+const tasksQuery = useProjectTasksQuery(projectName, taskListParams);
 const indexStatusQuery = useGetProjectIndexStatus({ project: projectName });
 const ignorePolicyQuery = useGetProjectIndexIgnorePolicy({ project: projectName });
 const instructionsQuery = useProjectInstructionsQuery(projectName);

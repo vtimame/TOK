@@ -1,9 +1,11 @@
 import type { CreateProjectInput } from "@/api/generated/models/CreateProjectInput.ts";
+import type { ListProjectTasksQueryParams } from "@/api/generated/models/ListProjectTasks.ts";
 import type { ListProjectsQueryParams } from "@/api/generated/models/ListProjects.ts";
 import type { ProjectInstructionInput } from "@/api/generated/models/ProjectInstructionInput.ts";
 import type { ProjectInstructionListResponse } from "@/api/generated/models/ProjectInstructionListResponse.ts";
 import type { ProjectInstructionOutput } from "@/api/generated/models/ProjectInstructionOutput.ts";
 import type { ProjectListResponse } from "@/api/generated/models/ProjectListResponse.ts";
+import type { TaskListResponse } from "@/api/generated/models/TaskListResponse.ts";
 import {
   listProjectInstructionsQueryKey,
   useListProjectInstructions,
@@ -13,17 +15,26 @@ import { useDeleteProjectInstruction } from "@/api/generated/hooks/useDeleteProj
 import { useDisableProjectInstruction } from "@/api/generated/hooks/useDisableProjectInstruction.ts";
 import { useEnableProjectInstruction } from "@/api/generated/hooks/useEnableProjectInstruction.ts";
 import { useDeleteProject } from "@/api/generated/hooks/useDeleteProject.ts";
+import { listProjectTasks } from "@/api/generated/client/listProjectTasks.ts";
 import { listProjectsQueryKey, useListProjects } from "@/api/generated/hooks/useListProjects.ts";
 import { useCreateProject } from "@/api/generated/hooks/useCreateProject.ts";
 import { useUpdateProject } from "@/api/generated/hooks/useUpdateProject.ts";
 import type { Project } from "@/components/pages/projects";
-import { projectFromApi } from "@/api/mappers.ts";
-import { useQueryClient } from "@tanstack/vue-query";
+import { projectFromApi, taskFromApi } from "@/api/mappers.ts";
+import type { Task } from "@/api/mappers.ts";
+import { useQuery, useQueryClient } from "@tanstack/vue-query";
+import { computed, toValue } from "vue";
 import type { MaybeRefOrGetter } from "vue";
 
 export type ProjectDraft = CreateProjectInput;
 export type ProjectsPage = {
   projects: Project[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+export type ProjectTasksPage = {
+  tasks: Task[];
   total: number;
   limit: number;
   offset: number;
@@ -44,6 +55,14 @@ export type ProjectInstructionDraft = ProjectInstructionInput;
 
 export const projectQueryKeys = {
   all: listProjectsQueryKey,
+  tasks: (
+    project: string | undefined,
+    params?: ListProjectTasksQueryParams,
+  ) =>
+    [
+      { url: "/api/projects/:project/tasks", params: { project } },
+      params ?? {},
+    ] as const,
 };
 
 export function useProjectsQuery(params?: MaybeRefOrGetter<ListProjectsQueryParams>) {
@@ -60,6 +79,30 @@ export function useProjectsQuery(params?: MaybeRefOrGetter<ListProjectsQueryPara
       },
     },
   );
+}
+
+export function useProjectTasksQuery(
+  project: MaybeRefOrGetter<string | undefined>,
+  params?: MaybeRefOrGetter<ListProjectTasksQueryParams>,
+) {
+  const queryKey = computed(() =>
+    projectQueryKeys.tasks(toValue(project), toValue(params)),
+  );
+
+  return useQuery({
+    enabled: () => !!toValue(project),
+    queryKey,
+    queryFn: async ({ signal }) => {
+      const response = await listProjectTasks(
+        {
+          project: toValue(project)!,
+          params: toValue(params),
+        },
+        { signal },
+      );
+      return projectTasksPageFromApi(response);
+    },
+  });
 }
 
 export function useCreateProjectMutation() {
@@ -161,6 +204,15 @@ function projectInstructionFromApi(instruction: ProjectInstructionOutput): Proje
     source: instruction.source,
     createdAt: instruction.created_at,
     updatedAt: instruction.updated_at,
+  };
+}
+
+function projectTasksPageFromApi(response: TaskListResponse): ProjectTasksPage {
+  return {
+    tasks: (response.tasks ?? []).map(taskFromApi),
+    total: response.total,
+    limit: response.limit,
+    offset: response.offset,
   };
 }
 

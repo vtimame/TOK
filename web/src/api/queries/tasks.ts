@@ -17,6 +17,7 @@ import { listProjectsQueryKey } from "@/api/generated/hooks/useListProjects.ts";
 import { useQueryClient } from "@tanstack/vue-query";
 import type { QueryClient } from "@tanstack/vue-query";
 import type { MaybeRefOrGetter } from "vue";
+import { projectQueryKeys } from "@/api/queries/projects.ts";
 
 export type TaskDraft = CreateTaskInput & {
   project: string;
@@ -146,6 +147,12 @@ export function useUnblockTaskMutation() {
 
 function invalidateTaskQueries(queryClient: QueryClient) {
   queryClient.invalidateQueries({ queryKey: listTasksQueryKey() });
+  queryClient.invalidateQueries({
+    predicate: (query) => {
+      const key = query.queryKey[0] as { url?: string } | undefined;
+      return key?.url === projectQueryKeys.tasks(undefined)[0].url;
+    },
+  });
   queryClient.invalidateQueries({
     predicate: (query) => {
       const key = query.queryKey[0] as { url?: string } | undefined;

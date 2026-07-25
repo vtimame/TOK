@@ -22,7 +22,10 @@ const commonClasss = "rounded-full size-6 flex items-center justify-center";
     <Tooltip>
       <TooltipTrigger>
         <div
-          v-if="props.value === 'codex' || props.value === 'openai'"
+          v-if="
+            props.value?.toLowerCase().includes('codex') ||
+            props.value?.toLowerCase().includes('openai')
+          "
           :class="cn('bg-foreground', commonClasss, props.class)"
         >
           <LogosOpenaiIcon class="size-4" />
