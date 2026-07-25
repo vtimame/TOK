@@ -525,6 +525,30 @@ func TestCLITaskDoneFlow(t *testing.T) {
 	}
 }
 
+func TestCLITaskDoneRejectsActiveRun(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	projectDir := t.TempDir()
+
+	projectCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	if err := projectCLI.Run(ctx, []string{"project", "add", projectDir, "--name", "tok"}); err != nil {
+		t.Fatalf("project add returned error: %v", err)
+	}
+	taskID := createTaskForTest(t, ctx, dataDir, "tok", "Active run completion guard")
+
+	claimCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	if err := claimCLI.Run(ctx, []string{"task", "claim", "--project", "tok", strconv.FormatInt(taskID, 10)}); err != nil {
+		t.Fatalf("task claim returned error: %v", err)
+	}
+	startRunForTest(t, ctx, dataDir, taskID)
+
+	doneCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	err := doneCLI.Run(ctx, []string{"task", "done", strconv.FormatInt(taskID, 10), "--note", "Done too early."})
+	if err == nil || !strings.Contains(err.Error(), "active run exists") {
+		t.Fatalf("expected active run completion error, got %v", err)
+	}
+}
+
 func TestCLITaskDoneRejectsMissingNote(t *testing.T) {
 	cli := newProjectTestCLI(t.TempDir(), &bytes.Buffer{})
 

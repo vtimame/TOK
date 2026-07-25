@@ -36,8 +36,8 @@ func TestInitAppliesEmbeddedMigrations(t *testing.T) {
 	if err := store.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM schema_migrations").Scan(&applied); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if applied != 12 {
-		t.Fatalf("expected 12 applied migrations, got %d", applied)
+	if applied != 13 {
+		t.Fatalf("expected 13 applied migrations, got %d", applied)
 	}
 }
 
@@ -473,6 +473,21 @@ func TestRunLifecycle(t *testing.T) {
 		t.Fatalf("unexpected run from GetRun: %+v", got)
 	}
 
+	_, err = store.FinishRun(ctx, FinishRunInput{
+		ID:            run.ID,
+		Status:        "succeeded",
+		ResultSummary: "Implemented and tests pass.",
+	})
+	if !errors.Is(err, ErrRunValidationRequired) {
+		t.Fatalf("expected validation required error, got %v", err)
+	}
+	if _, err := store.AddRunArtifact(ctx, AddRunArtifactInput{
+		RunID:    run.ID,
+		Kind:     "validation",
+		Metadata: `{"status":"passed","command":"go test ./..."}`,
+	}); err != nil {
+		t.Fatalf("AddRunArtifact validation returned error: %v", err)
+	}
 	finished, err := store.FinishRun(ctx, FinishRunInput{
 		ID:            run.ID,
 		Status:        "succeeded",
@@ -770,6 +785,163 @@ func TestRunLifecycleValidation(t *testing.T) {
 	}
 }
 
+func TestRunSucceededRequiresPassedValidationOrOverride(t *testing.T) {
+	ctx := context.Background()
+	store := openInitializedTestStore(t)
+
+	project, err := store.CreateProject(ctx, CreateProjectInput{
+		Name:        "tok",
+		DisplayName: "TOK",
+		Path:        "/tmp/tok",
+	})
+	if err != nil {
+		t.Fatalf("CreateProject returned error: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskInput{
+		ProjectID: project.ID,
+		Title:     "Validated run",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask returned error: %v", err)
+	}
+	run, err := store.CreateRun(ctx, CreateRunInput{
+		TaskID:                 task.ID,
+		Status:                 "in_progress",
+		HandoffContractVersion: "tok.handoff.v0",
+	})
+	if err != nil {
+		t.Fatalf("CreateRun returned error: %v", err)
+	}
+
+	_, err = store.FinishRun(ctx, FinishRunInput{
+		ID:            run.ID,
+		Status:        "succeeded",
+		ResultSummary: "No validation yet.",
+	})
+	if !errors.Is(err, ErrRunValidationRequired) {
+		t.Fatalf("expected validation required error, got %v", err)
+	}
+
+	if _, err := store.AddRunArtifact(ctx, AddRunArtifactInput{
+		RunID:    run.ID,
+		Kind:     "validation",
+		Metadata: `{"status":"failed","command":"go test ./..."}`,
+	}); err != nil {
+		t.Fatalf("AddRunArtifact failed validation returned error: %v", err)
+	}
+	_, err = store.FinishRun(ctx, FinishRunInput{
+		ID:            run.ID,
+		Status:        "succeeded",
+		ResultSummary: "Validation failed.",
+	})
+	if !errors.Is(err, ErrRunValidationRequired) {
+		t.Fatalf("expected failed validation to block success, got %v", err)
+	}
+
+	if _, err := store.AddRunArtifact(ctx, AddRunArtifactInput{
+		RunID:    run.ID,
+		Kind:     "validation",
+		Metadata: `{"status":"passed","command":"go test ./..."}`,
+	}); err != nil {
+		t.Fatalf("AddRunArtifact passed validation returned error: %v", err)
+	}
+	finished, err := store.FinishRun(ctx, FinishRunInput{
+		ID:            run.ID,
+		Status:        "succeeded",
+		ResultSummary: "Validation passed.",
+	})
+	if err != nil {
+		t.Fatalf("FinishRun with passed validation returned error: %v", err)
+	}
+	if finished.Status != "succeeded" {
+		t.Fatalf("unexpected finished run: %+v", finished)
+	}
+
+	overrideTask, err := store.CreateTask(ctx, CreateTaskInput{
+		ProjectID: project.ID,
+		Title:     "Override run",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask override returned error: %v", err)
+	}
+	overrideRun, err := store.CreateRun(ctx, CreateRunInput{
+		TaskID:                 overrideTask.ID,
+		Status:                 "in_progress",
+		HandoffContractVersion: "tok.handoff.v0",
+	})
+	if err != nil {
+		t.Fatalf("CreateRun override returned error: %v", err)
+	}
+	overridden, err := store.FinishRun(ctx, FinishRunInput{
+		ID:               overrideRun.ID,
+		Status:           "succeeded",
+		ResultSummary:    "Explicit override.",
+		AllowUnvalidated: true,
+	})
+	if err != nil {
+		t.Fatalf("FinishRun override returned error: %v", err)
+	}
+	if overridden.Status != "succeeded" {
+		t.Fatalf("unexpected override run: %+v", overridden)
+	}
+}
+
+func TestCompleteTaskRejectsActiveRun(t *testing.T) {
+	ctx := context.Background()
+	store := openInitializedTestStore(t)
+
+	project, err := store.CreateProject(ctx, CreateProjectInput{
+		Name:        "tok",
+		DisplayName: "TOK",
+		Path:        "/tmp/tok",
+	})
+	if err != nil {
+		t.Fatalf("CreateProject returned error: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskInput{
+		ProjectID: project.ID,
+		Title:     "Completion guard",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask returned error: %v", err)
+	}
+	if _, err := store.UpdateTaskStatus(ctx, task.ID, "in_progress"); err != nil {
+		t.Fatalf("UpdateTaskStatus returned error: %v", err)
+	}
+	run, err := store.CreateRun(ctx, CreateRunInput{
+		TaskID:                 task.ID,
+		Status:                 "in_progress",
+		HandoffContractVersion: "tok.handoff.v0",
+	})
+	if err != nil {
+		t.Fatalf("CreateRun returned error: %v", err)
+	}
+
+	_, err = store.CompleteTask(ctx, task.ID, "Done too early.")
+	if !errors.Is(err, ErrActiveRunExists) {
+		t.Fatalf("expected active run completion guard, got %v", err)
+	}
+	_, err = store.UpdateTaskStatus(ctx, task.ID, "done")
+	if !errors.Is(err, ErrActiveRunExists) {
+		t.Fatalf("expected active run status guard, got %v", err)
+	}
+
+	if _, err := store.FinishRun(ctx, FinishRunInput{
+		ID:            run.ID,
+		Status:        "failed",
+		ResultSummary: "Run failed.",
+	}); err != nil {
+		t.Fatalf("FinishRun failed returned error: %v", err)
+	}
+	completed, err := store.CompleteTask(ctx, task.ID, "Closed after terminal run.")
+	if err != nil {
+		t.Fatalf("CompleteTask after terminal run returned error: %v", err)
+	}
+	if completed.Status != "done" {
+		t.Fatalf("unexpected completed task: %+v", completed)
+	}
+}
+
 func TestRunArtifacts(t *testing.T) {
 	ctx := context.Background()
 	store := openInitializedTestStore(t)
@@ -822,12 +994,27 @@ func TestRunArtifacts(t *testing.T) {
 	if note.Metadata != "{}" {
 		t.Fatalf("expected default artifact metadata, got %+v", note)
 	}
+	stdout, err := store.AddRunArtifact(ctx, AddRunArtifactInput{
+		RunID:       run.ID,
+		Kind:        "stdout",
+		Path:        "/tmp/artifacts/run-1/stdout.txt",
+		ContentHash: "sha256:def456",
+		SizeBytes:   12,
+		Truncated:   true,
+		Metadata:    `{"format":"text","limit_bytes":12}`,
+	})
+	if err != nil {
+		t.Fatalf("AddRunArtifact stdout returned error: %v", err)
+	}
+	if stdout.SizeBytes != 12 || !stdout.Truncated {
+		t.Fatalf("unexpected stdout artifact file metadata: %+v", stdout)
+	}
 
 	artifacts, err := store.ListRunArtifacts(ctx, run.ID)
 	if err != nil {
 		t.Fatalf("ListRunArtifacts returned error: %v", err)
 	}
-	if len(artifacts) != 2 || artifacts[0].ID != handoff.ID || artifacts[1].ID != note.ID {
+	if len(artifacts) != 3 || artifacts[0].ID != handoff.ID || artifacts[1].ID != note.ID || artifacts[2].ID != stdout.ID {
 		t.Fatalf("unexpected artifacts: %+v", artifacts)
 	}
 }
@@ -873,6 +1060,15 @@ func TestRunArtifactValidation(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), `invalid run artifact kind "binary"`) {
 		t.Fatalf("expected invalid kind error, got %v", err)
+	}
+
+	_, err = store.AddRunArtifact(ctx, AddRunArtifactInput{
+		RunID:     run.ID,
+		Kind:      "stdout",
+		SizeBytes: -1,
+	})
+	if err == nil || !strings.Contains(err.Error(), "size bytes cannot be negative") {
+		t.Fatalf("expected invalid size error, got %v", err)
 	}
 }
 

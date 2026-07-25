@@ -237,6 +237,9 @@ func (c *CLI) runTaskDone(ctx context.Context, store *storage.Store, args []stri
 		if errors.Is(err, storage.ErrInvalidTaskTransition) {
 			return fmt.Errorf("task must be in_progress to complete")
 		}
+		if errors.Is(err, storage.ErrActiveRunExists) {
+			return fmt.Errorf("task cannot be completed while an active run exists")
+		}
 		return err
 	}
 

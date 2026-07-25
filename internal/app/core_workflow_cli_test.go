@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -294,5 +295,260 @@ func TestCLICoreWorkflowEndToEnd(t *testing.T) {
 		if shown.Events[idx].Type != want {
 			t.Fatalf("unexpected final task event %d: got %+v want %s", idx, shown.Events[idx], want)
 		}
+	}
+}
+
+func TestCLIRunnerProductionSmokeEndToEnd(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skipf("sh is required for production runner smoke: %v", err)
+	}
+
+	t.Run("exec artifacts validate finish task done", func(t *testing.T) {
+		ctx := context.Background()
+		dataDir := t.TempDir()
+		projectDir := t.TempDir()
+		initialHead := initRunTestGitRepo(t, projectDir)
+		writeContextFixtureFile(t, projectDir, "runner.txt", "production runner smoke\n")
+
+		projectCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+		if err := projectCLI.Run(ctx, []string{"project", "add", projectDir, "--name", "tok"}); err != nil {
+			t.Fatalf("project add returned error: %v", err)
+		}
+		taskID := createTaskForTest(t, ctx, dataDir, "tok", "Production runner task")
+		claimCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+		if err := claimCLI.Run(ctx, []string{"task", "claim", "--project", "tok", strconv.FormatInt(taskID, 10)}); err != nil {
+			t.Fatalf("task claim returned error: %v", err)
+		}
+
+		var execOut bytes.Buffer
+		execCLI := newProjectTestCLI(dataDir, &execOut)
+		if err := execCLI.Run(ctx, []string{
+			"run", "exec",
+			"--task", strconv.FormatInt(taskID, 10),
+			"--limit", "2",
+			"--timeout", "2s",
+			"--json",
+			"--",
+			"sh", "-c", "printf prod-out; printf prod-err >&2; test \"$PWD\" = '" + projectDir + "'",
+		}); err != nil {
+			t.Fatalf("run exec returned error: %v", err)
+		}
+		var execRun runOutput
+		if err := json.Unmarshal(execOut.Bytes(), &execRun); err != nil {
+			t.Fatalf("parse run exec JSON: %v\n%s", err, execOut.String())
+		}
+		if execRun.Status != "succeeded" || execRun.ResultSummary != "Exec succeeded." || execRun.BaseHead != initialHead {
+			t.Fatalf("unexpected exec run: %+v", execRun)
+		}
+		if len(execRun.Artifacts) != 4 || execRun.Artifacts[0].Kind != "handoff" || execRun.Artifacts[1].Kind != "stdout" || execRun.Artifacts[2].Kind != "stderr" || execRun.Artifacts[3].Kind != "log" {
+			t.Fatalf("exec run did not record handoff/stdout/stderr/log artifacts: %+v", execRun.Artifacts)
+		}
+		assertFileContent(t, execRun.Artifacts[1].Path, "prod-out")
+		assertFileContent(t, execRun.Artifacts[2].Path, "prod-err")
+
+		manualRun := startRunForTestWithArgs(t, ctx, dataDir, []string{"run", "start", "--task", strconv.FormatInt(taskID, 10), "--allow-active", "--json"})
+		var validationOut bytes.Buffer
+		validationCLI := newProjectTestCLI(dataDir, &validationOut)
+		if err := validationCLI.Run(ctx, []string{
+			"run", "validate",
+			strconv.FormatInt(manualRun.ID, 10),
+			"--timeout", "2s",
+			"--json",
+			"--",
+			"sh", "-c", "printf validation-out; printf validation-err >&2",
+		}); err != nil {
+			t.Fatalf("run validate returned error: %v", err)
+		}
+		var validation runArtifactOutput
+		if err := json.Unmarshal(validationOut.Bytes(), &validation); err != nil {
+			t.Fatalf("parse validation JSON: %v\n%s", err, validationOut.String())
+		}
+		if validation.Kind != "validation" || validation.RunID != manualRun.ID {
+			t.Fatalf("unexpected validation artifact: %+v", validation)
+		}
+
+		var finishOut bytes.Buffer
+		finishCLI := newProjectTestCLI(dataDir, &finishOut)
+		if err := finishCLI.Run(ctx, []string{
+			"run", "finish",
+			strconv.FormatInt(manualRun.ID, 10),
+			"--status", "succeeded",
+			"--summary", "Production smoke validated.",
+			"--json",
+		}); err != nil {
+			t.Fatalf("run finish returned error: %v", err)
+		}
+		var finished runOutput
+		if err := json.Unmarshal(finishOut.Bytes(), &finished); err != nil {
+			t.Fatalf("parse run finish JSON: %v\n%s", err, finishOut.String())
+		}
+		if finished.Status != "succeeded" || finished.ResultSummary != "Production smoke validated." || len(finished.Artifacts) != 3 {
+			t.Fatalf("unexpected finished validation run: %+v", finished)
+		}
+
+		doneCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+		if err := doneCLI.Run(ctx, []string{"task", "done", strconv.FormatInt(taskID, 10), "--note", "Production run smoke passed."}); err != nil {
+			t.Fatalf("task done returned error: %v", err)
+		}
+		assertTaskStatus(t, ctx, dataDir, taskID, "done")
+	})
+
+	t.Run("cancel long running exec via timeout", func(t *testing.T) {
+		ctx := context.Background()
+		dataDir := t.TempDir()
+		projectDir := t.TempDir()
+		projectCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+		if err := projectCLI.Run(ctx, []string{"project", "add", projectDir, "--name", "tok"}); err != nil {
+			t.Fatalf("project add returned error: %v", err)
+		}
+		taskID := createTaskForTest(t, ctx, dataDir, "tok", "Cancellable runner task")
+
+		var execOut bytes.Buffer
+		execCLI := newProjectTestCLI(dataDir, &execOut)
+		if err := execCLI.Run(ctx, []string{
+			"run", "exec",
+			"--task", strconv.FormatInt(taskID, 10),
+			"--timeout", "50ms",
+			"--json",
+			"--",
+			"sh", "-c", "trap 'printf term >&2; exit 143' TERM; sleep 10",
+		}); err != nil {
+			t.Fatalf("cancelled run exec should return run JSON, got error: %v", err)
+		}
+		var cancelled runOutput
+		if err := json.Unmarshal(execOut.Bytes(), &cancelled); err != nil {
+			t.Fatalf("parse cancelled exec JSON: %v\n%s", err, execOut.String())
+		}
+		if cancelled.Status != "cancelled" || cancelled.ResultSummary != "Exec timed out after 50ms." {
+			t.Fatalf("unexpected cancelled exec run: %+v", cancelled)
+		}
+		if len(cancelled.Artifacts) != 4 || cancelled.Artifacts[2].Kind != "stderr" {
+			t.Fatalf("cancelled exec missing expected artifacts: %+v", cancelled.Artifacts)
+		}
+		stderrContent, err := os.ReadFile(cancelled.Artifacts[2].Path)
+		if err != nil {
+			t.Fatalf("read cancelled stderr artifact: %v", err)
+		}
+		if !strings.Contains(string(stderrContent), "term") {
+			t.Fatalf("cancelled process did not receive TERM, stderr=%q", string(stderrContent))
+		}
+	})
+
+	t.Run("stale heartbeat recovery", func(t *testing.T) {
+		ctx := context.Background()
+		dataDir := t.TempDir()
+		projectDir := t.TempDir()
+		projectCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+		if err := projectCLI.Run(ctx, []string{"project", "add", projectDir, "--name", "tok"}); err != nil {
+			t.Fatalf("project add returned error: %v", err)
+		}
+		taskID := createTaskForTest(t, ctx, dataDir, "tok", "Recoverable runner task")
+		started := startRunForTest(t, ctx, dataDir, taskID)
+
+		heartbeatCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+		if err := heartbeatCLI.Run(ctx, []string{
+			"run", "heartbeat",
+			strconv.FormatInt(started.ID, 10),
+			"--owner", "production-smoke",
+			"--ttl", "1ms",
+		}); err != nil {
+			t.Fatalf("run heartbeat returned error: %v", err)
+		}
+
+		var recoverOut bytes.Buffer
+		recoverCLI := newProjectTestCLI(dataDir, &recoverOut)
+		if err := recoverCLI.Run(ctx, []string{
+			"run", "recover",
+			"--now", "9999-01-01T00:00:00.000Z",
+			"--summary", "Recovered by production smoke.",
+			"--json",
+		}); err != nil {
+			t.Fatalf("run recover returned error: %v", err)
+		}
+		var recovered []runOutput
+		if err := json.Unmarshal(recoverOut.Bytes(), &recovered); err != nil {
+			t.Fatalf("parse recovered JSON: %v\n%s", err, recoverOut.String())
+		}
+		if len(recovered) != 1 || recovered[0].ID != started.ID || recovered[0].Status != "cancelled" || recovered[0].ResultSummary != "Recovered by production smoke." {
+			t.Fatalf("unexpected recovered runs: %+v", recovered)
+		}
+	})
+
+	t.Run("failed validation prevents silent success", func(t *testing.T) {
+		ctx := context.Background()
+		dataDir := t.TempDir()
+		projectDir := t.TempDir()
+		projectCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+		if err := projectCLI.Run(ctx, []string{"project", "add", projectDir, "--name", "tok"}); err != nil {
+			t.Fatalf("project add returned error: %v", err)
+		}
+		taskID := createTaskForTest(t, ctx, dataDir, "tok", "Failed validation runner task")
+		started := startRunForTest(t, ctx, dataDir, taskID)
+
+		var validationOut bytes.Buffer
+		validationCLI := newProjectTestCLI(dataDir, &validationOut)
+		if err := validationCLI.Run(ctx, []string{
+			"run", "validate",
+			strconv.FormatInt(started.ID, 10),
+			"--json",
+			"--",
+			"sh", "-c", "printf failed-validation; exit 7",
+		}); err != nil {
+			t.Fatalf("failed run validate should record evidence without command error: %v", err)
+		}
+		var validation runArtifactOutput
+		if err := json.Unmarshal(validationOut.Bytes(), &validation); err != nil {
+			t.Fatalf("parse failed validation JSON: %v\n%s", err, validationOut.String())
+		}
+		var metadata struct {
+			Status   string `json:"status"`
+			ExitCode int    `json:"exit_code"`
+		}
+		if err := json.Unmarshal([]byte(validation.Metadata), &metadata); err != nil {
+			t.Fatalf("parse failed validation metadata: %v\n%s", err, validation.Metadata)
+		}
+		if metadata.Status != "failed" || metadata.ExitCode != 7 {
+			t.Fatalf("unexpected failed validation metadata: %+v", metadata)
+		}
+
+		finishCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+		err := finishCLI.Run(ctx, []string{
+			"run", "finish",
+			strconv.FormatInt(started.ID, 10),
+			"--status", "succeeded",
+			"--summary", "This should not silently succeed.",
+		})
+		if err == nil || !strings.Contains(err.Error(), "requires passed validation evidence") {
+			t.Fatalf("expected failed validation to block success, got %v", err)
+		}
+	})
+}
+
+func assertFileContent(t *testing.T, path, want string) {
+	t.Helper()
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read file %q: %v", path, err)
+	}
+	if string(content) != want {
+		t.Fatalf("unexpected file content for %q: got %q want %q", path, string(content), want)
+	}
+}
+
+func assertTaskStatus(t *testing.T, ctx context.Context, dataDir string, taskID int64, want string) {
+	t.Helper()
+
+	var out bytes.Buffer
+	cli := newProjectTestCLI(dataDir, &out)
+	if err := cli.Run(ctx, []string{"task", "show", strconv.FormatInt(taskID, 10), "--json"}); err != nil {
+		t.Fatalf("task show returned error: %v", err)
+	}
+	var shown taskShowOutput
+	if err := json.Unmarshal(out.Bytes(), &shown); err != nil {
+		t.Fatalf("parse task show JSON: %v\n%s", err, out.String())
+	}
+	if shown.Task.Status != want {
+		t.Fatalf("unexpected task status: got %s want %s", shown.Task.Status, want)
 	}
 }

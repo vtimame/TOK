@@ -29,6 +29,7 @@ var (
 	ErrInvalidRunTransition    = errors.New("invalid run status transition")
 	ErrRunResultSummaryEmpty   = errors.New("run result summary is required")
 	ErrActiveRunExists         = errors.New("active run already exists for task")
+	ErrRunValidationRequired   = errors.New("passed validation evidence is required")
 )
 
 //go:embed migrations/*.sql
@@ -152,6 +153,8 @@ type RunArtifact struct {
 	Kind        string
 	Path        string
 	ContentHash string
+	SizeBytes   int64
+	Truncated   bool
 	Metadata    string
 	ActorID     int64
 	ActorKind   string
@@ -174,10 +177,11 @@ type CreateRunInput struct {
 }
 
 type FinishRunInput struct {
-	ID            int64
-	Status        string
-	ResultSummary string
-	Actor         ActorRef
+	ID               int64
+	Status           string
+	ResultSummary    string
+	AllowUnvalidated bool
+	Actor            ActorRef
 }
 
 type HeartbeatRunInput struct {
@@ -199,6 +203,8 @@ type AddRunArtifactInput struct {
 	Kind        string
 	Path        string
 	ContentHash string
+	SizeBytes   int64
+	Truncated   bool
 	Metadata    string
 	Actor       ActorRef
 }
@@ -735,6 +741,15 @@ func (s *Store) UpdateTaskStatusByActor(ctx context.Context, id int64, status st
 	if current.Status == status {
 		return current, nil
 	}
+	if status == "done" {
+		activeRun, err := s.hasActiveRunForTask(ctx, id)
+		if err != nil {
+			return Task{}, err
+		}
+		if activeRun {
+			return Task{}, ErrActiveRunExists
+		}
+	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -784,6 +799,13 @@ func (s *Store) CompleteTaskByActor(ctx context.Context, id int64, note string, 
 	}
 	if current.Status != "in_progress" {
 		return Task{}, ErrInvalidTaskTransition
+	}
+	activeRun, err := s.hasActiveRunForTask(ctx, id)
+	if err != nil {
+		return Task{}, err
+	}
+	if activeRun {
+		return Task{}, ErrActiveRunExists
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -1164,6 +1186,15 @@ func (s *Store) FinishRun(ctx context.Context, input FinishRunInput) (Run, error
 	if runStatusTerminal(current.Status) {
 		return Run{}, ErrInvalidRunTransition
 	}
+	if input.Status == "succeeded" && !input.AllowUnvalidated {
+		hasValidation, err := s.hasPassedValidationArtifact(ctx, input.ID)
+		if err != nil {
+			return Run{}, err
+		}
+		if !hasValidation {
+			return Run{}, ErrRunValidationRequired
+		}
+	}
 
 	actor := sanitizeActorRef(input.Actor)
 	res, err := s.db.ExecContext(ctx, `
@@ -1189,6 +1220,28 @@ func (s *Store) FinishRun(ctx context.Context, input FinishRunInput) (Run, error
 	}
 
 	return s.GetRun(ctx, input.ID)
+}
+
+func (s *Store) hasPassedValidationArtifact(ctx context.Context, runID int64) (bool, error) {
+	artifacts, err := s.ListRunArtifacts(ctx, runID)
+	if err != nil {
+		return false, err
+	}
+	for _, artifact := range artifacts {
+		if artifact.Kind != "validation" {
+			continue
+		}
+		var metadata struct {
+			Status string `json:"status"`
+		}
+		if err := json.Unmarshal([]byte(artifact.Metadata), &metadata); err != nil {
+			continue
+		}
+		if strings.TrimSpace(metadata.Status) == "passed" {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (s *Store) HeartbeatRun(ctx context.Context, input HeartbeatRunInput) (Run, error) {
@@ -1302,6 +1355,9 @@ func (s *Store) AddRunArtifact(ctx context.Context, input AddRunArtifactInput) (
 	}
 	input.Path = strings.TrimSpace(input.Path)
 	input.ContentHash = strings.TrimSpace(input.ContentHash)
+	if input.SizeBytes < 0 {
+		return RunArtifact{}, errors.New("run artifact size bytes cannot be negative")
+	}
 	input.Metadata = strings.TrimSpace(input.Metadata)
 	if input.Metadata == "" {
 		input.Metadata = "{}"
@@ -1309,9 +1365,9 @@ func (s *Store) AddRunArtifact(ctx context.Context, input AddRunArtifactInput) (
 
 	actor := sanitizeActorRef(input.Actor)
 	res, err := s.db.ExecContext(ctx, `
-		INSERT INTO run_artifacts (run_id, kind, path, content_hash, metadata, actor_id, actor_kind, actor_name)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`, input.RunID, input.Kind, input.Path, input.ContentHash, input.Metadata, actor.ID, actor.Kind, actor.Name)
+		INSERT INTO run_artifacts (run_id, kind, path, content_hash, size_bytes, truncated, metadata, actor_id, actor_kind, actor_name)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, input.RunID, input.Kind, input.Path, input.ContentHash, input.SizeBytes, boolToInt(input.Truncated), input.Metadata, actor.ID, actor.Kind, actor.Name)
 	if err != nil {
 		return RunArtifact{}, fmt.Errorf("add run artifact: %w", err)
 	}
@@ -1326,7 +1382,7 @@ func (s *Store) AddRunArtifact(ctx context.Context, input AddRunArtifactInput) (
 
 func (s *Store) GetRunArtifact(ctx context.Context, id int64) (RunArtifact, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, run_id, kind, path, content_hash, metadata, actor_id, actor_kind, actor_name, created_at
+		SELECT id, run_id, kind, path, content_hash, size_bytes, truncated, metadata, actor_id, actor_kind, actor_name, created_at
 		FROM run_artifacts
 		WHERE id = ?
 	`, id)
@@ -1339,7 +1395,7 @@ func (s *Store) ListRunArtifacts(ctx context.Context, runID int64) ([]RunArtifac
 	}
 
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, run_id, kind, path, content_hash, metadata, actor_id, actor_kind, actor_name, created_at
+		SELECT id, run_id, kind, path, content_hash, size_bytes, truncated, metadata, actor_id, actor_kind, actor_name, created_at
 		FROM run_artifacts
 		WHERE run_id = ?
 		ORDER BY id
@@ -2317,12 +2373,15 @@ func scanRun(row scanner) (Run, error) {
 
 func scanRunArtifact(row scanner) (RunArtifact, error) {
 	var artifact RunArtifact
+	var truncated int
 	if err := row.Scan(
 		&artifact.ID,
 		&artifact.RunID,
 		&artifact.Kind,
 		&artifact.Path,
 		&artifact.ContentHash,
+		&artifact.SizeBytes,
+		&truncated,
 		&artifact.Metadata,
 		&artifact.ActorID,
 		&artifact.ActorKind,
@@ -2331,6 +2390,7 @@ func scanRunArtifact(row scanner) (RunArtifact, error) {
 	); err != nil {
 		return RunArtifact{}, err
 	}
+	artifact.Truncated = truncated != 0
 	return artifact, nil
 }
 
@@ -2446,11 +2506,18 @@ func runStatusTerminal(status string) bool {
 
 func validRunArtifactKind(kind string) bool {
 	switch kind {
-	case "handoff", "validation", "log", "patch", "note":
+	case "handoff", "validation", "stdout", "stderr", "log", "patch", "note":
 		return true
 	default:
 		return false
 	}
+}
+
+func boolToInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func validateTaskDependency(edgeType string, blockerTaskID, blockedTaskID int64) error {

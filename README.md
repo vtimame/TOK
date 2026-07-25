@@ -34,6 +34,7 @@ tok task create \
 tok task ready --project tok --json
 tok task claim --project tok --json
 tok run start --task <task-id> --limit 5 --handoff-output handoff.md --json
+tok run exec --task <task-id> --timeout 10m -- go test ./...
 
 tok index update --project tok
 tok index status --project tok --json
@@ -52,6 +53,7 @@ tok run list --project tok --status in_progress --json
 tok run show <run-id> --json
 tok run heartbeat <run-id> --ttl 15m --json
 tok run recover --summary "Recovered stale run." --json
+tok run validate <run-id> --timeout 2m -- go test ./...
 tok run record-validation <run-id> --command "go test ./..." --status passed --summary "Tests pass."
 tok run finish <run-id> --status succeeded --summary "Run completed."
 tok task block <task-id> --reason "Waiting for a decision."
@@ -93,15 +95,131 @@ The core invariants are:
   retrieval limit and git start snapshot. With `--handoff-output`, it also
   writes the handoff package and records it as a run artifact. `run finish`
   records the attempt outcome without closing the task automatically.
+- `run exec` creates an active run for a task, records the same handoff/git
+  snapshot, runs a local command in the project workspace and finishes the run
+  as `succeeded`, `failed` or `cancelled` from the process outcome. It captures
+  bounded stdout/stderr artifacts and a process metadata log artifact.
+- `run agent` creates an active run for a task and invokes a configurable local
+  adapter command. TOK passes the handoff package via `--context file`, `stdin`
+  or `env`, sets the command working directory to the project path, and provides
+  `TOK_AGENT_ADAPTER_CONTRACT=tok.agent_adapter.v0`,
+  `TOK_RUN_ARTIFACT_DIR`, `TOK_AGENT_RESULT_FILE`,
+  `TOK_AGENT_CONTEXT_MODE`, `TOK_PROJECT_PATH` and the safe run/task/project env
+  values explicitly. The adapter writes machine-readable JSON to
+  `TOK_AGENT_RESULT_FILE`:
+  `{"status":"succeeded|failed|blocked|cancelled","summary":"..."}`.
+  TOK maps that structured adapter result to the run outcome without parsing
+  human stdout/stderr.
+- A run can finish as `succeeded` only after a `passed` validation artifact is
+  recorded, unless the operator passes `--allow-unvalidated` explicitly.
 - Active runs carry a local lease with owner, heartbeat timestamp and expiry.
   `run heartbeat` refreshes that lease, `run recover` cancels expired active
   runs, and `run start` refuses a second active run for the same task unless
   `--allow-active` is passed explicitly.
 - `run record-validation` stores a manual validation result as a run artifact;
   it records the command text and outcome, but does not execute anything.
+- `run validate` executes a validation command in the project workspace,
+  records bounded stdout/stderr artifacts and stores command, exit code,
+  duration, timeout state and summary as validation evidence.
+- Local command execution uses a filtered environment by default. TOK preserves
+  basic process context such as `PATH`, locale, cache/temp variables and
+  `TOK_RUN_ID`/`TOK_TASK_ID`/`TOK_PROJECT_NAME`, but does not inherit
+  secret-like variables such as tokens and passwords into validation commands.
+- Validation command metadata is redacted before it is written to JSON. Redaction
+  uses secret-like environment variable names and optional comma-separated
+  literal patterns from `TOK_SECRET_PATTERNS`.
+- Commands that match the V0 dangerous-command policy, such as recursive remove,
+  filesystem formatting, privilege escalation and download-pipe-to-shell forms,
+  are rejected unless `--allow-dangerous` is passed explicitly.
+- `run record-artifact` stores bounded file evidence for `stdout`, `stderr`,
+  `log` and `patch` artifacts under the TOK data directory. Artifact JSON
+  includes path, content hash, stored size and truncation metadata without
+  inlining file contents.
 - `progress`, `block` and `unblock` record typed task events; blocked tasks are
   excluded from `ready` and cannot be claimed.
 - `done` records a completion event and moves an `in_progress` task to `done`.
 - JSON output is available for machine-driven workflow steps.
 - `mcp serve` exposes project, task, index and search tools over the official
   MCP Go SDK stdio transport and requires an agent token.
+
+## Production Runner Workflow
+
+The production smoke for `tok run` exercises the workflow through CLI commands,
+not direct SQLite access:
+
+```bash
+tok task create --project tok --title "Implement production slice"
+tok task claim --project tok <task-id>
+
+# Bounded local execution. This creates and finishes a run, records handoff,
+# stdout, stderr and process metadata artifacts, and leaves the task open.
+tok run exec --task <task-id> --timeout 10m --json -- <command...>
+tok run show <exec-run-id> --json
+
+# Explicit validation-gated run. Use this when a run should only be marked
+# succeeded after validation evidence exists.
+tok run start --task <task-id> --allow-active --json
+tok run validate <validation-run-id> --timeout 2m --json -- go test ./...
+tok run finish <validation-run-id> \
+  --status succeeded \
+  --summary "Validation passed."
+
+tok task done <task-id> --note "Implemented and validated."
+```
+
+Operational recovery paths are also part of the smoke:
+
+```bash
+# A timed-out exec is cancelled and records stdout/stderr/process evidence.
+tok run exec --task <task-id> --timeout 50ms --json -- <long-command...>
+
+# A stale active run can be recovered without touching SQLite.
+tok run heartbeat <run-id> --owner operator --ttl 1ms
+tok run recover --summary "Recovered stale run." --json
+
+# Failed validation evidence blocks silent success.
+tok run validate <run-id> --json -- <failing-validation-command...>
+tok run finish <run-id> --status succeeded --summary "Should fail"
+```
+
+## Task/Run State Policy
+
+Task completion is always explicit: terminal run outcomes do not close tasks.
+Operators finish the run first, then decide whether to add progress, block the
+task or mark it done. A task cannot be completed while it still has a
+non-terminal run.
+
+| Event | Run transition | Task transition | Enforcement |
+| --- | --- | --- | --- |
+| `run start` | none -> `in_progress` | unchanged | Refuses another non-terminal run for the same task unless `--allow-active` is explicit. |
+| `run exec` success | none -> `in_progress` -> `succeeded` | unchanged | Creates a run, records handoff/stdout/stderr/process artifacts and uses an internal explicit override because the command outcome is the run outcome. |
+| `run exec` failure | none -> `in_progress` -> `failed` | unchanged | Non-zero exit code is preserved in the process metadata artifact. |
+| `run exec` timeout/interruption | none -> `in_progress` -> `cancelled` | unchanged | Sends SIGTERM to the child process group, then SIGKILL after a short grace period when needed. |
+| `run agent` adapter result | none -> `in_progress` -> `succeeded`/`failed`/`blocked`/`cancelled` | unchanged | Creates a run, records handoff/stdout/stderr/adapter metadata and maps `TOK_AGENT_RESULT_FILE` JSON to the run outcome. |
+| Exec success | `created`/`in_progress` -> `succeeded` | unchanged | Requires a `validation` artifact with `status: passed`, or explicit `--allow-unvalidated`. |
+| Exec failure | `created`/`in_progress` -> `failed` | unchanged | Requires a result summary; the task remains available for follow-up workflow. |
+| Cancel/recover | `created`/`in_progress` -> `cancelled` | unchanged | Requires a result summary; terminal runs cannot be heartbeated or finished again. |
+| Block run | `created`/`in_progress` -> `blocked` | unchanged | Records the blocked run outcome; use `task block` separately when the task itself should leave ready flow. |
+| Validation failure | non-terminal run remains active, or finishes `failed`/`blocked` | unchanged | A failed validation artifact never satisfies `run finish --status succeeded`. |
+| `task done` | unchanged | `in_progress` -> `done` | Requires an explicit note and rejects tasks with a non-terminal run. |
+
+## Command Safety Boundaries
+
+TOK's local command safety model is intentionally pragmatic. It reduces common
+accidental leaks and destructive operations, but it is not a sandbox. Validation
+commands still run as local child processes in the project workspace.
+
+Default command environment:
+
+- inherited by name: `PATH`, `HOME`, `SHELL`, `USER`, `LOGNAME`, locale
+  variables, terminal/temp/cache variables and Go cache variables;
+- injected by TOK: `PWD`, `TOK_RUN_ID`, `TOK_TASK_ID`, `TOK_PROJECT_NAME`;
+- not inherited by default: variables whose names look secret-bearing, including
+  `SECRET`, `TOKEN`, `PASSWORD`, `PASS`, `API_KEY`, `PRIVATE`, `CREDENTIAL` and
+  `AUTH`.
+
+Redaction applies to command and validation metadata written to JSON. It does
+not rewrite stdout/stderr artifact files; those files are kept as execution
+evidence and are referenced from JSON by path/hash/size metadata only. Operators
+can add extra literal redaction patterns with `TOK_SECRET_PATTERNS`, for example
+`TOK_SECRET_PATTERNS=literal-secret,another-token`.
