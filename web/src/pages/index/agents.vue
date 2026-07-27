@@ -80,7 +80,7 @@ useTitle("Agents");
 </script>
 
 <template>
-  <div class="mx-auto flex h-svh w-full max-w-5xl flex-col gap-4 overflow-hidden px-4 py-18">
+  <div class="mx-auto flex h-svh w-full max-w-6xl flex-col gap-4 overflow-hidden px-4 py-18">
     <div class="flex shrink-0 items-center justify-between">
       <div class="text-2xl font-bold">Agents</div>
       <div class="flex items-center gap-x-3">

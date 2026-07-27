@@ -5,8 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STATE_DIR="$ROOT_DIR/.dev"
 WEB_DIR="$ROOT_DIR/web"
 
-API_PORT="7654"
-APP_PORT="5173"
+API_PORT="7655"
+APP_PORT="5174"
 API_ADDR="127.0.0.1:$API_PORT"
 APP_ADDR="127.0.0.1:$APP_PORT"
 
@@ -153,7 +153,7 @@ api_start() {
 }
 
 app_start() {
-  start_service "app" "$APP_PORT" "$WEB_DIR" "pnpm dev --host 127.0.0.1 --port $APP_PORT"
+  start_service "app" "$APP_PORT" "$WEB_DIR" "VITE_TOK_API_PROXY_TARGET=http://$API_ADDR pnpm dev --host 127.0.0.1 --port $APP_PORT --strictPort"
 }
 
 show_logs() {

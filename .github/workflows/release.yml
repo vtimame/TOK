@@ -1,0 +1,89 @@
+name: Release Binaries
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.asset }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - asset: tok_linux_amd64
+            runner: ubuntu-latest
+            goos: linux
+            goarch: amd64
+          - asset: tok_darwin_amd64
+            runner: macos-15-intel
+            goos: darwin
+            goarch: amd64
+          - asset: tok_darwin_arm64
+            runner: macos-15
+            goos: darwin
+            goarch: arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.mod
+            go.sum
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Set up pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10 --activate
+
+      - name: Install web dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: web
+
+      - name: Build binary
+        env:
+          CGO_ENABLED: 1
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: make build BINARY=dist/${{ matrix.asset }}/tok VERSION=${{ github.ref_name }}
+
+      - name: Smoke test binary
+        run: ./dist/${{ matrix.asset }}/tok version
+
+      - name: Package binary
+        run: |
+          cd dist/${{ matrix.asset }}
+          tar -czf ../${{ matrix.asset }}.tar.gz tok
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}.tar.gz
+          if-no-files-found: error
+          overwrite: true
+
+      - name: Upload release asset
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1 || \
+            gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --notes "TOK ${GITHUB_REF_NAME}"
+          gh release upload "${GITHUB_REF_NAME}" "dist/${{ matrix.asset }}.tar.gz" --clobber

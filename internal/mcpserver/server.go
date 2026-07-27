@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -53,6 +55,10 @@ func New(cfg Config) (*mcp.Server, error) {
 }
 
 func (s *service) addTools(server *mcp.Server) {
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "project_create",
+		Description: "Register a local project path in TOK.",
+	}, s.projectCreate)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "task_create",
 		Description: "Create a task in a project.",
@@ -199,6 +205,12 @@ type projectNameInput struct {
 
 type projectShowInput struct {
 	Name string `json:"name" jsonschema:"project name"`
+}
+
+type projectCreateInput struct {
+	Name        string `json:"name" jsonschema:"project name"`
+	DisplayName string `json:"display_name,omitempty" jsonschema:"project display name; defaults to name"`
+	Path        string `json:"path" jsonschema:"local project path"`
 }
 
 type projectInstructionListInput struct {
@@ -540,6 +552,33 @@ func (s *service) projectList(ctx context.Context, _ *mcp.CallToolRequest, _ emp
 		out.Projects = append(out.Projects, projectFromStorage(project))
 	}
 	return nil, out, nil
+}
+
+func (s *service) projectCreate(ctx context.Context, _ *mcp.CallToolRequest, input projectCreateInput) (*mcp.CallToolResult, projectOutput, error) {
+	input.Name = strings.TrimSpace(input.Name)
+	if input.Name == "" {
+		return nil, projectOutput{}, errors.New("project_create requires name")
+	}
+	if strings.TrimSpace(input.DisplayName) != input.DisplayName {
+		return nil, projectOutput{}, errors.New("project display_name cannot have leading or trailing spaces")
+	}
+	displayName := input.DisplayName
+	if displayName == "" {
+		displayName = input.Name
+	}
+	projectPath, err := validateLocalProjectPath(input.Path)
+	if err != nil {
+		return nil, projectOutput{}, err
+	}
+	project, err := s.store.CreateProject(ctx, storage.CreateProjectInput{
+		Name:        input.Name,
+		DisplayName: displayName,
+		Path:        projectPath,
+	})
+	if err != nil {
+		return nil, projectOutput{}, fmt.Errorf("create project %q: %w", input.Name, err)
+	}
+	return nil, projectOutput{Project: projectFromStorage(project)}, nil
 }
 
 func (s *service) projectShow(ctx context.Context, _ *mcp.CallToolRequest, input projectShowInput) (*mcp.CallToolResult, projectOutput, error) {
@@ -1190,6 +1229,27 @@ func (s *service) addTaskNote(ctx context.Context, id int64, body, kind string) 
 		return storage.TaskEvent{}, fmt.Errorf("task not found: %d", id)
 	}
 	return event, err
+}
+
+func validateLocalProjectPath(path string) (string, error) {
+	if strings.TrimSpace(path) == "" {
+		return "", errors.New("project path is required")
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve project path %q: %w", path, err)
+	}
+	info, err := os.Stat(absPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("project path does not exist: %s", absPath)
+		}
+		return "", fmt.Errorf("inspect project path %q: %w", absPath, err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("project path must be a directory: %s", absPath)
+	}
+	return absPath, nil
 }
 
 func taskListFromStorage(tasks []storage.Task) taskListOutput {

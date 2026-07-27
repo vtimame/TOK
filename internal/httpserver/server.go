@@ -108,7 +108,7 @@ func registerRoutes(s *fuego.Server, a *api) {
 	fuego.Patch(s, "/api/agents/{id}", a.updateAgent, append(operation("updateAgent", "Agents", "Update an agent"), jsonBody()...)...)
 	fuego.Delete(s, "/api/agents/{id}", a.deleteAgent, operation("deleteAgent", "Agents", "Delete an agent")...)
 
-	fuego.Get(s, "/api/projects", a.listProjects, append(operation("listProjects", "Projects", "List registered projects"), option.Query("limit", "Maximum projects to return"), option.Query("offset", "Projects to skip before returning results"))...)
+	fuego.Get(s, "/api/projects", a.listProjects, append(operation("listProjects", "Projects", "List registered projects"), option.Query("limit", "Maximum projects to return"), option.Query("cursor", "Optional cursor for the next page"))...)
 	fuego.Post(s, "/api/projects", a.createProject, append(operation("createProject", "Projects", "Register a project"), jsonBody()...)...)
 	fuego.Get(s, "/api/projects/{project}", a.showProject, operation("showProject", "Projects", "Show a project")...)
 	fuego.Patch(s, "/api/projects/{project}", a.updateProject, append(operation("updateProject", "Projects", "Update a project"), jsonBody()...)...)
@@ -120,11 +120,11 @@ func registerRoutes(s *fuego.Server, a *api) {
 	fuego.Post(s, "/api/projects/{project}/instructions/{id}/disable", a.disableProjectInstruction, operation("disableProjectInstruction", "Projects", "Disable a project instruction")...)
 	fuego.Delete(s, "/api/projects/{project}/instructions/{id}", a.deleteProjectInstruction, operation("deleteProjectInstruction", "Projects", "Delete a project instruction")...)
 
-	fuego.Get(s, "/api/projects/{project}/tasks", a.listTasks, append(operation("listProjectTasks", "Tasks", "List project tasks"), option.Query("limit", "Maximum tasks to return"), option.Query("offset", "Tasks to skip before returning results"), option.Query("status", "Optional task status filter"))...)
+	fuego.Get(s, "/api/projects/{project}/tasks", a.listTasks, append(operation("listProjectTasks", "Tasks", "List project tasks"), option.Query("limit", "Maximum tasks to return"), option.Query("cursor", "Optional cursor for the next page"), option.Query("status", "Optional task status filter"))...)
 	fuego.Post(s, "/api/projects/{project}/tasks", a.createTask, append(operation("createTask", "Tasks", "Create a project task"), jsonBody()...)...)
 	fuego.Get(s, "/api/projects/{project}/tasks/ready", a.readyTasks, operation("listReadyTasks", "Tasks", "List ready project tasks")...)
 	fuego.Post(s, "/api/projects/{project}/tasks/claim", a.claimTask, append(operation("claimTask", "Tasks", "Claim the next ready task or a specific ready task"), jsonBody()...)...)
-	fuego.Get(s, "/api/tasks", a.listAllTasks, append(operation("listTasks", "Tasks", "List tasks"), option.Query("limit", "Maximum tasks to return"), option.Query("offset", "Tasks to skip before returning results"), option.Query("projectId", "Optional project id filter"), option.Query("project", "Optional project name filter"), option.Query("status", "Optional comma-separated task status filter"))...)
+	fuego.Get(s, "/api/tasks", a.listAllTasks, append(operation("listTasks", "Tasks", "List tasks"), option.Query("limit", "Maximum tasks to return"), option.Query("cursor", "Optional cursor for the next page"), option.Query("projectId", "Optional project id filter"), option.Query("project", "Optional project name filter"), option.Query("status", "Optional comma-separated task status filter"))...)
 	fuego.Get(s, "/api/tasks/{id}", a.showTask, operation("showTask", "Tasks", "Show a task with event history")...)
 	fuego.Post(s, "/api/tasks/{id}/comment", a.commentTask, append(operation("commentTask", "Tasks", "Add a task comment"), jsonBody()...)...)
 	fuego.Post(s, "/api/tasks/{id}/progress", a.progressTask, append(operation("progressTask", "Tasks", "Add task progress"), jsonBody()...)...)
@@ -300,31 +300,16 @@ func (a *api) listProjects(ctx fuego.ContextNoBody) (ProjectListResponse, error)
 	if err != nil {
 		return ProjectListResponse{}, err
 	}
-	offset, err := nonNegativeIntQuery(ctx, "offset", 0)
-	if err != nil {
-		return ProjectListResponse{}, err
-	}
+	cursor := strings.TrimSpace(ctx.QueryParam("cursor"))
 	total, err := a.store.CountProjects(ctx.Context())
 	if err != nil {
 		return ProjectListResponse{}, err
 	}
-	projects, err := a.store.ListProjectsWithOptions(ctx.Context(), storage.ListProjectsOptions{Limit: limit, Offset: offset})
+	projects, err := a.store.ListProjectsWithOptions(ctx.Context(), storage.ListProjectsOptions{Limit: pageFetchLimit(limit), Cursor: cursor})
 	if err != nil {
 		return ProjectListResponse{}, err
 	}
-	responseLimit := limit
-	if responseLimit == 0 {
-		responseLimit = len(projects)
-	}
-	out := ProjectListResponse{Projects: make([]ProjectOutput, 0, len(projects)), Total: total, Limit: responseLimit, Offset: offset}
-	for _, project := range projects {
-		projectOut, err := a.projectOutput(ctx.Context(), project)
-		if err != nil {
-			return ProjectListResponse{}, err
-		}
-		out.Projects = append(out.Projects, projectOut)
-	}
-	return out, nil
+	return a.projectListResponse(ctx.Context(), projects, total, limit)
 }
 
 func positiveIntQuery(ctx fuego.ContextNoBody, name string, defaultValue, maxValue int) (int, error) {
@@ -352,6 +337,18 @@ func nonNegativeIntQuery(ctx fuego.ContextNoBody, name string, defaultValue int)
 		return 0, badRequest(fmt.Sprintf("%s must be a non-negative integer", name))
 	}
 	return parsed, nil
+}
+
+func cursorQuery(ctx fuego.ContextNoBody, name string) (int64, error) {
+	value := strings.TrimSpace(ctx.QueryParam(name))
+	if value == "" {
+		return 0, nil
+	}
+	cursor, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || cursor <= 0 {
+		return 0, badRequest(fmt.Sprintf("%s must be a positive integer", name))
+	}
+	return cursor, nil
 }
 
 func boolQuery(ctx fuego.ContextNoBody, name string, defaultValue bool) (bool, error) {
@@ -554,7 +551,7 @@ func (a *api) listTasks(ctx fuego.ContextNoBody) (TaskListResponse, error) {
 	if err != nil {
 		return TaskListResponse{}, err
 	}
-	offset, err := nonNegativeIntQuery(ctx, "offset", 0)
+	cursor, err := cursorQuery(ctx, "cursor")
 	if err != nil {
 		return TaskListResponse{}, err
 	}
@@ -562,16 +559,18 @@ func (a *api) listTasks(ctx fuego.ContextNoBody) (TaskListResponse, error) {
 	if err != nil {
 		return TaskListResponse{}, err
 	}
-	opts := storage.ListTasksOptions{Statuses: statuses, ProjectID: project.ID, Limit: limit, Offset: offset}
+	opts := storage.ListTasksOptions{Statuses: statuses, ProjectID: project.ID, Limit: limit, Cursor: cursor}
 	total, err := a.store.CountTasksWithOptions(ctx.Context(), project.ID, opts)
 	if err != nil {
 		return TaskListResponse{}, err
 	}
-	tasks, err := a.store.ListAllTasksWithOptions(ctx.Context(), opts)
+	listOpts := opts
+	listOpts.Limit = pageFetchLimit(limit)
+	tasks, err := a.store.ListAllTasksWithOptions(ctx.Context(), listOpts)
 	if err != nil {
 		return TaskListResponse{}, err
 	}
-	return a.taskListResponse(ctx.Context(), tasks, total, limit, offset)
+	return a.taskListResponse(ctx.Context(), tasks, total, limit)
 }
 
 func (a *api) listAllTasks(ctx fuego.ContextNoBody) (TaskListResponse, error) {
@@ -579,7 +578,7 @@ func (a *api) listAllTasks(ctx fuego.ContextNoBody) (TaskListResponse, error) {
 	if err != nil {
 		return TaskListResponse{}, err
 	}
-	offset, err := nonNegativeIntQuery(ctx, "offset", 0)
+	cursor, err := cursorQuery(ctx, "cursor")
 	if err != nil {
 		return TaskListResponse{}, err
 	}
@@ -591,16 +590,18 @@ func (a *api) listAllTasks(ctx fuego.ContextNoBody) (TaskListResponse, error) {
 	if err != nil {
 		return TaskListResponse{}, err
 	}
-	opts := storage.ListTasksOptions{Statuses: statuses, ProjectID: projectID, Limit: limit, Offset: offset}
+	opts := storage.ListTasksOptions{Statuses: statuses, ProjectID: projectID, Limit: limit, Cursor: cursor}
 	total, err := a.store.CountTasksWithOptions(ctx.Context(), projectID, opts)
 	if err != nil {
 		return TaskListResponse{}, err
 	}
-	tasks, err := a.store.ListAllTasksWithOptions(ctx.Context(), opts)
+	listOpts := opts
+	listOpts.Limit = pageFetchLimit(limit)
+	tasks, err := a.store.ListAllTasksWithOptions(ctx.Context(), listOpts)
 	if err != nil {
 		return TaskListResponse{}, err
 	}
-	return a.taskListResponse(ctx.Context(), tasks, total, limit, offset)
+	return a.taskListResponse(ctx.Context(), tasks, total, limit)
 }
 
 func (a *api) taskProjectIDFromQuery(ctx fuego.ContextNoBody) (int64, error) {
@@ -683,7 +684,7 @@ func (a *api) readyTasks(ctx fuego.ContextNoBody) (TaskListResponse, error) {
 	if err != nil {
 		return TaskListResponse{}, err
 	}
-	return a.taskListResponse(ctx.Context(), tasks, len(tasks), len(tasks), 0)
+	return a.taskListResponse(ctx.Context(), tasks, len(tasks), 0)
 }
 
 func (a *api) showTask(ctx fuego.ContextNoBody) (TaskShowResponse, error) {
@@ -1023,7 +1024,15 @@ func (a *api) taskResponse(ctx context.Context, task storage.Task) (TaskResponse
 	return TaskResponse{Task: taskFromStorage(task, project, agentsFromEvents(events))}, nil
 }
 
-func (a *api) taskListResponse(ctx context.Context, tasks []storage.Task, total, limit, offset int) (TaskListResponse, error) {
+func (a *api) taskListResponse(ctx context.Context, tasks []storage.Task, total, limit int) (TaskListResponse, error) {
+	responseLimit := limit
+	if responseLimit == 0 {
+		responseLimit = len(tasks)
+	}
+	hasNext := limit > 0 && len(tasks) > limit
+	if hasNext {
+		tasks = tasks[:limit]
+	}
 	agentsByTask, err := a.agentsByTask(ctx, tasks)
 	if err != nil {
 		return TaskListResponse{}, err
@@ -1034,8 +1043,41 @@ func (a *api) taskListResponse(ctx context.Context, tasks []storage.Task, total,
 	}
 	out := tasksFromStorage(tasks, agentsByTask, projectsByID)
 	out.Total = total
-	out.Limit = limit
-	out.Offset = offset
+	out.Limit = responseLimit
+	if hasNext && len(tasks) > 0 {
+		out.NextCursor = strconv.FormatInt(tasks[len(tasks)-1].ID, 10)
+	}
+	return out, nil
+}
+
+func pageFetchLimit(limit int) int {
+	if limit <= 0 {
+		return limit
+	}
+	return limit + 1
+}
+
+func (a *api) projectListResponse(ctx context.Context, projects []storage.Project, total, limit int) (ProjectListResponse, error) {
+	responseLimit := limit
+	if responseLimit == 0 {
+		responseLimit = len(projects)
+	}
+	hasNext := limit > 0 && len(projects) > limit
+	if hasNext {
+		projects = projects[:limit]
+	}
+
+	out := ProjectListResponse{Projects: make([]ProjectOutput, 0, len(projects)), Total: total, Limit: responseLimit}
+	for _, project := range projects {
+		projectOut, err := a.projectOutput(ctx, project)
+		if err != nil {
+			return ProjectListResponse{}, err
+		}
+		out.Projects = append(out.Projects, projectOut)
+	}
+	if hasNext && len(projects) > 0 {
+		out.NextCursor = projects[len(projects)-1].Name
+	}
 	return out, nil
 }
 

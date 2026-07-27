@@ -5,11 +5,19 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableFooter,
   TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -23,21 +31,39 @@ import {
 import { useUpdateProjectIndex } from "@/api/generated/hooks/useUpdateProjectIndex.ts";
 import { toastApiError } from "@/api/axios.ts";
 import { toast } from "vue-sonner";
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { useDeleteProjectMutation } from "@/api/queries/projects.ts";
+import type { AcceptableValue } from "reka-ui";
+import { useInfiniteLoadTrigger } from "@/composables/useInfiniteLoadTrigger.ts";
 
 const props = defineProps<{
   projects: Project[];
+  total: number;
+  pageSize: number;
   loading?: boolean;
+  fetchingMore?: boolean;
+  hasMore?: boolean;
   error?: boolean;
 }>();
 
 const emits = defineEmits<{
   create: [];
   edit: [project: Project];
+  loadMore: [];
+  "update:pageSize": [value: number];
 }>();
 
+const pageSizes = [10, 25, 50, 100];
 const projectToDelete = ref<Project>();
+const loadedCount = computed(() => props.projects.length);
+const canLoadMore = computed(() => Boolean(props.hasMore) && !props.error);
+const loadingMore = computed(() => Boolean(props.loading || props.fetchingMore));
+const { trigger: loadMoreTrigger } = useInfiniteLoadTrigger({
+  hasMore: canLoadMore,
+  loading: loadingMore,
+  itemCount: loadedCount,
+  loadMore: () => emits("loadMore"),
+});
 const updateIndexMutation = useUpdateProjectIndex({
   mutation: {
     onSuccess: (response) => {
@@ -70,6 +96,11 @@ function updateDeleteDialogOpen(open: boolean) {
   if (!open) {
     projectToDelete.value = undefined;
   }
+}
+
+function updatePageSize(value: AcceptableValue) {
+  if (value === null) return;
+  emits("update:pageSize", Number(value));
 }
 </script>
 
@@ -115,7 +146,12 @@ function updateDeleteDialogOpen(open: boolean) {
           Failed to load projects.
         </TableCell>
       </TableRow>
-      <TableRow v-if="!props.loading && props.projects.length === 0">
+      <TableRow v-else-if="props.loading && props.projects.length === 0">
+        <TableCell colspan="9" class="h-24 text-center text-muted-foreground">
+          Loading projects...
+        </TableCell>
+      </TableRow>
+      <TableRow v-else-if="props.projects.length === 0">
         <TableCell colspan="9" class="h-36 text-center">
           <div class="flex flex-col items-center gap-3">
             <div>
@@ -137,6 +173,41 @@ function updateDeleteDialogOpen(open: boolean) {
         @delete="projectToDelete = project"
         @update-index="updateIndexMutation.mutate({ project: project.name })"
       />
+      <TableRow v-if="props.projects.length > 0 && (props.hasMore || props.fetchingMore)">
+        <TableCell colspan="9" class="h-10 text-center text-xs text-muted-foreground">
+          <div ref="loadMoreTrigger" class="h-px w-full" />
+          <span v-if="props.fetchingMore">Loading more projects...</span>
+        </TableCell>
+      </TableRow>
     </TableBody>
+    <TableFooter class="sticky bottom-0 z-10 bg-muted shadow-[0_-1px_0_hsl(var(--border))]">
+      <TableRow>
+        <TableCell colspan="9">
+          <div class="flex flex-wrap items-center justify-between gap-3 py-1">
+            <div class="text-sm text-muted-foreground">
+              Showing {{ loadedCount }} of {{ props.total }} projects
+            </div>
+
+            <label class="flex items-center gap-2 text-sm text-muted-foreground">
+              Rows
+              <Select
+                :model-value="String(props.pageSize)"
+                :disabled="props.loading || props.fetchingMore"
+                @update:model-value="updatePageSize"
+              >
+                <SelectTrigger class="h-8 w-19 bg-background" size="sm">
+                  <SelectValue :placeholder="String(props.pageSize)" />
+                </SelectTrigger>
+                <SelectContent side="top">
+                  <SelectItem v-for="size in pageSizes" :key="size" :value="String(size)">
+                    {{ size }}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </label>
+          </div>
+        </TableCell>
+      </TableRow>
+    </TableFooter>
   </Table>
 </template>

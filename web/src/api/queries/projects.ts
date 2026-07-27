@@ -16,13 +16,14 @@ import { useDisableProjectInstruction } from "@/api/generated/hooks/useDisablePr
 import { useEnableProjectInstruction } from "@/api/generated/hooks/useEnableProjectInstruction.ts";
 import { useDeleteProject } from "@/api/generated/hooks/useDeleteProject.ts";
 import { listProjectTasks } from "@/api/generated/client/listProjectTasks.ts";
+import { listProjects } from "@/api/generated/client/listProjects.ts";
 import { listProjectsQueryKey, useListProjects } from "@/api/generated/hooks/useListProjects.ts";
 import { useCreateProject } from "@/api/generated/hooks/useCreateProject.ts";
 import { useUpdateProject } from "@/api/generated/hooks/useUpdateProject.ts";
 import type { Project } from "@/components/pages/projects";
 import { projectFromApi, taskFromApi } from "@/api/mappers.ts";
 import type { Task } from "@/api/mappers.ts";
-import { useQuery, useQueryClient } from "@tanstack/vue-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/vue-query";
 import { computed, toValue } from "vue";
 import type { MaybeRefOrGetter } from "vue";
 
@@ -31,13 +32,13 @@ export type ProjectsPage = {
   projects: Project[];
   total: number;
   limit: number;
-  offset: number;
+  nextCursor?: string;
 };
 export type ProjectTasksPage = {
   tasks: Task[];
   total: number;
   limit: number;
-  offset: number;
+  nextCursor?: string;
 };
 export type ProjectInstruction = {
   id: number;
@@ -74,11 +75,33 @@ export function useProjectsQuery(params?: MaybeRefOrGetter<ListProjectsQueryPara
           projects: (response.projects ?? []).map(projectFromApi),
           total: response.total,
           limit: response.limit,
-          offset: response.offset,
+          nextCursor: response.next_cursor,
         }),
       },
     },
   );
+}
+
+export function useInfiniteProjectsQuery(params?: MaybeRefOrGetter<ListProjectsQueryParams>) {
+  const queryKey = computed(() => listProjectsQueryKey(toValue(params)));
+
+  return useInfiniteQuery({
+    queryKey,
+    initialPageParam: "",
+    queryFn: async ({ pageParam, signal }) => {
+      const response = await listProjects(
+        {
+          params: {
+            ...toValue(params),
+            cursor: pageParam || undefined,
+          },
+        },
+        { signal },
+      );
+      return projectsPageFromApi(response);
+    },
+    getNextPageParam: (lastPage) => lastPage.nextCursor || undefined,
+  });
 }
 
 export function useProjectTasksQuery(
@@ -102,6 +125,35 @@ export function useProjectTasksQuery(
       );
       return projectTasksPageFromApi(response);
     },
+  });
+}
+
+export function useInfiniteProjectTasksQuery(
+  project: MaybeRefOrGetter<string | undefined>,
+  params?: MaybeRefOrGetter<ListProjectTasksQueryParams>,
+) {
+  const queryKey = computed(() =>
+    projectQueryKeys.tasks(toValue(project), toValue(params)),
+  );
+
+  return useInfiniteQuery({
+    enabled: () => !!toValue(project),
+    queryKey,
+    initialPageParam: "",
+    queryFn: async ({ pageParam, signal }) => {
+      const response = await listProjectTasks(
+        {
+          project: toValue(project)!,
+          params: {
+            ...toValue(params),
+            cursor: pageParam || undefined,
+          },
+        },
+        { signal },
+      );
+      return projectTasksPageFromApi(response);
+    },
+    getNextPageParam: (lastPage) => lastPage.nextCursor || undefined,
   });
 }
 
@@ -212,7 +264,16 @@ function projectTasksPageFromApi(response: TaskListResponse): ProjectTasksPage {
     tasks: (response.tasks ?? []).map(taskFromApi),
     total: response.total,
     limit: response.limit,
-    offset: response.offset,
+    nextCursor: response.next_cursor,
+  };
+}
+
+function projectsPageFromApi(response: ProjectListResponse): ProjectsPage {
+  return {
+    projects: (response.projects ?? []).map(projectFromApi),
+    total: response.total,
+    limit: response.limit,
+    nextCursor: response.next_cursor,
   };
 }
 

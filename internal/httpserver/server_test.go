@@ -39,7 +39,7 @@ func TestServerListsProjectsAndExposesOpenAPI(t *testing.T) {
 	if len(projects.Projects) != 1 || projects.Projects[0].Name != "tok" || projects.Projects[0].DisplayName != "TOK" {
 		t.Fatalf("unexpected projects output: %+v", projects)
 	}
-	if projects.Total != 1 || projects.Limit != 1 || projects.Offset != 0 {
+	if projects.Total != 1 || projects.Limit != 1 || projects.NextCursor != "" {
 		t.Fatalf("unexpected projects pagination: %+v", projects)
 	}
 
@@ -116,12 +116,12 @@ func TestServerListsProjectsAndExposesOpenAPI(t *testing.T) {
 		}
 	}
 	for schemaName, fields := range map[string][]string{
-		"ProjectListResponse":            {"projects", "total", "limit", "offset"},
+		"ProjectListResponse":            {"projects", "total", "limit", "next_cursor"},
 		"ProjectInstructionListResponse": {"instructions"},
 		"ProjectInstructionResponse":     {"instruction"},
 		"ProjectInstructionOutput":       {"id", "project_id", "title", "body", "priority", "enabled", "source"},
 		"ProjectInstructionInput":        {"title", "body", "priority"},
-		"TaskListResponse":               {"tasks", "total", "limit", "offset"},
+		"TaskListResponse":               {"tasks", "total", "limit", "next_cursor"},
 		"ProjectOutput":                  {"tasks_count", "task_counts", "agents"},
 		"TaskCounts":                     {"total", "open", "in_progress", "blocked", "done", "ready"},
 		"TaskOutput":                     {"project", "agents"},
@@ -243,18 +243,33 @@ func TestServerPaginatesProjects(t *testing.T) {
 	}
 
 	handler := newTestHandler(t, store)
-	res := doJSON(t, handler, http.MethodGet, "/api/projects?limit=2&offset=1", nil)
+	res := doJSON(t, handler, http.MethodGet, "/api/projects?limit=2", nil)
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		t.Fatalf("GET /api/projects?limit=2&offset=1 status = %d", res.StatusCode)
+		t.Fatalf("GET /api/projects?limit=2 status = %d", res.StatusCode)
 	}
 	var projects ProjectListResponse
 	decodeJSON(t, res, &projects)
 
-	if projects.Total != 4 || projects.Limit != 2 || projects.Offset != 1 {
+	if projects.Total != 4 || projects.Limit != 2 || projects.NextCursor != "bravo" {
 		t.Fatalf("unexpected pagination metadata: %+v", projects)
 	}
-	if got := projectNames(projects.Projects); !slices.Equal(got, []string{"bravo", "charlie"}) {
+	if got := projectNames(projects.Projects); !slices.Equal(got, []string{"alpha", "bravo"}) {
+		t.Fatalf("unexpected first page projects: %v", got)
+	}
+
+	pagedRes := doJSON(t, handler, http.MethodGet, "/api/projects?limit=2&cursor=bravo", nil)
+	defer pagedRes.Body.Close()
+	if pagedRes.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/projects?limit=2&cursor=bravo status = %d", pagedRes.StatusCode)
+	}
+	var pagedProjects ProjectListResponse
+	decodeJSON(t, pagedRes, &pagedProjects)
+
+	if pagedProjects.Total != 4 || pagedProjects.Limit != 2 || pagedProjects.NextCursor != "" {
+		t.Fatalf("unexpected second page projects metadata: %+v", pagedProjects)
+	}
+	if got := projectNames(pagedProjects.Projects); !slices.Equal(got, []string{"charlie", "delta"}) {
 		t.Fatalf("unexpected paged projects: %v", got)
 	}
 }
@@ -360,25 +375,40 @@ func TestServerPaginatesTasks(t *testing.T) {
 	}
 
 	handler := newTestHandler(t, store)
-	res := doJSON(t, handler, http.MethodGet, "/api/tasks?limit=2&offset=1", nil)
+	res := doJSON(t, handler, http.MethodGet, "/api/tasks?limit=2", nil)
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		t.Fatalf("GET /api/tasks?limit=2&offset=1 status = %d", res.StatusCode)
+		t.Fatalf("GET /api/tasks?limit=2 status = %d", res.StatusCode)
 	}
 	var tasks TaskListResponse
 	decodeJSON(t, res, &tasks)
 
-	if tasks.Total != 5 || tasks.Limit != 2 || tasks.Offset != 1 {
+	if tasks.Total != 5 || tasks.Limit != 2 || tasks.NextCursor != "4" {
 		t.Fatalf("unexpected pagination metadata: %+v", tasks)
 	}
-	if got := taskTitles(tasks.Tasks); !slices.Equal(got, []string{"fourth", "third"}) {
+	if got := taskTitles(tasks.Tasks); !slices.Equal(got, []string{"other task", "fourth"}) {
 		t.Fatalf("unexpected paged tasks: %v", got)
 	}
-	if tasks.Tasks[0].Project.ID != project.ID || tasks.Tasks[0].Project.Name != "tok" || tasks.Tasks[0].Project.DisplayName != "TOK" {
+
+	pagedRes := doJSON(t, handler, http.MethodGet, "/api/tasks?limit=2&cursor=4", nil)
+	defer pagedRes.Body.Close()
+	if pagedRes.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/tasks?limit=2&cursor=4 status = %d", pagedRes.StatusCode)
+	}
+	var pagedTasks TaskListResponse
+	decodeJSON(t, pagedRes, &pagedTasks)
+	if pagedTasks.Total != 5 || pagedTasks.Limit != 2 || pagedTasks.NextCursor != "2" {
+		t.Fatalf("unexpected second page tasks metadata: %+v", pagedTasks)
+	}
+	if got := taskTitles(pagedTasks.Tasks); !slices.Equal(got, []string{"third", "second"}) {
+		t.Fatalf("unexpected second page tasks: %v", got)
+	}
+
+	if tasks.Tasks[0].Project.ID != otherProject.ID || tasks.Tasks[0].Project.Name != "other" || tasks.Tasks[0].Project.DisplayName != "Other" {
 		t.Fatalf("unexpected task project summary: %+v", tasks.Tasks[0].Project)
 	}
 
-	filteredRes := doJSON(t, handler, http.MethodGet, "/api/tasks?projectId="+jsonNumber(project.ID)+"&status=open&limit=10&offset=0", nil)
+	filteredRes := doJSON(t, handler, http.MethodGet, "/api/tasks?projectId="+jsonNumber(project.ID)+"&status=open&limit=10", nil)
 	defer filteredRes.Body.Close()
 	if filteredRes.StatusCode != http.StatusOK {
 		t.Fatalf("GET filtered tasks status = %d", filteredRes.StatusCode)
@@ -716,7 +746,7 @@ func TestServerAggregatesAgentsFromTaskHistory(t *testing.T) {
 	}
 	var tasks TaskListResponse
 	decodeJSON(t, tasksRes, &tasks)
-	if len(tasks.Tasks) != 5 || tasks.Total != 5 || tasks.Limit != 25 || tasks.Offset != 0 {
+	if len(tasks.Tasks) != 5 || tasks.Total != 5 || tasks.Limit != 25 || tasks.NextCursor != "" {
 		t.Fatalf("unexpected tasks response: %+v", tasks)
 	}
 	assertSingleAgent(t, tasks.Tasks[0].Agents, agent.Agent.ID, "Codex Backend")
@@ -724,18 +754,32 @@ func TestServerAggregatesAgentsFromTaskHistory(t *testing.T) {
 		t.Fatalf("unexpected project summary in task list: %+v", tasks.Tasks[0].Project)
 	}
 
-	pagedTasksRes := doJSON(t, handler, http.MethodGet, "/api/projects/tok/tasks?limit=2&offset=1", nil)
+	pagedTasksRes := doJSON(t, handler, http.MethodGet, "/api/projects/tok/tasks?limit=2", nil)
 	defer pagedTasksRes.Body.Close()
 	if pagedTasksRes.StatusCode != http.StatusOK {
 		t.Fatalf("paged tasks status = %d", pagedTasksRes.StatusCode)
 	}
 	var pagedTasks TaskListResponse
 	decodeJSON(t, pagedTasksRes, &pagedTasks)
-	if pagedTasks.Total != 5 || pagedTasks.Limit != 2 || pagedTasks.Offset != 1 {
+	if pagedTasks.Total != 5 || pagedTasks.Limit != 2 || pagedTasks.NextCursor != "4" {
 		t.Fatalf("unexpected paged tasks metadata: %+v", pagedTasks)
 	}
-	if got := taskTitles(pagedTasks.Tasks); !slices.Equal(got, []string{"Blocked implementation", "Wire HTTP client"}) {
+	if got := taskTitles(pagedTasks.Tasks); !slices.Equal(got, []string{"Completed implementation", "Blocked implementation"}) {
 		t.Fatalf("unexpected paged task titles: %v", got)
+	}
+
+	secondPageTasksRes := doJSON(t, handler, http.MethodGet, "/api/projects/tok/tasks?limit=2&cursor=4", nil)
+	defer secondPageTasksRes.Body.Close()
+	if secondPageTasksRes.StatusCode != http.StatusOK {
+		t.Fatalf("second page project tasks status = %d", secondPageTasksRes.StatusCode)
+	}
+	var secondPageTasks TaskListResponse
+	decodeJSON(t, secondPageTasksRes, &secondPageTasks)
+	if secondPageTasks.Total != 5 || secondPageTasks.Limit != 2 || secondPageTasks.NextCursor != "2" {
+		t.Fatalf("unexpected second page project tasks metadata: %+v", secondPageTasks)
+	}
+	if got := taskTitles(secondPageTasks.Tasks); !slices.Equal(got, []string{"Wire HTTP client", "Wait for renderer"}) {
+		t.Fatalf("unexpected second page task titles: %v", got)
 	}
 
 	showRes := doJSON(t, handler, http.MethodGet, "/api/tasks/"+jsonNumber(task.ID), nil)

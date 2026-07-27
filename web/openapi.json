@@ -515,8 +515,8 @@
           "limit": {
             "type": "integer"
           },
-          "offset": {
-            "type": "integer"
+          "next_cursor": {
+            "type": "string"
           },
           "projects": {
             "items": {
@@ -533,7 +533,6 @@
         },
         "required": [
           "limit",
-          "offset",
           "projects",
           "total"
         ],
@@ -748,8 +747,8 @@
           "limit": {
             "type": "integer"
           },
-          "offset": {
-            "type": "integer"
+          "next_cursor": {
+            "type": "string"
           },
           "tasks": {
             "items": {
@@ -766,7 +765,6 @@
         },
         "required": [
           "limit",
-          "offset",
           "tasks",
           "total"
         ],
@@ -1471,9 +1469,9 @@
             }
           },
           {
-            "description": "Projects to skip before returning results",
+            "description": "Optional cursor for the next page",
             "in": "query",
-            "name": "offset",
+            "name": "cursor",
             "schema": {
               "type": "string"
             }
@@ -2691,9 +2689,9 @@
             }
           },
           {
-            "description": "Tasks to skip before returning results",
+            "description": "Optional cursor for the next page",
             "in": "query",
-            "name": "offset",
+            "name": "cursor",
             "schema": {
               "type": "string"
             }
@@ -3003,9 +3001,9 @@
             }
           },
           {
-            "description": "Tasks to skip before returning results",
+            "description": "Optional cursor for the next page",
             "in": "query",
-            "name": "offset",
+            "name": "cursor",
             "schema": {
               "type": "string"
             }

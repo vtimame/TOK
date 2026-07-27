@@ -15,9 +15,9 @@ export type ProjectListResponse = {
    */
   limit: number;
   /**
-   * @type integer
+   * @type string | undefined
    */
-  offset: number;
+  next_cursor?: string;
   /**
    * @type array,null
    */

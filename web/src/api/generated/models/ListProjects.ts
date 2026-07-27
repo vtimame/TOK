@@ -14,10 +14,10 @@ export type ListProjectsQueryParams = {
    */
   limit?: string;
   /**
-   * @description Projects to skip before returning results
+   * @description Optional cursor for the next page
    * @type string | undefined
    */
-  offset?: string;
+  cursor?: string;
 };
 
 /**

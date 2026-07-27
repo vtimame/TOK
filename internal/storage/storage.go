@@ -63,7 +63,7 @@ type UpdateProjectInput struct {
 
 type ListProjectsOptions struct {
 	Limit  int
-	Offset int
+	Cursor string
 }
 
 type Task struct {
@@ -92,7 +92,7 @@ type ListTasksOptions struct {
 	Statuses  []string
 	ProjectID int64
 	Limit     int
-	Offset    int
+	Cursor    int64
 }
 
 type ListRunsOptions struct {
@@ -470,12 +470,16 @@ func (s *Store) ListProjectsWithOptions(ctx context.Context, opts ListProjectsOp
 	query := `
 		SELECT id, name, display_name, path, created_at, updated_at
 		FROM projects
-		ORDER BY name
 	`
 	args := []any{}
+	if opts.Cursor != "" {
+		query += " WHERE name > ?"
+		args = append(args, opts.Cursor)
+	}
+	query += " ORDER BY name"
 	if opts.Limit > 0 {
-		query += " LIMIT ? OFFSET ?"
-		args = append(args, opts.Limit, max(opts.Offset, 0))
+		query += " LIMIT ?"
+		args = append(args, opts.Limit)
 	}
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
@@ -600,16 +604,24 @@ func (s *Store) listTasksWithOptions(ctx context.Context, projectID int64, opts 
 			args = append(args, status)
 		}
 	}
-	if len(where) > 0 {
-		query += " WHERE " + strings.Join(where, " AND ")
-	}
 	if direction != "DESC" {
 		direction = "ASC"
 	}
+	if opts.Cursor > 0 {
+		operator := ">"
+		if direction == "DESC" {
+			operator = "<"
+		}
+		where = append(where, "id "+operator+" ?")
+		args = append(args, opts.Cursor)
+	}
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
+	}
 	query += " ORDER BY id " + direction
 	if opts.Limit > 0 {
-		query += " LIMIT ? OFFSET ?"
-		args = append(args, opts.Limit, max(opts.Offset, 0))
+		query += " LIMIT ?"
+		args = append(args, opts.Limit)
 	}
 
 	rows, err := s.db.QueryContext(ctx, query, args...)

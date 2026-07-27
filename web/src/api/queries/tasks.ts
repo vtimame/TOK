@@ -15,7 +15,7 @@ import type { CreateTaskInput } from "@/api/generated/models/CreateTaskInput.ts"
 import type { Task, TaskDependency, TaskEvent } from "@/api/mappers.ts";
 import { taskDependencyFromApi, taskEventFromApi, taskFromApi } from "@/api/mappers.ts";
 import { listProjectsQueryKey } from "@/api/generated/hooks/useListProjects.ts";
-import { useQuery, useQueryClient } from "@tanstack/vue-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/vue-query";
 import type { QueryClient } from "@tanstack/vue-query";
 import { computed, toValue } from "vue";
 import type { MaybeRefOrGetter } from "vue";
@@ -29,7 +29,7 @@ export type TasksPage = {
   tasks: Task[];
   total: number;
   limit: number;
-  offset: number;
+  nextCursor?: string;
 };
 
 export type TaskDetails = {
@@ -58,12 +58,34 @@ export function useTasksQuery(params?: MaybeRefOrGetter<ListTasksQueryParams>) {
   });
 }
 
+export function useInfiniteTasksQuery(params?: MaybeRefOrGetter<ListTasksQueryParams>) {
+  const queryKey = computed(() => listTasksQueryKey(toValue(params)));
+
+  return useInfiniteQuery({
+    queryKey,
+    initialPageParam: "",
+    queryFn: async ({ pageParam, signal }) => {
+      const response = await listTasks(
+        {
+          params: {
+            ...toValue(params),
+            cursor: pageParam || undefined,
+          },
+        },
+        { signal },
+      );
+      return tasksPageFromApi(response);
+    },
+    getNextPageParam: (lastPage) => lastPage.nextCursor || undefined,
+  });
+}
+
 function tasksPageFromApi(response: TaskListResponse): TasksPage {
   return {
     tasks: (response.tasks ?? []).map(taskFromApi),
     total: response.total,
     limit: response.limit,
-    offset: response.offset,
+    nextCursor: response.next_cursor,
   };
 }
 

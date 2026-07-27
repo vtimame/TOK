@@ -1,7 +1,11 @@
 <script lang="ts" setup>
 import { toastApiError } from "@/api/axios.ts";
 import { useProjectsQuery } from "@/api/queries/projects.ts";
-import { type TaskDraft, useCreateTaskMutation, useTasksQuery } from "@/api/queries/tasks.ts";
+import {
+  type TaskDraft,
+  useCreateTaskMutation,
+  useInfiniteTasksQuery,
+} from "@/api/queries/tasks.ts";
 import TaskDialog from "@/components/pages/tasks/TaskDialog.vue";
 import TasksTable from "@/components/pages/tasks/TasksTable.vue";
 import { Button } from "@/components/ui/button";
@@ -37,28 +41,17 @@ const showTaskDialog = ref(false);
 const hasTaskRoute = computed(() => "id" in route.params);
 
 const pageSize = ref(25);
-const page = ref(1);
-const offset = computed(() => (page.value - 1) * pageSize.value);
 const taskListParams = computed(() => ({
   limit: String(pageSize.value),
-  offset: String(offset.value),
   projectId: selectedProjectId.value || undefined,
   status: selectedStatuses.value.length ? selectedStatuses.value.join(",") : undefined,
 }));
 const projectsQuery = useProjectsQuery();
-const tasksQuery = useTasksQuery(taskListParams);
+const tasksQuery = useInfiniteTasksQuery(taskListParams);
 const createTaskMutation = useCreateTaskMutation();
-const tasksPage = computed(
-  () =>
-    tasksQuery.data.value ?? {
-      tasks: [],
-      total: 0,
-      limit: pageSize.value,
-      offset: offset.value,
-    },
-);
-const tasks = computed(() => tasksPage.value.tasks);
-const pageCount = computed(() => Math.max(1, Math.ceil(tasksPage.value.total / pageSize.value)));
+const taskPages = computed(() => tasksQuery.data.value?.pages ?? []);
+const tasks = computed(() => taskPages.value.flatMap((page) => page.tasks));
+const totalTasks = computed(() => taskPages.value[taskPages.value.length - 1]?.total ?? 0);
 const projects = computed(() => projectsQuery.data.value?.projects ?? []);
 const selectedProject = computed(() =>
   projects.value.find((project) => String(project.id) === selectedProjectId.value),
@@ -75,14 +68,6 @@ const statusFilterLabel = computed(() => {
   return selectedStatuses.value
     .map((value) => statusOptions.find((status) => status.value === value)?.label || value)
     .join(", ");
-});
-
-watch(pageSize, () => {
-  page.value = 1;
-});
-
-watch([selectedProjectId, selectedStatuses], () => {
-  page.value = 1;
 });
 
 watch(
@@ -102,12 +87,6 @@ watch(selectedProjectId, (projectId) => {
       projectId: projectId || undefined,
     },
   });
-});
-
-watch(pageCount, (nextPageCount) => {
-  if (page.value > nextPageCount) {
-    page.value = nextPageCount;
-  }
 });
 
 function routeProjectId() {
@@ -135,7 +114,7 @@ useTitle("Tasks");
 <template>
   <RouterView v-if="hasTaskRoute" />
 
-  <div v-else class="mx-auto flex h-svh w-full max-w-5xl flex-col gap-4 overflow-hidden px-4 py-18">
+  <div v-else class="mx-auto flex h-svh w-full max-w-6xl flex-col gap-4 overflow-hidden px-4 py-18">
     <div class="flex shrink-0 items-center justify-between">
       <div class="text-2xl font-bold">Tasks</div>
       <div class="flex items-center gap-x-2">
@@ -191,7 +170,11 @@ useTitle("Tasks");
             <ComboboxInput placeholder="Search status..." />
             <ComboboxEmpty>No statuses found.</ComboboxEmpty>
             <ComboboxGroup>
-              <ComboboxItem v-for="status in statusOptions" :key="status.value" :value="status.value">
+              <ComboboxItem
+                v-for="status in statusOptions"
+                :key="status.value"
+                :value="status.value"
+              >
                 <div
                   class="data-[selected=true]:border-primary data-[selected=true]:bg-primary data-[selected=true]:text-primary-foreground pointer-events-none size-4 shrink-0 rounded-[4px] border transition-all select-none *:[svg]:opacity-0 data-[selected=true]:*:[svg]:opacity-100"
                   :data-selected="selectedStatuses.includes(status.value)"
@@ -222,18 +205,13 @@ useTitle("Tasks");
       >
         <TasksTable
           :tasks="tasks"
-          :total="tasksPage.total"
-          :limit="tasksPage.limit"
-          :offset="tasksPage.offset"
-          :page="page"
-          :page-count="pageCount"
+          :total="totalTasks"
           :page-size="pageSize"
           :loading="tasksQuery.isPending.value"
+          :fetching-more="tasksQuery.isFetchingNextPage.value"
+          :has-more="tasksQuery.hasNextPage.value"
           :error="tasksQuery.isError.value"
-          @first-page="page = 1"
-          @previous-page="page = Math.max(1, page - 1)"
-          @next-page="page = Math.min(pageCount, page + 1)"
-          @last-page="page = pageCount"
+          @load-more="tasksQuery.fetchNextPage()"
           @update:page-size="pageSize = $event"
         />
       </div>

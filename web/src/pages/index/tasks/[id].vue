@@ -132,7 +132,7 @@ useTitle(computed(() => task.value?.title || "Task"));
 </script>
 
 <template>
-  <div class="mx-auto flex h-svh w-full max-w-5xl flex-col gap-4 overflow-hidden px-4 py-18">
+  <div class="mx-auto flex h-svh w-full max-w-6xl flex-col gap-4 overflow-hidden px-4 py-18">
     <div class="flex shrink-0 items-start justify-between gap-4">
       <div class="min-w-0">
         <RouterLink

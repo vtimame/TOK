@@ -10,7 +10,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -19,34 +18,34 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { computed } from "vue";
-import { ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight } from "@lucide/vue";
 import type { AcceptableValue } from "reka-ui";
+import { useInfiniteLoadTrigger } from "@/composables/useInfiniteLoadTrigger.ts";
 
 const props = defineProps<{
   tasks: Task[];
   total: number;
-  limit: number;
-  offset: number;
-  page: number;
-  pageCount: number;
   pageSize: number;
   loading?: boolean;
+  fetchingMore?: boolean;
+  hasMore?: boolean;
   error?: boolean;
 }>();
 
 const emits = defineEmits<{
-  firstPage: [];
-  previousPage: [];
-  nextPage: [];
-  lastPage: [];
+  loadMore: [];
   "update:pageSize": [value: number];
 }>();
 
 const pageSizes = [10, 25, 50, 100];
-const currentFrom = computed(() => (props.total === 0 ? 0 : props.offset + 1));
-const currentTo = computed(() => Math.min(props.offset + props.tasks.length, props.total));
-const canGoPrevious = computed(() => props.offset > 0 && !props.loading);
-const canGoNext = computed(() => props.offset + props.limit < props.total && !props.loading);
+const loadedCount = computed(() => props.tasks.length);
+const canLoadMore = computed(() => Boolean(props.hasMore) && !props.error);
+const loadingMore = computed(() => Boolean(props.loading || props.fetchingMore));
+const { trigger: loadMoreTrigger } = useInfiniteLoadTrigger({
+  hasMore: canLoadMore,
+  loading: loadingMore,
+  itemCount: loadedCount,
+  loadMore: () => emits("loadMore"),
+});
 
 function updatePageSize(value: AcceptableValue) {
   if (value === null) return;
@@ -55,15 +54,15 @@ function updatePageSize(value: AcceptableValue) {
 </script>
 
 <template>
-  <Table class="min-w-[58rem] table-fixed" container-class="max-h-full min-h-0 custom-scrollbar">
+  <Table class="table-fixed" container-class="max-h-full min-h-0 custom-scrollbar">
     <TableHeader class="sticky top-0 z-10 bg-card shadow-[0_1px_0_hsl(var(--border))]">
       <TableRow>
         <TableHead class="w-16 pl-4">ID</TableHead>
-        <TableHead class="w-[24rem]">Task</TableHead>
-        <TableHead class="w-44">Project</TableHead>
+        <TableHead class="w-[22rem]">Task</TableHead>
+        <TableHead class="w-40">Project</TableHead>
         <TableHead class="w-32">Status</TableHead>
         <TableHead class="w-28">Agents</TableHead>
-        <TableHead class="w-36 text-right pr-4">Updated</TableHead>
+        <TableHead class="w-32 text-right pr-4">Updated</TableHead>
       </TableRow>
     </TableHeader>
     <TableBody>
@@ -72,7 +71,12 @@ function updatePageSize(value: AcceptableValue) {
           Failed to load tasks.
         </TableCell>
       </TableRow>
-      <TableRow v-if="!props.loading && props.tasks.length === 0">
+      <TableRow v-else-if="props.loading && props.tasks.length === 0">
+        <TableCell colspan="6" class="h-24 text-center text-muted-foreground">
+          Loading tasks...
+        </TableCell>
+      </TableRow>
+      <TableRow v-else-if="props.tasks.length === 0">
         <TableCell colspan="6" class="h-36 text-center">
           <div class="font-medium">No tasks yet</div>
           <div class="text-sm text-muted-foreground">
@@ -81,13 +85,19 @@ function updatePageSize(value: AcceptableValue) {
         </TableCell>
       </TableRow>
       <TaskRow v-for="task in props.tasks" :key="task.id" :task="task" />
+      <TableRow v-if="props.tasks.length > 0 && (props.hasMore || props.fetchingMore)">
+        <TableCell colspan="6" class="h-10 text-center text-xs text-muted-foreground">
+          <div ref="loadMoreTrigger" class="h-px w-full" />
+          <span v-if="props.fetchingMore">Loading more tasks...</span>
+        </TableCell>
+      </TableRow>
     </TableBody>
     <TableFooter class="sticky bottom-0 z-10 bg-muted shadow-[0_-1px_0_hsl(var(--border))]">
       <TableRow>
         <TableCell colspan="6">
           <div class="flex flex-wrap items-center justify-between gap-3 py-1">
             <div class="text-sm text-muted-foreground">
-              Showing {{ currentFrom }}-{{ currentTo }} of {{ props.total }} tasks
+              Showing {{ loadedCount }} of {{ props.total }} tasks
             </div>
 
             <div class="flex items-center gap-3">
@@ -95,7 +105,7 @@ function updatePageSize(value: AcceptableValue) {
                 Rows
                 <Select
                   :model-value="String(props.pageSize)"
-                  :disabled="props.loading"
+                  :disabled="props.loading || props.fetchingMore"
                   @update:model-value="updatePageSize"
                 >
                   <SelectTrigger class="h-8 w-19 bg-background" size="sm">
@@ -108,49 +118,6 @@ function updatePageSize(value: AcceptableValue) {
                   </SelectContent>
                 </Select>
               </label>
-
-              <div class="text-sm text-muted-foreground">
-                Page {{ props.page }} of {{ props.pageCount }}
-              </div>
-
-              <div class="flex items-center gap-1">
-                <Button
-                  size="icon-xs"
-                  variant="ghost"
-                  :disabled="!canGoPrevious"
-                  aria-label="First page"
-                  @click="emits('firstPage')"
-                >
-                  <ChevronsLeft />
-                </Button>
-                <Button
-                  size="icon-xs"
-                  variant="ghost"
-                  :disabled="!canGoPrevious"
-                  aria-label="Previous page"
-                  @click="emits('previousPage')"
-                >
-                  <ChevronLeft />
-                </Button>
-                <Button
-                  size="icon-xs"
-                  variant="ghost"
-                  :disabled="!canGoNext"
-                  aria-label="Next page"
-                  @click="emits('nextPage')"
-                >
-                  <ChevronRight />
-                </Button>
-                <Button
-                  size="icon-xs"
-                  variant="ghost"
-                  :disabled="!canGoNext"
-                  aria-label="Last page"
-                  @click="emits('lastPage')"
-                >
-                  <ChevronsRight />
-                </Button>
-              </div>
             </div>
           </div>
         </TableCell>

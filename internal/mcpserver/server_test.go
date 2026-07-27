@@ -142,6 +142,89 @@ func TestServerRejectsMissingActor(t *testing.T) {
 	}
 }
 
+func TestServerProjectCreateSupportsAgentProjectRegistration(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	createdAgent, err := store.CreateAgent(ctx, "Codex MCP")
+	if err != nil {
+		t.Fatalf("CreateAgent returned error: %v", err)
+	}
+
+	server, err := New(Config{
+		Store:   store,
+		Actor:   storage.ActorRefFromActor(createdAgent.Agent),
+		Version: "test",
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	clientSession, serverSession := connectTestClient(t, ctx, server)
+	defer clientSession.Close()
+	defer serverSession.Close()
+
+	projectPath := t.TempDir()
+	createProjectResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "project_create",
+		Arguments: map[string]any{
+			"name":         "agent-workspace",
+			"display_name": "Agent Workspace",
+			"path":         projectPath,
+		},
+	})
+	if err != nil {
+		t.Fatalf("project_create returned error: %v", err)
+	}
+	if createProjectResult.IsError {
+		t.Fatalf("project_create returned tool error: %+v", createProjectResult)
+	}
+	var createdProject projectOutput
+	decodeStructured(t, createProjectResult.StructuredContent, &createdProject)
+	if createdProject.Project.ID <= 0 || createdProject.Project.Name != "agent-workspace" || createdProject.Project.DisplayName != "Agent Workspace" {
+		t.Fatalf("unexpected project_create output: %+v", createdProject)
+	}
+	if createdProject.Project.Path != projectPath {
+		t.Fatalf("expected canonical project path %q, got %+v", projectPath, createdProject)
+	}
+
+	showProjectResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "project_show",
+		Arguments: map[string]any{
+			"name": "agent-workspace",
+		},
+	})
+	if err != nil {
+		t.Fatalf("project_show returned error: %v", err)
+	}
+	if showProjectResult.IsError {
+		t.Fatalf("project_show returned tool error: %+v", showProjectResult)
+	}
+	var shownProject projectOutput
+	decodeStructured(t, showProjectResult.StructuredContent, &shownProject)
+	if shownProject.Project.ID != createdProject.Project.ID {
+		t.Fatalf("unexpected project_show output: %+v", shownProject)
+	}
+
+	createdTaskResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "task_create",
+		Arguments: map[string]any{
+			"project": "agent-workspace",
+			"title":   "Use newly registered project",
+		},
+	})
+	if err != nil {
+		t.Fatalf("task_create returned error: %v", err)
+	}
+	if createdTaskResult.IsError {
+		t.Fatalf("task_create returned tool error: %+v", createdTaskResult)
+	}
+	var createdTask taskOutput
+	decodeStructured(t, createdTaskResult.StructuredContent, &createdTask)
+	if createdTask.Task.ProjectID != createdProject.Project.ID {
+		t.Fatalf("task_create did not use created project: %+v", createdTask)
+	}
+}
+
 func TestServerWorkflowToolsSupportTaskInstructionDependencyAndRunLifecycle(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
@@ -213,6 +296,44 @@ func TestServerWorkflowToolsSupportTaskInstructionDependencyAndRunLifecycle(t *t
 	}
 	if updatedTask.Task.ID != createdTask.Task.ID {
 		t.Fatalf("unexpected task_status output id: %+v", updatedTask)
+	}
+
+	commentResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "task_comment",
+		Arguments: map[string]any{
+			"id":   createdTask.Task.ID,
+			"body": "MCP comment event",
+		},
+	})
+	if err != nil {
+		t.Fatalf("task_comment returned error: %v", err)
+	}
+	if commentResult.IsError {
+		t.Fatalf("task_comment returned tool error: %+v", commentResult)
+	}
+	var comment taskEventOutput
+	decodeStructured(t, commentResult.StructuredContent, &comment)
+	if comment.Event.Type != "commented" || comment.Event.Body != "MCP comment event" {
+		t.Fatalf("unexpected task_comment output: %+v", comment)
+	}
+
+	progressResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "task_progress",
+		Arguments: map[string]any{
+			"id":   createdTask.Task.ID,
+			"body": "MCP progress event",
+		},
+	})
+	if err != nil {
+		t.Fatalf("task_progress returned error: %v", err)
+	}
+	if progressResult.IsError {
+		t.Fatalf("task_progress returned tool error: %+v", progressResult)
+	}
+	var progress taskEventOutput
+	decodeStructured(t, progressResult.StructuredContent, &progress)
+	if progress.Event.Type != "progress" || progress.Event.Body != "MCP progress event" {
+		t.Fatalf("unexpected task_progress output: %+v", progress)
 	}
 
 	blockerTaskResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
@@ -369,6 +490,44 @@ func TestServerWorkflowToolsSupportTaskInstructionDependencyAndRunLifecycle(t *t
 		t.Fatalf("unexpected task_dependency_remove output: %+v", removed)
 	}
 
+	blockResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "task_block",
+		Arguments: map[string]any{
+			"id":     blockedTask.Task.ID,
+			"reason": "Waiting for MCP audit",
+		},
+	})
+	if err != nil {
+		t.Fatalf("task_block returned error: %v", err)
+	}
+	if blockResult.IsError {
+		t.Fatalf("task_block returned tool error: %+v", blockResult)
+	}
+	var blocked taskOutput
+	decodeStructured(t, blockResult.StructuredContent, &blocked)
+	if blocked.Task.Status != "blocked" {
+		t.Fatalf("unexpected task_block output: %+v", blocked)
+	}
+
+	unblockResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "task_unblock",
+		Arguments: map[string]any{
+			"id":   blockedTask.Task.ID,
+			"note": "MCP audit complete",
+		},
+	})
+	if err != nil {
+		t.Fatalf("task_unblock returned error: %v", err)
+	}
+	if unblockResult.IsError {
+		t.Fatalf("task_unblock returned tool error: %+v", unblockResult)
+	}
+	var unblocked taskOutput
+	decodeStructured(t, unblockResult.StructuredContent, &unblocked)
+	if unblocked.Task.Status != "open" {
+		t.Fatalf("unexpected task_unblock output: %+v", unblocked)
+	}
+
 	runCreateResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
 		Name: "run_create",
 		Arguments: map[string]any{
@@ -500,6 +659,25 @@ func TestServerWorkflowToolsSupportTaskInstructionDependencyAndRunLifecycle(t *t
 	decodeStructured(t, runListResult.StructuredContent, &runs)
 	if len(runs.Runs) != 1 || runs.Runs[0].ID != run.ID {
 		t.Fatalf("unexpected run_list output: %+v", runs)
+	}
+
+	doneResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "task_done",
+		Arguments: map[string]any{
+			"id":   createdTask.Task.ID,
+			"note": "MCP workflow completed",
+		},
+	})
+	if err != nil {
+		t.Fatalf("task_done returned error: %v", err)
+	}
+	if doneResult.IsError {
+		t.Fatalf("task_done returned tool error: %+v", doneResult)
+	}
+	var doneTask taskOutput
+	decodeStructured(t, doneResult.StructuredContent, &doneTask)
+	if doneTask.Task.Status != "done" {
+		t.Fatalf("unexpected task_done output: %+v", doneTask)
 	}
 
 	deleteResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{

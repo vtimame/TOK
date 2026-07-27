@@ -41,10 +41,10 @@ type CreateTaskInput struct {
 }
 
 type ProjectListResponse struct {
-	Projects []ProjectOutput `json:"projects"`
-	Total    int             `json:"total"`
-	Limit    int             `json:"limit"`
-	Offset   int             `json:"offset"`
+	Projects   []ProjectOutput `json:"projects"`
+	Total      int             `json:"total"`
+	Limit      int             `json:"limit"`
+	NextCursor string          `json:"next_cursor,omitempty"`
 }
 
 type ProjectResponse struct {
@@ -100,10 +100,10 @@ type TaskCounts struct {
 }
 
 type TaskListResponse struct {
-	Tasks  []TaskOutput `json:"tasks"`
-	Total  int          `json:"total"`
-	Limit  int          `json:"limit"`
-	Offset int          `json:"offset"`
+	Tasks      []TaskOutput `json:"tasks"`
+	Total      int          `json:"total"`
+	Limit      int          `json:"limit"`
+	NextCursor string       `json:"next_cursor,omitempty"`
 }
 
 type TaskResponse struct {

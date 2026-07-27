@@ -21,10 +21,10 @@ export type ListProjectTasksQueryParams = {
    */
   limit?: string;
   /**
-   * @description Tasks to skip before returning results
+   * @description Optional cursor for the next page
    * @type string | undefined
    */
-  offset?: string;
+  cursor?: string;
   /**
    * @description Optional task status filter
    * @type string | undefined

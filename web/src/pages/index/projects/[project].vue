@@ -9,7 +9,7 @@ import { useUpdateProjectIndex } from "@/api/generated/hooks/useUpdateProjectInd
 import type { ListProjectTasksQueryParams } from "@/api/generated/models/ListProjectTasks.ts";
 import type { ProjectResponse } from "@/api/generated/models/ProjectResponse.ts";
 import {
-  useProjectTasksQuery,
+  useInfiniteProjectTasksQuery,
   type ProjectInstructionDraft,
   useCreateProjectInstructionMutation,
   useDeleteProjectInstructionMutation,
@@ -17,15 +17,7 @@ import {
   useEnableProjectInstructionMutation,
   useProjectInstructionsQuery,
 } from "@/api/queries/projects.ts";
-import {
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  ChevronsLeftIcon,
-  ChevronsRightIcon,
-  PowerIcon,
-  PowerOffIcon,
-  Trash2Icon,
-} from "@lucide/vue";
+import { PowerIcon, PowerOffIcon, Trash2Icon } from "@lucide/vue";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -63,6 +55,7 @@ import { RouterLink, useRoute, useRouter } from "vue-router";
 import { toast } from "vue-sonner";
 import { cn } from "@/lib/utils.ts";
 import type { AcceptableValue } from "reka-ui";
+import { useInfiniteLoadTrigger } from "@/composables/useInfiniteLoadTrigger.ts";
 
 const availableTabs = ["tasks", "context"] as const;
 type Tab = (typeof availableTabs)[number];
@@ -84,11 +77,8 @@ const projectName = computed(() => {
   return Array.isArray(value) ? value[0] : value;
 });
 const pageSize = ref(25);
-const page = ref(1);
-const offset = computed(() => (page.value - 1) * pageSize.value);
 const taskListParams = computed<ListProjectTasksQueryParams>(() => ({
   limit: String(pageSize.value),
-  offset: String(offset.value),
 }));
 
 const projectQuery = useShowProject(
@@ -99,7 +89,7 @@ const projectQuery = useShowProject(
     },
   },
 );
-const tasksQuery = useProjectTasksQuery(projectName, taskListParams);
+const tasksQuery = useInfiniteProjectTasksQuery(projectName, taskListParams);
 const indexStatusQuery = useGetProjectIndexStatus({ project: projectName });
 const ignorePolicyQuery = useGetProjectIndexIgnorePolicy({ project: projectName });
 const instructionsQuery = useProjectInstructionsQuery(projectName);
@@ -110,16 +100,9 @@ const disableInstructionMutation = useDisableProjectInstructionMutation();
 const deleteInstructionMutation = useDeleteProjectInstructionMutation();
 
 const project = computed(() => projectQuery.data.value);
-const tasksPage = computed(
-  () =>
-    tasksQuery.data.value ?? {
-      tasks: [],
-      total: 0,
-      limit: pageSize.value,
-      offset: offset.value,
-    },
-);
-const tasks = computed(() => tasksPage.value.tasks);
+const taskPages = computed(() => tasksQuery.data.value?.pages ?? []);
+const tasks = computed(() => taskPages.value.flatMap((page) => page.tasks));
+const totalTasks = computed(() => taskPages.value[taskPages.value.length - 1]?.total ?? 0);
 const instructions = computed(() => instructionsQuery.data.value ?? []);
 const enabledInstructions = computed(() =>
   instructions.value.filter((instruction) => instruction.enabled),
@@ -141,17 +124,18 @@ const taskCounts = computed(
 const activeCount = computed(
   () => taskCounts.value.open + taskCounts.value.in_progress + taskCounts.value.blocked,
 );
-const pageCount = computed(() => Math.max(1, Math.ceil(tasksPage.value.total / pageSize.value)));
-const currentFrom = computed(() => (tasksPage.value.total === 0 ? 0 : tasksPage.value.offset + 1));
-const currentTo = computed(() =>
-  Math.min(tasksPage.value.offset + tasks.value.length, tasksPage.value.total),
+const canLoadMoreTasks = computed(
+  () => Boolean(tasksQuery.hasNextPage.value) && !tasksQuery.isError.value,
 );
-const canGoPrevious = computed(() => tasksPage.value.offset > 0 && !tasksQuery.isPending.value);
-const canGoNext = computed(
-  () =>
-    tasksPage.value.offset + tasksPage.value.limit < tasksPage.value.total &&
-    !tasksQuery.isPending.value,
+const loadingMoreTasks = computed(() =>
+  Boolean(tasksQuery.isPending.value || tasksQuery.isFetchingNextPage.value),
 );
+const { trigger: loadMoreTasksTrigger } = useInfiniteLoadTrigger({
+  hasMore: canLoadMoreTasks,
+  loading: loadingMoreTasks,
+  itemCount: computed(() => tasks.value.length),
+  loadMore: () => tasksQuery.fetchNextPage(),
+});
 
 const pageTitle = computed(() => project.value?.displayName || projectName.value || "Project");
 useTitle(pageTitle);
@@ -232,25 +216,11 @@ function updatePageSize(value: AcceptableValue) {
   pageSize.value = Number(value);
 }
 
-watch(pageSize, () => {
-  page.value = 1;
-});
-
-watch(projectName, () => {
-  page.value = 1;
-});
-
-watch(pageCount, (nextPageCount) => {
-  if (page.value > nextPageCount) {
-    page.value = nextPageCount;
-  }
-});
-
 watch(tab, (v: Tab) => router.replace({ query: { ...route.query, tab: v } }));
 </script>
 
 <template>
-  <div class="mx-auto flex h-svh w-full max-w-5xl flex-col gap-4 overflow-hidden px-4 py-18">
+  <div class="mx-auto flex h-svh w-full max-w-6xl flex-col gap-4 overflow-hidden px-4 py-18">
     <Dialog v-model:open="showRuleDialog">
       <DialogContent class="sm:max-w-lg">
         <DialogHeader>
@@ -442,13 +412,24 @@ watch(tab, (v: Tab) => router.replace({ query: { ...route.query, tab: v } }));
                   }}</TableCell>
                 </TableRow>
               </template>
+              <TableRow
+                v-if="
+                  tasks.length > 0 &&
+                  (tasksQuery.hasNextPage.value || tasksQuery.isFetchingNextPage.value)
+                "
+              >
+                <TableCell colspan="5" class="h-10 text-center text-xs text-muted-foreground">
+                  <div ref="loadMoreTasksTrigger" class="h-px w-full" />
+                  <span v-if="tasksQuery.isFetchingNextPage.value">Loading more tasks...</span>
+                </TableCell>
+              </TableRow>
             </TableBody>
             <TableFooter class="sticky bottom-0 z-10 bg-muted shadow-[0_-1px_0_hsl(var(--border))]">
               <TableRow>
                 <TableCell colspan="5">
                   <div class="flex flex-wrap items-center justify-between gap-3 py-1">
                     <div class="text-sm text-muted-foreground">
-                      Showing {{ currentFrom }}-{{ currentTo }} of {{ tasksPage.total }} tasks
+                      Showing {{ tasks.length }} of {{ totalTasks }} tasks
                     </div>
 
                     <div class="flex items-center gap-3">
@@ -456,7 +437,9 @@ watch(tab, (v: Tab) => router.replace({ query: { ...route.query, tab: v } }));
                         Rows
                         <Select
                           :model-value="String(pageSize)"
-                          :disabled="tasksQuery.isPending.value"
+                          :disabled="
+                            tasksQuery.isPending.value || tasksQuery.isFetchingNextPage.value
+                          "
                           @update:model-value="updatePageSize"
                         >
                           <SelectTrigger class="h-8 w-19 bg-background" size="sm">
@@ -470,49 +453,6 @@ watch(tab, (v: Tab) => router.replace({ query: { ...route.query, tab: v } }));
                           </SelectContent>
                         </Select>
                       </label>
-
-                      <div class="text-sm text-muted-foreground">
-                        Page {{ page }} of {{ pageCount }}
-                      </div>
-
-                      <div class="flex items-center gap-1">
-                        <Button
-                          size="icon-xs"
-                          variant="ghost"
-                          :disabled="!canGoPrevious"
-                          aria-label="First page"
-                          @click="page = 1"
-                        >
-                          <ChevronsLeftIcon />
-                        </Button>
-                        <Button
-                          size="icon-xs"
-                          variant="ghost"
-                          :disabled="!canGoPrevious"
-                          aria-label="Previous page"
-                          @click="page = Math.max(1, page - 1)"
-                        >
-                          <ChevronLeftIcon />
-                        </Button>
-                        <Button
-                          size="icon-xs"
-                          variant="ghost"
-                          :disabled="!canGoNext"
-                          aria-label="Next page"
-                          @click="page = Math.min(pageCount, page + 1)"
-                        >
-                          <ChevronRightIcon />
-                        </Button>
-                        <Button
-                          size="icon-xs"
-                          variant="ghost"
-                          :disabled="!canGoNext"
-                          aria-label="Last page"
-                          @click="page = pageCount"
-                        >
-                          <ChevronsRightIcon />
-                        </Button>
-                      </div>
                     </div>
                   </div>
                 </TableCell>
