@@ -556,6 +556,54 @@ func TestServerManagesProjectInstructions(t *testing.T) {
 	}
 }
 
+func TestServerTaskDoneCurrentBehaviorAllowsMissingEvidenceExpectedToChange(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+
+	project, err := store.CreateProject(ctx, storage.CreateProjectInput{
+		Name:        "tok",
+		DisplayName: "TOK",
+		Path:        t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("CreateProject returned error: %v", err)
+	}
+	task, err := store.CreateTask(ctx, storage.CreateTaskInput{
+		ProjectID: project.ID,
+		Title:     "HTTP missing evidence completion",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask returned error: %v", err)
+	}
+	if _, err := store.ClaimTask(ctx, project.ID, task.ID); err != nil {
+		t.Fatalf("ClaimTask returned error: %v", err)
+	}
+
+	handler := newTestHandler(t, store)
+	res := doJSON(t, handler, http.MethodPost, "/api/tasks/"+jsonNumber(task.ID)+"/done", TaskDoneInput{
+		Note: "Done without evidence.",
+	})
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("current POST /api/tasks/{id}/done status = %d body=%s", res.StatusCode, readBody(t, res))
+	}
+	var completed TaskResponse
+	decodeJSON(t, res, &completed)
+	if completed.Task.Status != "done" {
+		t.Fatalf("unexpected current task done response: %+v", completed)
+	}
+
+	// Expected-to-change in task 153: HTTP task completion should use the same
+	// evidence policy as CLI/MCP/storage.
+	runs, err := store.ListRuns(ctx, storage.ListRunsOptions{TaskID: task.ID})
+	if err != nil {
+		t.Fatalf("ListRuns returned error: %v", err)
+	}
+	if len(runs) != 0 {
+		t.Fatalf("expected no evidence runs in current characterization, got %+v", runs)
+	}
+}
+
 func TestServerTaskActionsWriteHumanActorHistory(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)

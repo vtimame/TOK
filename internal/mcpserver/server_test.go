@@ -700,6 +700,75 @@ func TestServerWorkflowToolsSupportTaskInstructionDependencyAndRunLifecycle(t *t
 	}
 }
 
+func TestServerTaskDoneCurrentBehaviorAllowsMissingEvidenceExpectedToChange(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+
+	project, err := store.CreateProject(ctx, storage.CreateProjectInput{
+		Name:        "tok",
+		DisplayName: "TOK",
+		Path:        t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("CreateProject returned error: %v", err)
+	}
+	agent, err := store.CreateAgent(ctx, "Codex MCP")
+	if err != nil {
+		t.Fatalf("CreateAgent returned error: %v", err)
+	}
+	task, err := store.CreateTask(ctx, storage.CreateTaskInput{
+		ProjectID: project.ID,
+		Title:     "MCP missing evidence completion",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask returned error: %v", err)
+	}
+	if _, err := store.ClaimTaskByActor(ctx, project.ID, task.ID, storage.ActorRefFromActor(agent.Agent)); err != nil {
+		t.Fatalf("ClaimTaskByActor returned error: %v", err)
+	}
+
+	server, err := New(Config{
+		Store:   store,
+		Actor:   storage.ActorRefFromActor(agent.Agent),
+		Version: "test",
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	clientSession, serverSession := connectTestClient(t, ctx, server)
+	defer clientSession.Close()
+	defer serverSession.Close()
+
+	doneResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "task_done",
+		Arguments: map[string]any{
+			"id":   task.ID,
+			"note": "Done without evidence.",
+		},
+	})
+	if err != nil {
+		t.Fatalf("task_done returned error: %v", err)
+	}
+	if doneResult.IsError {
+		t.Fatalf("current task_done returned tool error: %+v", doneResult)
+	}
+	var done taskOutput
+	decodeStructured(t, doneResult.StructuredContent, &done)
+	if done.Task.Status != "done" {
+		t.Fatalf("unexpected current task_done output: %+v", done)
+	}
+
+	// Expected-to-change in task 153: MCP task_done should use the same
+	// evidence policy as CLI/HTTP/storage.
+	runs, err := store.ListRuns(ctx, storage.ListRunsOptions{TaskID: task.ID})
+	if err != nil {
+		t.Fatalf("ListRuns returned error: %v", err)
+	}
+	if len(runs) != 0 {
+		t.Fatalf("expected no evidence runs in current characterization, got %+v", runs)
+	}
+}
+
 func connectTestClient(t *testing.T, ctx context.Context, server *mcp.Server) (*mcp.ClientSession, *mcp.ServerSession) {
 	t.Helper()
 

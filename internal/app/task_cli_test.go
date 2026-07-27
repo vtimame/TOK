@@ -525,6 +525,47 @@ func TestCLITaskDoneFlow(t *testing.T) {
 	}
 }
 
+func TestCLITaskDoneCurrentBehaviorAllowsMissingEvidenceExpectedToChange(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	projectDir := t.TempDir()
+
+	projectCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	if err := projectCLI.Run(ctx, []string{"project", "add", projectDir, "--name", "tok"}); err != nil {
+		t.Fatalf("project add returned error: %v", err)
+	}
+	taskID := createTaskForTest(t, ctx, dataDir, "tok", "Missing evidence task")
+
+	claimCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	if err := claimCLI.Run(ctx, []string{"task", "claim", "--project", "tok", strconv.FormatInt(taskID, 10)}); err != nil {
+		t.Fatalf("task claim returned error: %v", err)
+	}
+
+	var doneOut bytes.Buffer
+	doneCLI := newProjectTestCLI(dataDir, &doneOut)
+	if err := doneCLI.Run(ctx, []string{"task", "done", strconv.FormatInt(taskID, 10), "--note", "Done without evidence."}); err != nil {
+		t.Fatalf("current task done without evidence returned error: %v", err)
+	}
+	if !strings.Contains(doneOut.String(), "status: done") {
+		t.Fatalf("unexpected task done output:\n%s", doneOut.String())
+	}
+
+	// Expected-to-change in task 153: CLI task done should require a succeeded
+	// evidence run with passed validation or an audited override.
+	var showOut bytes.Buffer
+	showCLI := newProjectTestCLI(dataDir, &showOut)
+	if err := showCLI.Run(ctx, []string{"task", "show", strconv.FormatInt(taskID, 10), "--json"}); err != nil {
+		t.Fatalf("task show returned error: %v", err)
+	}
+	var shown taskShowOutput
+	if err := json.Unmarshal(showOut.Bytes(), &shown); err != nil {
+		t.Fatalf("parse task show JSON: %v\n%s", err, showOut.String())
+	}
+	if shown.Task.Status != "done" || len(shown.Events) != 3 || shown.Events[2].Type != "completed" {
+		t.Fatalf("unexpected current task done characterization: %+v", shown)
+	}
+}
+
 func TestCLITaskDoneRejectsActiveRun(t *testing.T) {
 	ctx := context.Background()
 	dataDir := t.TempDir()

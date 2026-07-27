@@ -872,6 +872,8 @@ func TestRunSucceededRequiresPassedValidationOrOverride(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateRun override returned error: %v", err)
 	}
+	// Expected-to-change in tasks 153/154: unvalidated overrides should require
+	// a non-empty reason and leave explicit audit evidence.
 	overridden, err := store.FinishRun(ctx, FinishRunInput{
 		ID:               overrideRun.ID,
 		Status:           "succeeded",
@@ -890,21 +892,7 @@ func TestCompleteTaskRejectsActiveRun(t *testing.T) {
 	ctx := context.Background()
 	store := openInitializedTestStore(t)
 
-	project, err := store.CreateProject(ctx, CreateProjectInput{
-		Name:        "tok",
-		DisplayName: "TOK",
-		Path:        "/tmp/tok",
-	})
-	if err != nil {
-		t.Fatalf("CreateProject returned error: %v", err)
-	}
-	task, err := store.CreateTask(ctx, CreateTaskInput{
-		ProjectID: project.ID,
-		Title:     "Completion guard",
-	})
-	if err != nil {
-		t.Fatalf("CreateTask returned error: %v", err)
-	}
+	_, task := createStorageProjectTask(t, ctx, store, "Completion guard")
 	if _, err := store.UpdateTaskStatus(ctx, task.ID, "in_progress"); err != nil {
 		t.Fatalf("UpdateTaskStatus returned error: %v", err)
 	}
@@ -939,6 +927,77 @@ func TestCompleteTaskRejectsActiveRun(t *testing.T) {
 	}
 	if completed.Status != "done" {
 		t.Fatalf("unexpected completed task: %+v", completed)
+	}
+}
+
+func TestCompleteTaskCurrentBehaviorAllowsMissingEvidenceExpectedToChange(t *testing.T) {
+	ctx := context.Background()
+	store := openInitializedTestStore(t)
+
+	_, task := createStorageProjectTask(t, ctx, store, "Missing evidence completion")
+	if _, err := store.UpdateTaskStatus(ctx, task.ID, "in_progress"); err != nil {
+		t.Fatalf("UpdateTaskStatus returned error: %v", err)
+	}
+
+	completed, err := store.CompleteTask(ctx, task.ID, "Completed without run evidence.")
+	if err != nil {
+		t.Fatalf("current CompleteTask without evidence returned error: %v", err)
+	}
+	if completed.Status != "done" {
+		t.Fatalf("unexpected completed task: %+v", completed)
+	}
+
+	// Expected-to-change in task 153: task completion should require a
+	// succeeded evidence run with passed validation or an audited override.
+	runs, err := store.ListRuns(ctx, ListRunsOptions{TaskID: task.ID})
+	if err != nil {
+		t.Fatalf("ListRuns returned error: %v", err)
+	}
+	if len(runs) != 0 {
+		t.Fatalf("expected no evidence runs in current characterization, got %+v", runs)
+	}
+}
+
+func TestCompleteTaskCurrentBehaviorAllowsFailedRunExpectedToChange(t *testing.T) {
+	ctx := context.Background()
+	store := openInitializedTestStore(t)
+
+	_, task := createStorageProjectTask(t, ctx, store, "Failed run completion")
+	if _, err := store.UpdateTaskStatus(ctx, task.ID, "in_progress"); err != nil {
+		t.Fatalf("UpdateTaskStatus returned error: %v", err)
+	}
+	run, err := store.CreateRun(ctx, CreateRunInput{
+		TaskID:                 task.ID,
+		Status:                 "in_progress",
+		HandoffContractVersion: "tok.handoff.v0",
+	})
+	if err != nil {
+		t.Fatalf("CreateRun returned error: %v", err)
+	}
+	if _, err := store.FinishRun(ctx, FinishRunInput{
+		ID:            run.ID,
+		Status:        "failed",
+		ResultSummary: "Validation failed.",
+	}); err != nil {
+		t.Fatalf("FinishRun failed returned error: %v", err)
+	}
+
+	completed, err := store.CompleteTask(ctx, task.ID, "Completed after failed run.")
+	if err != nil {
+		t.Fatalf("current CompleteTask after failed run returned error: %v", err)
+	}
+	if completed.Status != "done" {
+		t.Fatalf("unexpected completed task: %+v", completed)
+	}
+
+	// Expected-to-change in task 153: failed/cancelled/blocked runs should not
+	// satisfy task completion evidence.
+	finished, err := store.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun returned error: %v", err)
+	}
+	if finished.Status != "failed" {
+		t.Fatalf("unexpected evidence run status: %+v", finished)
 	}
 }
 
@@ -1222,4 +1281,25 @@ func openInitializedTestStore(t *testing.T) *Store {
 	}
 
 	return store
+}
+
+func createStorageProjectTask(t *testing.T, ctx context.Context, store *Store, title string) (Project, Task) {
+	t.Helper()
+
+	project, err := store.CreateProject(ctx, CreateProjectInput{
+		Name:        "tok",
+		DisplayName: "TOK",
+		Path:        "/tmp/tok",
+	})
+	if err != nil {
+		t.Fatalf("CreateProject returned error: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskInput{
+		ProjectID: project.ID,
+		Title:     title,
+	})
+	if err != nil {
+		t.Fatalf("CreateTask returned error: %v", err)
+	}
+	return project, task
 }

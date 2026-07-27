@@ -247,6 +247,53 @@ func TestCLIRunExecSuccess(t *testing.T) {
 	}
 }
 
+func TestCLIRunExecCurrentBehaviorSucceedsWithoutValidationArtifactExpectedToChange(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skipf("sh is required for run exec test: %v", err)
+	}
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	projectDir := t.TempDir()
+	initRunTestGitRepo(t, projectDir)
+
+	projectCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	if err := projectCLI.Run(ctx, []string{"project", "add", projectDir, "--name", "tok"}); err != nil {
+		t.Fatalf("project add returned error: %v", err)
+	}
+	taskID := createTaskForTest(t, ctx, dataDir, "tok", "Run exec hidden bypass")
+
+	var execOut bytes.Buffer
+	execCLI := newProjectTestCLI(dataDir, &execOut)
+	if err := execCLI.Run(ctx, []string{
+		"run", "exec",
+		"--task", strconv.FormatInt(taskID, 10),
+		"--json",
+		"--",
+		"sh", "-c", "true",
+	}); err != nil {
+		t.Fatalf("current run exec returned error: %v", err)
+	}
+	var run runOutput
+	if err := json.Unmarshal(execOut.Bytes(), &run); err != nil {
+		t.Fatalf("parse run exec JSON: %v\n%s", err, execOut.String())
+	}
+	if run.Status != "succeeded" {
+		t.Fatalf("unexpected current run exec status: %+v", run)
+	}
+	for _, artifact := range run.Artifacts {
+		if artifact.Kind == "validation" {
+			t.Fatalf("current characterization expected no validation artifact, got %+v", run.Artifacts)
+		}
+	}
+
+	// Expected-to-change in task 154: run exec should become a
+	// validation-producing command instead of relying on hidden
+	// AllowUnvalidated.
+	if len(run.Artifacts) != 4 || run.Artifacts[3].Kind != "log" {
+		t.Fatalf("unexpected current run exec artifacts: %+v", run.Artifacts)
+	}
+}
+
 func TestCLIRunExecFailureAndTimeout(t *testing.T) {
 	if _, err := exec.LookPath("sh"); err != nil {
 		t.Skipf("sh is required for run exec test: %v", err)
@@ -458,6 +505,53 @@ func TestCLIRunAgentAdapterContextModesAndResultMapping(t *testing.T) {
 	}
 	if blocked.Status != "blocked" || blocked.ResultSummary != "Adapter requested follow-up." {
 		t.Fatalf("adapter JSON result should map run outcome without parsing stdout/stderr: %+v", blocked)
+	}
+}
+
+func TestCLIRunAgentCurrentBehaviorSucceedsWithoutValidationArtifactExpectedToChange(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skipf("sh is required for run agent test: %v", err)
+	}
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	projectDir := t.TempDir()
+	initRunTestGitRepo(t, projectDir)
+	fakeAdapter := writeFakeAgentAdapter(t)
+
+	projectCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	if err := projectCLI.Run(ctx, []string{"project", "add", projectDir, "--name", "tok"}); err != nil {
+		t.Fatalf("project add returned error: %v", err)
+	}
+	taskID := createTaskForTest(t, ctx, dataDir, "tok", "Run agent hidden bypass")
+
+	var agentOut bytes.Buffer
+	agentCLI := newProjectTestCLI(dataDir, &agentOut)
+	if err := agentCLI.Run(ctx, []string{
+		"run", "agent",
+		"--task", strconv.FormatInt(taskID, 10),
+		"--json",
+		"--",
+		fakeAdapter, "Run agent hidden bypass", "succeeded", "Adapter completed.", "0",
+	}); err != nil {
+		t.Fatalf("current run agent returned error: %v", err)
+	}
+	var run runOutput
+	if err := json.Unmarshal(agentOut.Bytes(), &run); err != nil {
+		t.Fatalf("parse run agent JSON: %v\n%s", err, agentOut.String())
+	}
+	if run.Status != "succeeded" {
+		t.Fatalf("unexpected current run agent status: %+v", run)
+	}
+	for _, artifact := range run.Artifacts {
+		if artifact.Kind == "validation" {
+			t.Fatalf("current characterization expected no validation artifact, got %+v", run.Artifacts)
+		}
+	}
+
+	// Expected-to-change in task 154: agent adapter success should not be
+	// treated as validation evidence by itself.
+	if len(run.Artifacts) != 4 || run.Artifacts[3].Kind != "log" {
+		t.Fatalf("unexpected current run agent artifacts: %+v", run.Artifacts)
 	}
 }
 
@@ -1532,6 +1626,8 @@ func TestCLIRunFinishValidation(t *testing.T) {
 		t.Fatalf("unexpected validated finish output: %+v", finished)
 	}
 
+	// Expected-to-change in tasks 153/154: --allow-unvalidated should require
+	// a non-empty override reason and leave explicit audit evidence.
 	overrideTaskID := createTaskForTest(t, ctx, dataDir, "tok", "Override run validation")
 	override := startRunForTest(t, ctx, dataDir, overrideTaskID)
 	overrideCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
