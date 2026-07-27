@@ -734,7 +734,7 @@ func TestServerAggregatesAgentsFromTaskHistory(t *testing.T) {
 	if pagedTasks.Total != 5 || pagedTasks.Limit != 2 || pagedTasks.Offset != 1 {
 		t.Fatalf("unexpected paged tasks metadata: %+v", pagedTasks)
 	}
-	if got := taskTitles(pagedTasks.Tasks); !slices.Equal(got, []string{"Wait for renderer", "Wire HTTP client"}) {
+	if got := taskTitles(pagedTasks.Tasks); !slices.Equal(got, []string{"Blocked implementation", "Wire HTTP client"}) {
 		t.Fatalf("unexpected paged task titles: %v", got)
 	}
 

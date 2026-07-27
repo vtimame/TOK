@@ -562,12 +562,12 @@ func (a *api) listTasks(ctx fuego.ContextNoBody) (TaskListResponse, error) {
 	if err != nil {
 		return TaskListResponse{}, err
 	}
-	opts := storage.ListTasksOptions{Statuses: statuses, Limit: limit, Offset: offset}
+	opts := storage.ListTasksOptions{Statuses: statuses, ProjectID: project.ID, Limit: limit, Offset: offset}
 	total, err := a.store.CountTasksWithOptions(ctx.Context(), project.ID, opts)
 	if err != nil {
 		return TaskListResponse{}, err
 	}
-	tasks, err := a.store.ListTasksWithOptions(ctx.Context(), project.ID, opts)
+	tasks, err := a.store.ListAllTasksWithOptions(ctx.Context(), opts)
 	if err != nil {
 		return TaskListResponse{}, err
 	}

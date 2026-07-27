@@ -5,7 +5,8 @@ import { useBlockTask } from "@/api/generated/hooks/useBlockTask.ts";
 import { useClaimTask } from "@/api/generated/hooks/useClaimTask.ts";
 import { useCommentTask } from "@/api/generated/hooks/useCommentTask.ts";
 import { useCompleteTask } from "@/api/generated/hooks/useCompleteTask.ts";
-import { listTasksQueryKey, useListTasks } from "@/api/generated/hooks/useListTasks.ts";
+import { listTasksQueryKey } from "@/api/generated/hooks/useListTasks.ts";
+import { listTasks } from "@/api/generated/client/listTasks.ts";
 import { showTaskQueryKey, useShowTask } from "@/api/generated/hooks/useShowTask.ts";
 import { useProgressTask } from "@/api/generated/hooks/useProgressTask.ts";
 import { useUnblockTask } from "@/api/generated/hooks/useUnblockTask.ts";
@@ -14,8 +15,9 @@ import type { CreateTaskInput } from "@/api/generated/models/CreateTaskInput.ts"
 import type { Task, TaskDependency, TaskEvent } from "@/api/mappers.ts";
 import { taskDependencyFromApi, taskEventFromApi, taskFromApi } from "@/api/mappers.ts";
 import { listProjectsQueryKey } from "@/api/generated/hooks/useListProjects.ts";
-import { useQueryClient } from "@tanstack/vue-query";
+import { useQuery, useQueryClient } from "@tanstack/vue-query";
 import type { QueryClient } from "@tanstack/vue-query";
+import { computed, toValue } from "vue";
 import type { MaybeRefOrGetter } from "vue";
 import { projectQueryKeys } from "@/api/queries/projects.ts";
 
@@ -42,19 +44,27 @@ export const taskQueryKeys = {
 };
 
 export function useTasksQuery(params?: MaybeRefOrGetter<ListTasksQueryParams>) {
-  return useListTasks<TasksPage>(
-    { params },
-    {
-      query: {
-        select: (response: TaskListResponse) => ({
-          tasks: (response.tasks ?? []).map(taskFromApi),
-          total: response.total,
-          limit: response.limit,
-          offset: response.offset,
-        }),
-      },
+  const queryKey = computed(() => listTasksQueryKey(toValue(params)));
+
+  return useQuery({
+    queryKey,
+    queryFn: async ({ signal }) => {
+      const response = await listTasks(
+        { params: toValue(params) },
+        { signal },
+      );
+      return tasksPageFromApi(response);
     },
-  );
+  });
+}
+
+function tasksPageFromApi(response: TaskListResponse): TasksPage {
+  return {
+    tasks: (response.tasks ?? []).map(taskFromApi),
+    total: response.total,
+    limit: response.limit,
+    offset: response.offset,
+  };
 }
 
 export function useTaskQuery(id: MaybeRefOrGetter<string | undefined>) {

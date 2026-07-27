@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -53,6 +54,10 @@ func New(cfg Config) (*mcp.Server, error) {
 
 func (s *service) addTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
+		Name:        "task_create",
+		Description: "Create a task in a project.",
+	}, s.taskCreate)
+	mcp.AddTool(server, &mcp.Tool{
 		Name:        "project_list",
 		Description: "List registered TOK projects.",
 	}, s.projectList)
@@ -97,6 +102,42 @@ func (s *service) addTools(server *mcp.Server) {
 		Description: "Mark an in-progress task done.",
 	}, s.taskDone)
 	mcp.AddTool(server, &mcp.Tool{
+		Name:        "task_status",
+		Description: "Set an arbitrary task status with actor attribution.",
+	}, s.taskStatus)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "task_dependency_add",
+		Description: "Create a task dependency edge.",
+	}, s.taskDependencyAdd)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "task_dependency_remove",
+		Description: "Remove a task dependency edge.",
+	}, s.taskDependencyRemove)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "project_instruction_list",
+		Description: "List project instructions.",
+	}, s.projectInstructionList)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "project_instruction_create",
+		Description: "Create a project instruction.",
+	}, s.projectInstructionCreate)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "project_instruction_show",
+		Description: "Show a project instruction.",
+	}, s.projectInstructionShow)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "project_instruction_enable",
+		Description: "Enable a project instruction.",
+	}, s.projectInstructionEnable)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "project_instruction_disable",
+		Description: "Disable a project instruction.",
+	}, s.projectInstructionDisable)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "project_instruction_delete",
+		Description: "Delete a project instruction.",
+	}, s.projectInstructionDelete)
+	mcp.AddTool(server, &mcp.Tool{
 		Name:        "index_update",
 		Description: "Update the lexical index for a project.",
 	}, s.indexUpdate)
@@ -120,6 +161,34 @@ func (s *service) addTools(server *mcp.Server) {
 		Name:        "context_build",
 		Description: "Build a structured TOK context package for a task.",
 	}, s.contextBuild)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "run_list",
+		Description: "List task runs optionally filtered by project/task/status.",
+	}, s.runList)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "run_show",
+		Description: "Show a run with artifacts.",
+	}, s.runShow)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "run_create",
+		Description: "Create a new task run.",
+	}, s.runCreate)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "run_finish",
+		Description: "Finish a task run.",
+	}, s.runFinish)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "run_artifact_list",
+		Description: "List artifacts for a run.",
+	}, s.runArtifactList)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "run_artifact_add",
+		Description: "Add a run artifact.",
+	}, s.runArtifactAdd)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "run_validation_record",
+		Description: "Record validation evidence for a run.",
+	}, s.runValidationRecord)
 }
 
 type emptyInput struct{}
@@ -130,6 +199,24 @@ type projectNameInput struct {
 
 type projectShowInput struct {
 	Name string `json:"name" jsonschema:"project name"`
+}
+
+type projectInstructionListInput struct {
+	Project         string `json:"project" jsonschema:"project name"`
+	IncludeDisabled bool   `json:"include_disabled,omitempty" jsonschema:"include disabled instructions"`
+}
+
+type projectInstructionCreateInput struct {
+	Project  string `json:"project" jsonschema:"project name"`
+	Title    string `json:"title" jsonschema:"instruction title"`
+	Body     string `json:"body" jsonschema:"instruction body"`
+	Priority string `json:"priority,omitempty" jsonschema:"critical, high, normal or low (default normal)"`
+	Source   string `json:"source,omitempty" jsonschema:"instruction source"`
+}
+
+type projectInstructionIDInput struct {
+	Project string `json:"project" jsonschema:"project name"`
+	ID      int64  `json:"id" jsonschema:"instruction id"`
 }
 
 type taskIDInput struct {
@@ -149,6 +236,25 @@ type taskClaimInput struct {
 type taskNoteInput struct {
 	ID   int64  `json:"id" jsonschema:"task id"`
 	Body string `json:"body" jsonschema:"comment or progress body"`
+}
+
+type taskCreateInput struct {
+	Project            string `json:"project" jsonschema:"project name"`
+	Title              string `json:"title" jsonschema:"task title"`
+	Description        string `json:"description,omitempty" jsonschema:"task description"`
+	AcceptanceCriteria string `json:"acceptance_criteria,omitempty" jsonschema:"acceptance criteria"`
+	Notes              string `json:"notes,omitempty" jsonschema:"notes"`
+}
+
+type taskStatusInput struct {
+	ID     int64  `json:"id" jsonschema:"task id"`
+	Status string `json:"status" jsonschema:"open, in_progress, blocked, or done"`
+}
+
+type taskDependencyInput struct {
+	EdgeType      string `json:"edge_type,omitempty" jsonschema:"dependency edge type (default blocks)"`
+	BlockerTaskID int64  `json:"blocker_task_id" jsonschema:"blocking task id"`
+	BlockedTaskID int64  `json:"blocked_task_id" jsonschema:"blocked task id"`
 }
 
 type taskBlockInput struct {
@@ -179,12 +285,71 @@ type contextBuildInput struct {
 	Query   string `json:"query,omitempty" jsonschema:"optional retrieval query override"`
 }
 
+type runListInput struct {
+	Project string `json:"project,omitempty" jsonschema:"optional project name"`
+	TaskID  int64  `json:"task_id,omitempty" jsonschema:"optional task id"`
+	Status  string `json:"status,omitempty" jsonschema:"optional run status"`
+}
+
+type runShowInput struct {
+	ID int64 `json:"id" jsonschema:"run id"`
+}
+
+type runCreateInput struct {
+	TaskID                 int64  `json:"task_id" jsonschema:"task id"`
+	Status                 string `json:"status,omitempty" jsonschema:"created or in_progress"`
+	HandoffContractVersion string `json:"handoff_contract_version,omitempty" jsonschema:"optional handoff contract version"`
+	RetrievalLimit         int    `json:"retrieval_limit,omitempty" jsonschema:"optional retrieval result limit"`
+	BaseBranch             string `json:"base_branch,omitempty" jsonschema:"optional base git branch"`
+	BaseHead               string `json:"base_head,omitempty" jsonschema:"optional base git head"`
+	LeaseOwner             string `json:"lease_owner,omitempty" jsonschema:"optional lease owner"`
+	HeartbeatAt            string `json:"heartbeat_at,omitempty" jsonschema:"optional heartbeat timestamp"`
+	ExpiresAt              string `json:"expires_at,omitempty" jsonschema:"optional lease expiration timestamp"`
+	AllowActive            bool   `json:"allow_active,omitempty" jsonschema:"allow replacing active run"`
+}
+
+type runFinishInput struct {
+	ID               int64  `json:"id" jsonschema:"run id"`
+	Status           string `json:"status" jsonschema:"terminal run status"`
+	Summary          string `json:"summary" jsonschema:"result summary"`
+	AllowUnvalidated bool   `json:"allow_unvalidated,omitempty" jsonschema:"skip validation requirement"`
+}
+
+type runArtifactListInput struct {
+	RunID int64 `json:"run_id" jsonschema:"run id"`
+}
+
+type runArtifactAddInput struct {
+	RunID       int64  `json:"run_id" jsonschema:"run id"`
+	Kind        string `json:"kind" jsonschema:"artifact kind"`
+	Path        string `json:"path,omitempty" jsonschema:"artifact path"`
+	ContentHash string `json:"content_hash,omitempty" jsonschema:"artifact content hash"`
+	SizeBytes   int64  `json:"size_bytes,omitempty" jsonschema:"artifact size in bytes"`
+	Truncated   bool   `json:"truncated,omitempty" jsonschema:"artifact content truncated"`
+	Metadata    string `json:"metadata,omitempty" jsonschema:"artifact metadata json"`
+}
+
+type runValidationRecordInput struct {
+	RunID   int64  `json:"run_id" jsonschema:"run id"`
+	Command string `json:"command" jsonschema:"validation command"`
+	Status  string `json:"status" jsonschema:"passed or failed"`
+	Summary string `json:"summary" jsonschema:"validation summary"`
+}
+
 type projectListOutput struct {
 	Projects []ProjectOutput `json:"projects"`
 }
 
 type projectOutput struct {
 	Project ProjectOutput `json:"project"`
+}
+
+type projectInstructionListOutput struct {
+	Instructions []ProjectInstructionOutput `json:"instructions"`
+}
+
+type projectInstructionShowOutput struct {
+	Instruction ProjectInstructionOutput `json:"instruction"`
 }
 
 type taskListOutput struct {
@@ -198,6 +363,53 @@ type taskOutput struct {
 type taskShowOutput struct {
 	Task   TaskOutput        `json:"task"`
 	Events []TaskEventOutput `json:"events"`
+}
+
+type runListOutput struct {
+	Runs []runOutput `json:"runs"`
+}
+
+type runOutput struct {
+	ID                     int64               `json:"id"`
+	TaskID                 int64               `json:"task_id"`
+	Status                 string              `json:"status"`
+	HandoffContractVersion string              `json:"handoff_contract_version"`
+	RetrievalLimit         int                 `json:"retrieval_limit"`
+	StartedAt              string              `json:"started_at"`
+	FinishedAt             string              `json:"finished_at"`
+	BaseBranch             string              `json:"base_branch"`
+	BaseHead               string              `json:"base_head"`
+	ResultSummary          string              `json:"result_summary"`
+	LeaseOwner             string              `json:"lease_owner"`
+	HeartbeatAt            string              `json:"heartbeat_at"`
+	ExpiresAt              string              `json:"expires_at"`
+	StartedBy              *ActorOutput        `json:"started_by,omitempty"`
+	FinishedBy             *ActorOutput        `json:"finished_by,omitempty"`
+	Artifacts              []runArtifactOutput `json:"artifacts"`
+}
+
+type runArtifactOutput struct {
+	ID          int64        `json:"id"`
+	RunID       int64        `json:"run_id"`
+	Kind        string       `json:"kind"`
+	Path        string       `json:"path"`
+	ContentHash string       `json:"content_hash"`
+	SizeBytes   int64        `json:"size_bytes"`
+	Truncated   bool         `json:"truncated"`
+	Metadata    string       `json:"metadata"`
+	Actor       *ActorOutput `json:"actor,omitempty"`
+	CreatedAt   string       `json:"created_at"`
+}
+
+type runArtifactListOutput struct {
+	Artifacts []runArtifactOutput `json:"artifacts"`
+}
+
+type taskDependencyRemovedOutput struct {
+	Removed       bool   `json:"removed"`
+	EdgeType      string `json:"edge_type"`
+	BlockerTaskID int64  `json:"blocker_task_id"`
+	BlockedTaskID int64  `json:"blocked_task_id"`
 }
 
 type taskEventOutput struct {
@@ -352,6 +564,178 @@ func (s *service) taskList(ctx context.Context, _ *mcp.CallToolRequest, input ta
 		return nil, taskListOutput{}, err
 	}
 	return nil, taskListFromStorage(tasks), nil
+}
+
+func (s *service) taskCreate(ctx context.Context, _ *mcp.CallToolRequest, input taskCreateInput) (*mcp.CallToolResult, taskOutput, error) {
+	project, err := s.projectByName(ctx, input.Project)
+	if err != nil {
+		return nil, taskOutput{}, err
+	}
+	input.Project = strings.TrimSpace(input.Project)
+	input.Title = strings.TrimSpace(input.Title)
+	if input.Title == "" {
+		return nil, taskOutput{}, errors.New("task title is required")
+	}
+	task, err := s.store.CreateTask(ctx, storage.CreateTaskInput{
+		ProjectID:          project.ID,
+		Title:              input.Title,
+		Description:        strings.TrimSpace(input.Description),
+		AcceptanceCriteria: strings.TrimSpace(input.AcceptanceCriteria),
+		Notes:              strings.TrimSpace(input.Notes),
+		Actor:              s.actor,
+	})
+	if err != nil {
+		return nil, taskOutput{}, err
+	}
+	return nil, taskOutput{Task: taskFromStorage(task)}, nil
+}
+
+func (s *service) taskStatus(ctx context.Context, _ *mcp.CallToolRequest, input taskStatusInput) (*mcp.CallToolResult, taskOutput, error) {
+	if input.ID <= 0 {
+		return nil, taskOutput{}, errors.New("task status requires id")
+	}
+	input.Status = strings.TrimSpace(input.Status)
+	if !validTaskStatus(input.Status) {
+		return nil, taskOutput{}, fmt.Errorf("invalid task status %q", input.Status)
+	}
+	task, err := s.store.UpdateTaskStatusByActor(ctx, input.ID, input.Status, s.actor)
+	if err != nil {
+		return nil, taskOutput{}, friendlyTaskError(err)
+	}
+	return nil, taskOutput{Task: taskFromStorage(task)}, nil
+}
+
+func (s *service) taskDependencyAdd(ctx context.Context, _ *mcp.CallToolRequest, input taskDependencyInput) (*mcp.CallToolResult, TaskDependencyOutput, error) {
+	edgeType := strings.TrimSpace(input.EdgeType)
+	if edgeType == "" {
+		edgeType = "blocks"
+	}
+	if input.BlockerTaskID <= 0 {
+		return nil, TaskDependencyOutput{}, errors.New("blocker_task_id is required")
+	}
+	if input.BlockedTaskID <= 0 {
+		return nil, TaskDependencyOutput{}, errors.New("blocked_task_id is required")
+	}
+	dependency, err := s.store.AddTaskDependency(ctx, edgeType, input.BlockerTaskID, input.BlockedTaskID)
+	if err != nil {
+		return nil, TaskDependencyOutput{}, friendlyTaskDependencyError(err)
+	}
+	return nil, taskDependencyFromStorage(dependency), nil
+}
+
+func (s *service) taskDependencyRemove(ctx context.Context, _ *mcp.CallToolRequest, input taskDependencyInput) (*mcp.CallToolResult, taskDependencyRemovedOutput, error) {
+	edgeType := strings.TrimSpace(input.EdgeType)
+	if edgeType == "" {
+		edgeType = "blocks"
+	}
+	if input.BlockerTaskID <= 0 {
+		return nil, taskDependencyRemovedOutput{}, errors.New("blocker_task_id is required")
+	}
+	if input.BlockedTaskID <= 0 {
+		return nil, taskDependencyRemovedOutput{}, errors.New("blocked_task_id is required")
+	}
+	err := s.store.RemoveTaskDependency(ctx, edgeType, input.BlockerTaskID, input.BlockedTaskID)
+	if err != nil {
+		return nil, taskDependencyRemovedOutput{}, friendlyTaskDependencyError(err)
+	}
+	return nil, taskDependencyRemovedOutput{
+		Removed:       true,
+		EdgeType:      edgeType,
+		BlockerTaskID: input.BlockerTaskID,
+		BlockedTaskID: input.BlockedTaskID,
+	}, nil
+}
+
+func (s *service) projectInstructionList(ctx context.Context, _ *mcp.CallToolRequest, input projectInstructionListInput) (*mcp.CallToolResult, projectInstructionListOutput, error) {
+	project, err := s.projectByName(ctx, input.Project)
+	if err != nil {
+		return nil, projectInstructionListOutput{}, err
+	}
+	instructions, err := s.store.ListProjectInstructions(ctx, storage.ListProjectInstructionsOptions{
+		ProjectID:       project.ID,
+		IncludeDisabled: input.IncludeDisabled,
+	})
+	if err != nil {
+		return nil, projectInstructionListOutput{}, err
+	}
+	return nil, projectInstructionListFromStorage(instructions), nil
+}
+
+func (s *service) projectInstructionCreate(ctx context.Context, _ *mcp.CallToolRequest, input projectInstructionCreateInput) (*mcp.CallToolResult, projectInstructionShowOutput, error) {
+	project, err := s.projectByName(ctx, input.Project)
+	if err != nil {
+		return nil, projectInstructionShowOutput{}, err
+	}
+	input.Title = strings.TrimSpace(input.Title)
+	if input.Title == "" {
+		return nil, projectInstructionShowOutput{}, errors.New("project instruction title is required")
+	}
+	input.Body = strings.TrimSpace(input.Body)
+	if input.Body == "" {
+		return nil, projectInstructionShowOutput{}, errors.New("project instruction body is required")
+	}
+	instruction, err := s.store.CreateProjectInstruction(ctx, storage.CreateProjectInstructionInput{
+		ProjectID: project.ID,
+		Title:     input.Title,
+		Body:      input.Body,
+		Priority:  input.Priority,
+		Source:    input.Source,
+	})
+	if err != nil {
+		return nil, projectInstructionShowOutput{}, friendlyProjectInstructionError(err)
+	}
+	return nil, projectInstructionShowOutput{Instruction: projectInstructionFromStorage(instruction)}, nil
+}
+
+func (s *service) projectInstructionShow(ctx context.Context, _ *mcp.CallToolRequest, input projectInstructionIDInput) (*mcp.CallToolResult, projectInstructionShowOutput, error) {
+	project, err := s.projectByName(ctx, input.Project)
+	if err != nil {
+		return nil, projectInstructionShowOutput{}, err
+	}
+	instruction, err := s.store.GetProjectInstruction(ctx, project.ID, input.ID)
+	if err != nil {
+		return nil, projectInstructionShowOutput{}, friendlyProjectInstructionError(err)
+	}
+	return nil, projectInstructionShowOutput{Instruction: projectInstructionFromStorage(instruction)}, nil
+}
+
+func (s *service) projectInstructionEnable(ctx context.Context, _ *mcp.CallToolRequest, input projectInstructionIDInput) (*mcp.CallToolResult, projectInstructionShowOutput, error) {
+	project, err := s.projectByName(ctx, input.Project)
+	if err != nil {
+		return nil, projectInstructionShowOutput{}, err
+	}
+	instruction, err := s.store.SetProjectInstructionEnabled(ctx, project.ID, input.ID, true)
+	if err != nil {
+		return nil, projectInstructionShowOutput{}, friendlyProjectInstructionError(err)
+	}
+	return nil, projectInstructionShowOutput{Instruction: projectInstructionFromStorage(instruction)}, nil
+}
+
+func (s *service) projectInstructionDisable(ctx context.Context, _ *mcp.CallToolRequest, input projectInstructionIDInput) (*mcp.CallToolResult, projectInstructionShowOutput, error) {
+	project, err := s.projectByName(ctx, input.Project)
+	if err != nil {
+		return nil, projectInstructionShowOutput{}, err
+	}
+	instruction, err := s.store.SetProjectInstructionEnabled(ctx, project.ID, input.ID, false)
+	if err != nil {
+		return nil, projectInstructionShowOutput{}, friendlyProjectInstructionError(err)
+	}
+	return nil, projectInstructionShowOutput{Instruction: projectInstructionFromStorage(instruction)}, nil
+}
+
+func (s *service) projectInstructionDelete(ctx context.Context, _ *mcp.CallToolRequest, input projectInstructionIDInput) (*mcp.CallToolResult, projectInstructionShowOutput, error) {
+	project, err := s.projectByName(ctx, input.Project)
+	if err != nil {
+		return nil, projectInstructionShowOutput{}, err
+	}
+	instruction, err := s.store.GetProjectInstruction(ctx, project.ID, input.ID)
+	if err != nil {
+		return nil, projectInstructionShowOutput{}, friendlyProjectInstructionError(err)
+	}
+	if err := s.store.DeleteProjectInstruction(ctx, project.ID, input.ID); err != nil {
+		return nil, projectInstructionShowOutput{}, friendlyProjectInstructionError(err)
+	}
+	return nil, projectInstructionShowOutput{Instruction: projectInstructionFromStorage(instruction)}, nil
 }
 
 func (s *service) taskShow(ctx context.Context, _ *mcp.CallToolRequest, input taskIDInput) (*mcp.CallToolResult, taskShowOutput, error) {
@@ -582,6 +966,183 @@ func (s *service) contextBuild(ctx context.Context, _ *mcp.CallToolRequest, inpu
 	return nil, contextOutputFromPackage(pkg), nil
 }
 
+func (s *service) runList(ctx context.Context, _ *mcp.CallToolRequest, input runListInput) (*mcp.CallToolResult, runListOutput, error) {
+	if input.Status != "" && !validRunStatus(input.Status) {
+		return nil, runListOutput{}, fmt.Errorf("invalid run status %q", input.Status)
+	}
+	var projectID int64
+	if strings.TrimSpace(input.Project) != "" {
+		project, err := s.projectByName(ctx, input.Project)
+		if err != nil {
+			return nil, runListOutput{}, err
+		}
+		projectID = project.ID
+	}
+	runs, err := s.store.ListRuns(ctx, storage.ListRunsOptions{ProjectID: projectID, TaskID: input.TaskID, Status: input.Status})
+	if err != nil {
+		return nil, runListOutput{}, err
+	}
+	out := runListOutput{Runs: make([]runOutput, 0, len(runs))}
+	for _, run := range runs {
+		out.Runs = append(out.Runs, runOutputFromStorage(run, nil))
+	}
+	return nil, out, nil
+}
+
+func (s *service) runShow(ctx context.Context, _ *mcp.CallToolRequest, input runShowInput) (*mcp.CallToolResult, runOutput, error) {
+	run, err := s.store.GetRun(ctx, input.ID)
+	if err != nil {
+		return nil, runOutput{}, friendlyRunError(err)
+	}
+	artifacts, err := s.store.ListRunArtifacts(ctx, input.ID)
+	if err != nil {
+		return nil, runOutput{}, err
+	}
+	return nil, runOutputFromStorage(run, artifacts), nil
+}
+
+func (s *service) runCreate(ctx context.Context, _ *mcp.CallToolRequest, input runCreateInput) (*mcp.CallToolResult, runOutput, error) {
+	input.Status = strings.TrimSpace(input.Status)
+	input.HandoffContractVersion = strings.TrimSpace(input.HandoffContractVersion)
+	input.BaseBranch = strings.TrimSpace(input.BaseBranch)
+	input.BaseHead = strings.TrimSpace(input.BaseHead)
+	input.LeaseOwner = strings.TrimSpace(input.LeaseOwner)
+	input.HeartbeatAt = strings.TrimSpace(input.HeartbeatAt)
+	input.ExpiresAt = strings.TrimSpace(input.ExpiresAt)
+	if input.TaskID <= 0 {
+		return nil, runOutput{}, errors.New("run_create requires task_id")
+	}
+	if input.Status != "" && !validRunStatus(input.Status) {
+		return nil, runOutput{}, fmt.Errorf("invalid run status %q", input.Status)
+	}
+	if input.HandoffContractVersion == "" {
+		input.HandoffContractVersion = contextpkg.HandoffContractV0
+	}
+	run, err := s.store.CreateRun(ctx, storage.CreateRunInput{
+		TaskID:                 input.TaskID,
+		Status:                 input.Status,
+		HandoffContractVersion: input.HandoffContractVersion,
+		RetrievalLimit:         input.RetrievalLimit,
+		BaseBranch:             input.BaseBranch,
+		BaseHead:               input.BaseHead,
+		LeaseOwner:             input.LeaseOwner,
+		HeartbeatAt:            input.HeartbeatAt,
+		ExpiresAt:              input.ExpiresAt,
+		AllowActive:            input.AllowActive,
+		Actor:                  s.actor,
+	})
+	if err != nil {
+		return nil, runOutput{}, friendlyRunError(err)
+	}
+	return nil, runOutputFromStorage(run, nil), nil
+}
+
+func (s *service) runFinish(ctx context.Context, _ *mcp.CallToolRequest, input runFinishInput) (*mcp.CallToolResult, runOutput, error) {
+	input.Status = strings.TrimSpace(input.Status)
+	input.Summary = strings.TrimSpace(input.Summary)
+	if input.ID <= 0 {
+		return nil, runOutput{}, errors.New("run_finish requires id")
+	}
+	if input.Status == "" {
+		return nil, runOutput{}, errors.New("run_finish requires status")
+	}
+	if !runStatusTerminal(input.Status) {
+		return nil, runOutput{}, fmt.Errorf("invalid terminal run status %q", input.Status)
+	}
+	if input.Summary == "" {
+		return nil, runOutput{}, errors.New("run_finish requires summary")
+	}
+	run, err := s.store.FinishRun(ctx, storage.FinishRunInput{
+		ID:               input.ID,
+		Status:           input.Status,
+		ResultSummary:    input.Summary,
+		AllowUnvalidated: input.AllowUnvalidated,
+		Actor:            s.actor,
+	})
+	if err != nil {
+		return nil, runOutput{}, friendlyRunError(err)
+	}
+	artifacts, err := s.store.ListRunArtifacts(ctx, run.ID)
+	if err != nil {
+		return nil, runOutput{}, err
+	}
+	return nil, runOutputFromStorage(run, artifacts), nil
+}
+
+func (s *service) runArtifactList(ctx context.Context, _ *mcp.CallToolRequest, input runArtifactListInput) (*mcp.CallToolResult, runArtifactListOutput, error) {
+	if input.RunID <= 0 {
+		return nil, runArtifactListOutput{}, errors.New("run_artifact_list requires run_id")
+	}
+	artifacts, err := s.store.ListRunArtifacts(ctx, input.RunID)
+	if err != nil {
+		return nil, runArtifactListOutput{}, err
+	}
+	out := runArtifactListOutput{Artifacts: make([]runArtifactOutput, 0, len(artifacts))}
+	for _, artifact := range artifacts {
+		out.Artifacts = append(out.Artifacts, runArtifactFromStorage(artifact))
+	}
+	return nil, out, nil
+}
+
+func (s *service) runArtifactAdd(ctx context.Context, _ *mcp.CallToolRequest, input runArtifactAddInput) (*mcp.CallToolResult, runArtifactOutput, error) {
+	if input.RunID <= 0 {
+		return nil, runArtifactOutput{}, errors.New("run_artifact_add requires run_id")
+	}
+	input.Kind = strings.TrimSpace(input.Kind)
+	if input.Kind == "" {
+		return nil, runArtifactOutput{}, errors.New("run_artifact_add requires kind")
+	}
+	input.Path = strings.TrimSpace(input.Path)
+	input.ContentHash = strings.TrimSpace(input.ContentHash)
+	input.Metadata = strings.TrimSpace(input.Metadata)
+	artifact, err := s.store.AddRunArtifact(ctx, storage.AddRunArtifactInput{
+		RunID:       input.RunID,
+		Kind:        input.Kind,
+		Path:        input.Path,
+		ContentHash: input.ContentHash,
+		SizeBytes:   input.SizeBytes,
+		Truncated:   input.Truncated,
+		Metadata:    input.Metadata,
+		Actor:       s.actor,
+	})
+	if err != nil {
+		return nil, runArtifactOutput{}, friendlyRunError(err)
+	}
+	return nil, runArtifactFromStorage(artifact), nil
+}
+
+func (s *service) runValidationRecord(ctx context.Context, _ *mcp.CallToolRequest, input runValidationRecordInput) (*mcp.CallToolResult, runArtifactOutput, error) {
+	if input.RunID <= 0 {
+		return nil, runArtifactOutput{}, errors.New("run_validation_record requires run_id")
+	}
+	input.Command = strings.TrimSpace(input.Command)
+	if input.Command == "" {
+		return nil, runArtifactOutput{}, errors.New("run_validation_record requires command")
+	}
+	input.Status = strings.TrimSpace(input.Status)
+	if input.Status != "passed" && input.Status != "failed" {
+		return nil, runArtifactOutput{}, fmt.Errorf("invalid validation status %q", input.Status)
+	}
+	input.Summary = strings.TrimSpace(input.Summary)
+	if input.Summary == "" {
+		return nil, runArtifactOutput{}, errors.New("run_validation_record requires summary")
+	}
+	metadata, err := validationMetadata(input)
+	if err != nil {
+		return nil, runArtifactOutput{}, err
+	}
+	artifact, err := s.store.AddRunArtifact(ctx, storage.AddRunArtifactInput{
+		RunID:    input.RunID,
+		Kind:     "validation",
+		Metadata: metadata,
+		Actor:    s.actor,
+	})
+	if err != nil {
+		return nil, runArtifactOutput{}, friendlyRunError(err)
+	}
+	return nil, runArtifactFromStorage(artifact), nil
+}
+
 func (s *service) projectByName(ctx context.Context, name string) (storage.Project, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -702,6 +1263,72 @@ func taskDependencyFromStorage(dependency storage.TaskDependency) TaskDependency
 	}
 }
 
+func runOutputFromStorage(run storage.Run, artifacts []storage.RunArtifact) runOutput {
+	artifactOutputs := make([]runArtifactOutput, 0, len(artifacts))
+	for _, artifact := range artifacts {
+		artifactOutputs = append(artifactOutputs, runArtifactFromStorage(artifact))
+	}
+	return runOutput{
+		ID:                     run.ID,
+		TaskID:                 run.TaskID,
+		Status:                 run.Status,
+		HandoffContractVersion: run.HandoffContractVersion,
+		RetrievalLimit:         run.RetrievalLimit,
+		StartedAt:              run.StartedAt,
+		FinishedAt:             run.FinishedAt,
+		BaseBranch:             run.BaseBranch,
+		BaseHead:               run.BaseHead,
+		ResultSummary:          run.ResultSummary,
+		LeaseOwner:             run.LeaseOwner,
+		HeartbeatAt:            run.HeartbeatAt,
+		ExpiresAt:              run.ExpiresAt,
+		StartedBy:              actorFromSnapshot(run.ActorID, run.ActorKind, run.ActorName),
+		FinishedBy:             actorFromSnapshot(run.FinishedActorID, run.FinishedActorKind, run.FinishedActorName),
+		Artifacts:              artifactOutputs,
+	}
+}
+
+func runArtifactFromStorage(artifact storage.RunArtifact) runArtifactOutput {
+	return runArtifactOutput{
+		ID:          artifact.ID,
+		RunID:       artifact.RunID,
+		Kind:        artifact.Kind,
+		Path:        artifact.Path,
+		ContentHash: artifact.ContentHash,
+		SizeBytes:   artifact.SizeBytes,
+		Truncated:   artifact.Truncated,
+		Metadata:    artifact.Metadata,
+		Actor:       actorFromSnapshot(artifact.ActorID, artifact.ActorKind, artifact.ActorName),
+		CreatedAt:   artifact.CreatedAt,
+	}
+}
+
+func projectInstructionListFromStorage(instructions []storage.ProjectInstruction) projectInstructionListOutput {
+	out := projectInstructionListOutput{Instructions: make([]ProjectInstructionOutput, 0, len(instructions))}
+	for _, instruction := range instructions {
+		out.Instructions = append(out.Instructions, projectInstructionFromStorage(instruction))
+	}
+	return out
+}
+
+func validationMetadata(input runValidationRecordInput) (string, error) {
+	raw, err := json.Marshal(struct {
+		Command          string `json:"command"`
+		Status           string `json:"status"`
+		Summary          string `json:"summary"`
+		RedactionEnabled bool   `json:"redaction_enabled"`
+	}{
+		Command:          input.Command,
+		Status:           input.Status,
+		Summary:          input.Summary,
+		RedactionEnabled: false,
+	})
+	if err != nil {
+		return "", fmt.Errorf("encode validation metadata: %w", err)
+	}
+	return string(raw), nil
+}
+
 func searchResultFromRetrieval(result retrieval.SearchResult) SearchResultOutput {
 	return SearchResultOutput{
 		Path:       result.Path,
@@ -809,6 +1436,43 @@ func friendlyTaskError(err error) error {
 	}
 }
 
+func friendlyRunError(err error) error {
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return errors.New("run not found")
+	case errors.Is(err, storage.ErrRunValidationRequired):
+		return errors.New("passed validation evidence is required")
+	case errors.Is(err, storage.ErrRunResultSummaryEmpty):
+		return errors.New("run result summary is required")
+	case errors.Is(err, storage.ErrInvalidRunTransition):
+		return errors.New("invalid run status transition")
+	default:
+		return err
+	}
+}
+
+func friendlyProjectInstructionError(err error) error {
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return errors.New("project instruction not found")
+	case strings.Contains(err.Error(), "project instruction"):
+		return err
+	default:
+		return err
+	}
+}
+
+func friendlyTaskDependencyError(err error) error {
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return errors.New("task dependency not found")
+	case strings.Contains(err.Error(), "task dependency"):
+		return err
+	default:
+		return err
+	}
+}
+
 func sanitizeActor(actor storage.ActorRef) storage.ActorRef {
 	actor.Kind = strings.TrimSpace(actor.Kind)
 	actor.Name = strings.TrimSpace(actor.Name)
@@ -821,6 +1485,24 @@ func sanitizeActor(actor storage.ActorRef) storage.ActorRef {
 func validTaskStatus(status string) bool {
 	switch status {
 	case "open", "in_progress", "blocked", "done":
+		return true
+	default:
+		return false
+	}
+}
+
+func validRunStatus(status string) bool {
+	switch status {
+	case "created", "in_progress", "succeeded", "failed", "blocked", "cancelled":
+		return true
+	default:
+		return false
+	}
+}
+
+func runStatusTerminal(status string) bool {
+	switch status {
+	case "succeeded", "failed", "blocked", "cancelled":
 		return true
 	default:
 		return false

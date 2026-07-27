@@ -7,6 +7,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	contextpkg "s26.sh/tok/internal/context"
 	"s26.sh/tok/internal/storage"
 )
 
@@ -138,6 +139,386 @@ func TestServerRejectsMissingActor(t *testing.T) {
 	_, err := New(Config{Store: openTestStore(t)})
 	if err == nil {
 		t.Fatal("expected missing actor error")
+	}
+}
+
+func TestServerWorkflowToolsSupportTaskInstructionDependencyAndRunLifecycle(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+
+	_, err := store.CreateProject(ctx, storage.CreateProjectInput{
+		Name:        "tok",
+		DisplayName: "TOK",
+		Path:        t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("CreateProject returned error: %v", err)
+	}
+	createdAgent, err := store.CreateAgent(ctx, "Codex MCP")
+	if err != nil {
+		t.Fatalf("CreateAgent returned error: %v", err)
+	}
+
+	server, err := New(Config{
+		Store:   store,
+		Actor:   storage.ActorRefFromActor(createdAgent.Agent),
+		Version: "test",
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	clientSession, serverSession := connectTestClient(t, ctx, server)
+	defer clientSession.Close()
+	defer serverSession.Close()
+
+	createdTaskResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "task_create",
+		Arguments: map[string]any{
+			"project":             "tok",
+			"title":               "Run toolchain checks",
+			"description":         "Ensure workflow MCP can drive run lifecycle",
+			"acceptance_criteria": "All tools return expected JSON",
+		},
+	})
+	if err != nil {
+		t.Fatalf("task_create returned error: %v", err)
+	}
+	if createdTaskResult.IsError {
+		t.Fatalf("task_create returned tool error: %+v", createdTaskResult)
+	}
+	var createdTask taskOutput
+	decodeStructured(t, createdTaskResult.StructuredContent, &createdTask)
+	if createdTask.Task.ID <= 0 || createdTask.Task.Status != "open" {
+		t.Fatalf("unexpected task_create output: %+v", createdTask)
+	}
+
+	statusResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "task_status",
+		Arguments: map[string]any{
+			"id":     createdTask.Task.ID,
+			"status": "in_progress",
+		},
+	})
+	if err != nil {
+		t.Fatalf("task_status returned error: %v", err)
+	}
+	if statusResult.IsError {
+		t.Fatalf("task_status returned tool error: %+v", statusResult)
+	}
+	var updatedTask taskOutput
+	decodeStructured(t, statusResult.StructuredContent, &updatedTask)
+	if updatedTask.Task.Status != "in_progress" {
+		t.Fatalf("unexpected task_status output: %+v", updatedTask)
+	}
+	if updatedTask.Task.ID != createdTask.Task.ID {
+		t.Fatalf("unexpected task_status output id: %+v", updatedTask)
+	}
+
+	blockerTaskResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "task_create",
+		Arguments: map[string]any{
+			"project": "tok",
+			"title":   "Block dependent task",
+		},
+	})
+	if err != nil {
+		t.Fatalf("task_create (blocker) returned error: %v", err)
+	}
+	if blockerTaskResult.IsError {
+		t.Fatalf("task_create (blocker) returned tool error: %+v", blockerTaskResult)
+	}
+	var blockedTask taskOutput
+	decodeStructured(t, blockerTaskResult.StructuredContent, &blockedTask)
+	if blockedTask.Task.ID <= 0 {
+		t.Fatalf("unexpected blocker task output: %+v", blockedTask)
+	}
+
+	instructionCreateResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "project_instruction_create",
+		Arguments: map[string]any{
+			"project":  "tok",
+			"title":    "Use tests",
+			"body":     "Use mcp in-memory tests for workflows.",
+			"priority": "high",
+		},
+	})
+	if err != nil {
+		t.Fatalf("project_instruction_create returned error: %v", err)
+	}
+	if instructionCreateResult.IsError {
+		t.Fatalf("project_instruction_create returned tool error: %+v", instructionCreateResult)
+	}
+	var instructionCreated projectInstructionShowOutput
+	decodeStructured(t, instructionCreateResult.StructuredContent, &instructionCreated)
+	if instructionCreated.Instruction.ID == 0 || instructionCreated.Instruction.Title != "Use tests" {
+		t.Fatalf("unexpected project_instruction_create output: %+v", instructionCreated)
+	}
+
+	listResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "project_instruction_list",
+		Arguments: map[string]any{
+			"project": "tok",
+		},
+	})
+	if err != nil {
+		t.Fatalf("project_instruction_list returned error: %v", err)
+	}
+	if listResult.IsError {
+		t.Fatalf("project_instruction_list returned tool error: %+v", listResult)
+	}
+	var instructionList projectInstructionListOutput
+	decodeStructured(t, listResult.StructuredContent, &instructionList)
+	if len(instructionList.Instructions) != 1 {
+		t.Fatalf("expected one project instruction, got: %+v", instructionList)
+	}
+
+	disableResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "project_instruction_disable",
+		Arguments: map[string]any{
+			"project": "tok",
+			"id":      instructionCreated.Instruction.ID,
+		},
+	})
+	if err != nil {
+		t.Fatalf("project_instruction_disable returned error: %v", err)
+	}
+	if disableResult.IsError {
+		t.Fatalf("project_instruction_disable returned tool error: %+v", disableResult)
+	}
+	var disabledInstruction projectInstructionShowOutput
+	decodeStructured(t, disableResult.StructuredContent, &disabledInstruction)
+	if disabledInstruction.Instruction.Enabled {
+		t.Fatalf("expected disabled instruction: %+v", disabledInstruction)
+	}
+
+	showResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "project_instruction_show",
+		Arguments: map[string]any{
+			"project": "tok",
+			"id":      instructionCreated.Instruction.ID,
+		},
+	})
+	if err != nil {
+		t.Fatalf("project_instruction_show returned error: %v", err)
+	}
+	if showResult.IsError {
+		t.Fatalf("project_instruction_show returned tool error: %+v", showResult)
+	}
+	var shownInstruction projectInstructionShowOutput
+	decodeStructured(t, showResult.StructuredContent, &shownInstruction)
+	if shownInstruction.Instruction.ID != instructionCreated.Instruction.ID {
+		t.Fatalf("unexpected project_instruction_show output: %+v", shownInstruction)
+	}
+
+	enableResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "project_instruction_enable",
+		Arguments: map[string]any{
+			"project": "tok",
+			"id":      instructionCreated.Instruction.ID,
+		},
+	})
+	if err != nil {
+		t.Fatalf("project_instruction_enable returned error: %v", err)
+	}
+	if enableResult.IsError {
+		t.Fatalf("project_instruction_enable returned tool error: %+v", enableResult)
+	}
+	var enabledInstruction projectInstructionShowOutput
+	decodeStructured(t, enableResult.StructuredContent, &enabledInstruction)
+	if !enabledInstruction.Instruction.Enabled {
+		t.Fatalf("expected enabled instruction: %+v", enabledInstruction)
+	}
+
+	dependencyAddResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "task_dependency_add",
+		Arguments: map[string]any{
+			"blocker_task_id": createdTask.Task.ID,
+			"blocked_task_id": blockedTask.Task.ID,
+		},
+	})
+	if err != nil {
+		t.Fatalf("task_dependency_add returned error: %v", err)
+	}
+	if dependencyAddResult.IsError {
+		t.Fatalf("task_dependency_add returned tool error: %+v", dependencyAddResult)
+	}
+
+	var dependency TaskDependencyOutput
+	decodeStructured(t, dependencyAddResult.StructuredContent, &dependency)
+	if dependency.BlockerTaskID != createdTask.Task.ID || dependency.BlockedTaskID != blockedTask.Task.ID {
+		t.Fatalf("unexpected dependency add output: %+v", dependency)
+	}
+
+	dependencyRemoveResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "task_dependency_remove",
+		Arguments: map[string]any{
+			"blocker_task_id": createdTask.Task.ID,
+			"blocked_task_id": blockedTask.Task.ID,
+		},
+	})
+	if err != nil {
+		t.Fatalf("task_dependency_remove returned error: %v", err)
+	}
+	if dependencyRemoveResult.IsError {
+		t.Fatalf("task_dependency_remove returned tool error: %+v", dependencyRemoveResult)
+	}
+	var removed taskDependencyRemovedOutput
+	decodeStructured(t, dependencyRemoveResult.StructuredContent, &removed)
+	if !removed.Removed || removed.BlockerTaskID != createdTask.Task.ID || removed.BlockedTaskID != blockedTask.Task.ID {
+		t.Fatalf("unexpected task_dependency_remove output: %+v", removed)
+	}
+
+	runCreateResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "run_create",
+		Arguments: map[string]any{
+			"task_id":         createdTask.Task.ID,
+			"status":          "in_progress",
+			"retrieval_limit": 7,
+		},
+	})
+	if err != nil {
+		t.Fatalf("run_create returned error: %v", err)
+	}
+	if runCreateResult.IsError {
+		t.Fatalf("run_create returned tool error: %+v", runCreateResult)
+	}
+	var run runOutput
+	decodeStructured(t, runCreateResult.StructuredContent, &run)
+	if run.ID <= 0 || run.TaskID != createdTask.Task.ID {
+		t.Fatalf("unexpected run_create output: %+v", run)
+	}
+	if run.HandoffContractVersion != contextpkg.HandoffContractV0 {
+		t.Fatalf("expected default handoff contract, got: %+v", run)
+	}
+
+	artifactAddResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "run_validation_record",
+		Arguments: map[string]any{
+			"run_id":  run.ID,
+			"command": "go test ./internal/mcpserver",
+			"status":  "passed",
+			"summary": "MCP workflow tests passed.",
+		},
+	})
+	if err != nil {
+		t.Fatalf("run_validation_record returned error: %v", err)
+	}
+	if artifactAddResult.IsError {
+		t.Fatalf("run_validation_record returned tool error: %+v", artifactAddResult)
+	}
+	var artifact runArtifactOutput
+	decodeStructured(t, artifactAddResult.StructuredContent, &artifact)
+	if artifact.ID <= 0 || artifact.Kind != "validation" || artifact.RunID != run.ID {
+		t.Fatalf("unexpected run_validation_record output: %+v", artifact)
+	}
+	var metadata struct {
+		Command string `json:"command"`
+		Status  string `json:"status"`
+		Summary string `json:"summary"`
+	}
+	if err := json.Unmarshal([]byte(artifact.Metadata), &metadata); err != nil {
+		t.Fatalf("decode validation metadata: %v", err)
+	}
+	if metadata.Command != "go test ./internal/mcpserver" || metadata.Status != "passed" || metadata.Summary == "" {
+		t.Fatalf("unexpected validation metadata: %+v", metadata)
+	}
+
+	artifactListResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "run_artifact_list",
+		Arguments: map[string]any{
+			"run_id": run.ID,
+		},
+	})
+	if err != nil {
+		t.Fatalf("run_artifact_list returned error: %v", err)
+	}
+	if artifactListResult.IsError {
+		t.Fatalf("run_artifact_list returned tool error: %+v", artifactListResult)
+	}
+	var artifactList runArtifactListOutput
+	decodeStructured(t, artifactListResult.StructuredContent, &artifactList)
+	if len(artifactList.Artifacts) != 1 {
+		t.Fatalf("unexpected run_artifact_list output: %+v", artifactList)
+	}
+
+	runFinishResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "run_finish",
+		Arguments: map[string]any{
+			"id":      run.ID,
+			"status":  "succeeded",
+			"summary": "Workflow completed via MCP",
+		},
+	})
+	if err != nil {
+		t.Fatalf("run_finish returned error: %v", err)
+	}
+	if runFinishResult.IsError {
+		t.Fatalf("run_finish returned tool error: %+v", runFinishResult)
+	}
+	var finishedRun runOutput
+	decodeStructured(t, runFinishResult.StructuredContent, &finishedRun)
+	if finishedRun.Status != "succeeded" || finishedRun.ResultSummary != "Workflow completed via MCP" {
+		t.Fatalf("unexpected run_finish output: %+v", finishedRun)
+	}
+	if len(finishedRun.Artifacts) != 1 {
+		t.Fatalf("expected validation artifact on finished run: %+v", finishedRun.Artifacts)
+	}
+
+	runShowResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "run_show",
+		Arguments: map[string]any{
+			"id": run.ID,
+		},
+	})
+	if err != nil {
+		t.Fatalf("run_show returned error: %v", err)
+	}
+	if runShowResult.IsError {
+		t.Fatalf("run_show returned tool error: %+v", runShowResult)
+	}
+	var showedRun runOutput
+	decodeStructured(t, runShowResult.StructuredContent, &showedRun)
+	if showedRun.Status != "succeeded" || len(showedRun.Artifacts) != 1 {
+		t.Fatalf("unexpected run_show output: %+v", showedRun)
+	}
+
+	runListResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "run_list",
+		Arguments: map[string]any{
+			"project": "tok",
+			"status":  "succeeded",
+		},
+	})
+	if err != nil {
+		t.Fatalf("run_list returned error: %v", err)
+	}
+	if runListResult.IsError {
+		t.Fatalf("run_list returned tool error: %+v", runListResult)
+	}
+	var runs runListOutput
+	decodeStructured(t, runListResult.StructuredContent, &runs)
+	if len(runs.Runs) != 1 || runs.Runs[0].ID != run.ID {
+		t.Fatalf("unexpected run_list output: %+v", runs)
+	}
+
+	deleteResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "project_instruction_delete",
+		Arguments: map[string]any{
+			"project": "tok",
+			"id":      instructionCreated.Instruction.ID,
+		},
+	})
+	if err != nil {
+		t.Fatalf("project_instruction_delete returned error: %v", err)
+	}
+	if deleteResult.IsError {
+		t.Fatalf("project_instruction_delete returned tool error: %+v", deleteResult)
+	}
+	var deletedInstruction projectInstructionShowOutput
+	decodeStructured(t, deleteResult.StructuredContent, &deletedInstruction)
+	if deletedInstruction.Instruction.ID != instructionCreated.Instruction.ID {
+		t.Fatalf("unexpected project_instruction_delete output: %+v", deletedInstruction)
 	}
 }
 
