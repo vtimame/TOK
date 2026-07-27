@@ -34,6 +34,8 @@ func (c *CLI) runTask(ctx context.Context, opts runtimeOptions) error {
 	switch opts.args[1] {
 	case "create":
 		return c.runTaskCreate(ctx, store, opts.args[2:])
+	case "source":
+		return c.runTaskSource(ctx, store, opts.args[2:])
 	case "list":
 		return c.runTaskList(ctx, store, opts.args[2:])
 	case "show":
@@ -70,6 +72,10 @@ type taskCreateOptions struct {
 	description        string
 	acceptanceCriteria string
 	notes              string
+	source             string
+	externalID         string
+	externalURL        string
+	externalRevision   string
 	json               bool
 }
 
@@ -83,6 +89,15 @@ type taskStatusOptions struct {
 	taskID int64
 	status string
 	json   bool
+}
+
+type taskSourceOptions struct {
+	taskID           int64
+	source           string
+	externalID       string
+	externalURL      string
+	externalRevision string
+	json             bool
 }
 
 func (c *CLI) runTaskCreate(ctx context.Context, store *storage.Store, args []string) error {
@@ -107,6 +122,10 @@ func (c *CLI) runTaskCreate(ctx context.Context, store *storage.Store, args []st
 		Description:        createOpts.description,
 		AcceptanceCriteria: createOpts.acceptanceCriteria,
 		Notes:              createOpts.notes,
+		Source:             createOpts.source,
+		ExternalID:         createOpts.externalID,
+		ExternalURL:        createOpts.externalURL,
+		ExternalRevision:   createOpts.externalRevision,
 		Actor:              actor,
 	})
 	if err != nil {
@@ -114,6 +133,39 @@ func (c *CLI) runTaskCreate(ctx context.Context, store *storage.Store, args []st
 	}
 
 	if createOpts.json {
+		return printTaskJSON(c.out, task)
+	}
+	printTask(c.out, task)
+	return nil
+}
+
+func (c *CLI) runTaskSource(ctx context.Context, store *storage.Store, args []string) error {
+	sourceOpts, err := parseTaskSourceOptions(args)
+	if err != nil {
+		return err
+	}
+
+	actor, err := currentLocalHumanActor(ctx, store)
+	if err != nil {
+		return err
+	}
+
+	task, err := store.UpdateTaskExternalReference(ctx, storage.UpdateTaskExternalReferenceInput{
+		ID:               sourceOpts.taskID,
+		Source:           sourceOpts.source,
+		ExternalID:       sourceOpts.externalID,
+		ExternalURL:      sourceOpts.externalURL,
+		ExternalRevision: sourceOpts.externalRevision,
+		Actor:            actor,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("task not found: %d", sourceOpts.taskID)
+		}
+		return err
+	}
+
+	if sourceOpts.json {
 		return printTaskJSON(c.out, task)
 	}
 	printTask(c.out, task)
@@ -564,6 +616,50 @@ func parseTaskCreateOptions(args []string) (taskCreateOptions, error) {
 			opts.notes = args[i]
 		case strings.HasPrefix(arg, "--notes="):
 			opts.notes = strings.TrimPrefix(arg, "--notes=")
+		case arg == "--source":
+			i++
+			if i >= len(args) {
+				return taskCreateOptions{}, &UsageError{Message: "--source requires a value", Code: 2}
+			}
+			opts.source = args[i]
+		case strings.HasPrefix(arg, "--source="):
+			opts.source = strings.TrimPrefix(arg, "--source=")
+			if opts.source == "" {
+				return taskCreateOptions{}, &UsageError{Message: "--source requires a value", Code: 2}
+			}
+		case arg == "--external-id":
+			i++
+			if i >= len(args) {
+				return taskCreateOptions{}, &UsageError{Message: "--external-id requires a value", Code: 2}
+			}
+			opts.externalID = args[i]
+		case strings.HasPrefix(arg, "--external-id="):
+			opts.externalID = strings.TrimPrefix(arg, "--external-id=")
+			if opts.externalID == "" {
+				return taskCreateOptions{}, &UsageError{Message: "--external-id requires a value", Code: 2}
+			}
+		case arg == "--external-url":
+			i++
+			if i >= len(args) {
+				return taskCreateOptions{}, &UsageError{Message: "--external-url requires a value", Code: 2}
+			}
+			opts.externalURL = args[i]
+		case strings.HasPrefix(arg, "--external-url="):
+			opts.externalURL = strings.TrimPrefix(arg, "--external-url=")
+			if opts.externalURL == "" {
+				return taskCreateOptions{}, &UsageError{Message: "--external-url requires a value", Code: 2}
+			}
+		case arg == "--external-revision":
+			i++
+			if i >= len(args) {
+				return taskCreateOptions{}, &UsageError{Message: "--external-revision requires a value", Code: 2}
+			}
+			opts.externalRevision = args[i]
+		case strings.HasPrefix(arg, "--external-revision="):
+			opts.externalRevision = strings.TrimPrefix(arg, "--external-revision=")
+			if opts.externalRevision == "" {
+				return taskCreateOptions{}, &UsageError{Message: "--external-revision requires a value", Code: 2}
+			}
 		case arg == "--json":
 			opts.json = true
 		default:
@@ -573,6 +669,10 @@ func parseTaskCreateOptions(args []string) (taskCreateOptions, error) {
 
 	opts.projectName = strings.TrimSpace(opts.projectName)
 	opts.title = strings.TrimSpace(opts.title)
+	opts.source = strings.TrimSpace(opts.source)
+	opts.externalID = strings.TrimSpace(opts.externalID)
+	opts.externalURL = strings.TrimSpace(opts.externalURL)
+	opts.externalRevision = strings.TrimSpace(opts.externalRevision)
 	if opts.projectName == "" {
 		return taskCreateOptions{}, &UsageError{Message: "task create requires --project", Code: 2}
 	}
@@ -580,6 +680,81 @@ func parseTaskCreateOptions(args []string) (taskCreateOptions, error) {
 		return taskCreateOptions{}, &UsageError{Message: "task create requires --title", Code: 2}
 	}
 
+	return opts, nil
+}
+
+func parseTaskSourceOptions(args []string) (taskSourceOptions, error) {
+	var opts taskSourceOptions
+	if len(args) == 0 {
+		return taskSourceOptions{}, &UsageError{Message: "task source requires <task-id>", Code: 2}
+	}
+	taskID, err := parseTaskID(args[0])
+	if err != nil {
+		return taskSourceOptions{}, err
+	}
+	opts.taskID = taskID
+
+	for i := 1; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--source":
+			i++
+			if i >= len(args) {
+				return taskSourceOptions{}, &UsageError{Message: "--source requires a value", Code: 2}
+			}
+			opts.source = args[i]
+		case strings.HasPrefix(arg, "--source="):
+			opts.source = strings.TrimPrefix(arg, "--source=")
+			if opts.source == "" {
+				return taskSourceOptions{}, &UsageError{Message: "--source requires a value", Code: 2}
+			}
+		case arg == "--external-id":
+			i++
+			if i >= len(args) {
+				return taskSourceOptions{}, &UsageError{Message: "--external-id requires a value", Code: 2}
+			}
+			opts.externalID = args[i]
+		case strings.HasPrefix(arg, "--external-id="):
+			opts.externalID = strings.TrimPrefix(arg, "--external-id=")
+			if opts.externalID == "" {
+				return taskSourceOptions{}, &UsageError{Message: "--external-id requires a value", Code: 2}
+			}
+		case arg == "--external-url":
+			i++
+			if i >= len(args) {
+				return taskSourceOptions{}, &UsageError{Message: "--external-url requires a value", Code: 2}
+			}
+			opts.externalURL = args[i]
+		case strings.HasPrefix(arg, "--external-url="):
+			opts.externalURL = strings.TrimPrefix(arg, "--external-url=")
+			if opts.externalURL == "" {
+				return taskSourceOptions{}, &UsageError{Message: "--external-url requires a value", Code: 2}
+			}
+		case arg == "--external-revision":
+			i++
+			if i >= len(args) {
+				return taskSourceOptions{}, &UsageError{Message: "--external-revision requires a value", Code: 2}
+			}
+			opts.externalRevision = args[i]
+		case strings.HasPrefix(arg, "--external-revision="):
+			opts.externalRevision = strings.TrimPrefix(arg, "--external-revision=")
+			if opts.externalRevision == "" {
+				return taskSourceOptions{}, &UsageError{Message: "--external-revision requires a value", Code: 2}
+			}
+		case arg == "--json":
+			opts.json = true
+		default:
+			return taskSourceOptions{}, &UsageError{Message: fmt.Sprintf("unknown task source option %q", arg), Code: 2}
+		}
+	}
+
+	opts.source = strings.TrimSpace(opts.source)
+	opts.externalID = strings.TrimSpace(opts.externalID)
+	opts.externalURL = strings.TrimSpace(opts.externalURL)
+	opts.externalRevision = strings.TrimSpace(opts.externalRevision)
+	if opts.source == "" {
+		return taskSourceOptions{}, &UsageError{Message: "task source requires --source", Code: 2}
+	}
 	return opts, nil
 }
 
@@ -1030,6 +1205,16 @@ func printTask(out io.Writer, task storage.Task) {
 	fmt.Fprintf(out, "description: %s\n", task.Description)
 	fmt.Fprintf(out, "acceptance_criteria: %s\n", task.AcceptanceCriteria)
 	fmt.Fprintf(out, "notes: %s\n", task.Notes)
+	fmt.Fprintf(out, "source: %s\n", task.Source)
+	if task.ExternalID != "" {
+		fmt.Fprintf(out, "external_id: %s\n", task.ExternalID)
+	}
+	if task.ExternalURL != "" {
+		fmt.Fprintf(out, "external_url: %s\n", task.ExternalURL)
+	}
+	if task.ExternalRevision != "" {
+		fmt.Fprintf(out, "external_revision: %s\n", task.ExternalRevision)
+	}
 	fmt.Fprintf(out, "created_at: %s\n", task.CreatedAt)
 	fmt.Fprintf(out, "updated_at: %s\n", task.UpdatedAt)
 }
@@ -1087,6 +1272,10 @@ type readyTaskOutput struct {
 	Description        string `json:"description"`
 	AcceptanceCriteria string `json:"acceptance_criteria"`
 	Notes              string `json:"notes"`
+	Source             string `json:"source"`
+	ExternalID         string `json:"external_id"`
+	ExternalURL        string `json:"external_url"`
+	ExternalRevision   string `json:"external_revision"`
 	CreatedAt          string `json:"created_at"`
 	UpdatedAt          string `json:"updated_at"`
 }
@@ -1200,6 +1389,10 @@ func taskOutputFromStorage(task storage.Task) readyTaskOutput {
 		Description:        task.Description,
 		AcceptanceCriteria: task.AcceptanceCriteria,
 		Notes:              task.Notes,
+		Source:             task.Source,
+		ExternalID:         task.ExternalID,
+		ExternalURL:        task.ExternalURL,
+		ExternalRevision:   task.ExternalRevision,
 		CreatedAt:          task.CreatedAt,
 		UpdatedAt:          task.UpdatedAt,
 	}

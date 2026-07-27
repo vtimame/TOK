@@ -208,8 +208,12 @@ func TestServerProjectCreateSupportsAgentProjectRegistration(t *testing.T) {
 	createdTaskResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
 		Name: "task_create",
 		Arguments: map[string]any{
-			"project": "agent-workspace",
-			"title":   "Use newly registered project",
+			"project":           "agent-workspace",
+			"title":             "Use newly registered project",
+			"source":            "github",
+			"external_id":       "42",
+			"external_url":      "https://github.com/vtimame/TOK/issues/42",
+			"external_revision": "rev-1",
 		},
 	})
 	if err != nil {
@@ -220,8 +224,33 @@ func TestServerProjectCreateSupportsAgentProjectRegistration(t *testing.T) {
 	}
 	var createdTask taskOutput
 	decodeStructured(t, createdTaskResult.StructuredContent, &createdTask)
-	if createdTask.Task.ProjectID != createdProject.Project.ID {
+	if createdTask.Task.ProjectID != createdProject.Project.ID ||
+		createdTask.Task.Source != "github" ||
+		createdTask.Task.ExternalID != "42" ||
+		createdTask.Task.ExternalURL != "https://github.com/vtimame/TOK/issues/42" ||
+		createdTask.Task.ExternalRevision != "rev-1" {
 		t.Fatalf("task_create did not use created project: %+v", createdTask)
+	}
+
+	sourceResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "task_source",
+		Arguments: map[string]any{
+			"id":           createdTask.Task.ID,
+			"source":       "jira",
+			"external_id":  "TOK-42",
+			"external_url": "https://example.atlassian.net/browse/TOK-42",
+		},
+	})
+	if err != nil {
+		t.Fatalf("task_source returned error: %v", err)
+	}
+	if sourceResult.IsError {
+		t.Fatalf("task_source returned tool error: %+v", sourceResult)
+	}
+	var sourcedTask taskOutput
+	decodeStructured(t, sourceResult.StructuredContent, &sourcedTask)
+	if sourcedTask.Task.Source != "jira" || sourcedTask.Task.ExternalID != "TOK-42" || sourcedTask.Task.ExternalURL != "https://example.atlassian.net/browse/TOK-42" || sourcedTask.Task.ExternalRevision != "" {
+		t.Fatalf("unexpected task_source output: %+v", sourcedTask)
 	}
 }
 

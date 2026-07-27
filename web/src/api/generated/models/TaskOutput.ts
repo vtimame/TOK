@@ -25,6 +25,18 @@ export type TaskOutput = {
    */
   description: string;
   /**
+   * @type string
+   */
+  external_id: string;
+  /**
+   * @type string
+   */
+  external_revision: string;
+  /**
+   * @type string
+   */
+  external_url: string;
+  /**
    * @type integer, int64
    */
   id: number;
@@ -40,6 +52,10 @@ export type TaskOutput = {
    * @type integer, int64
    */
   project_id: number;
+  /**
+   * @type string
+   */
+  source: string;
   /**
    * @type string
    */

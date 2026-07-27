@@ -34,6 +34,7 @@ func registerRoutes(s *fuego.Server, a *api) {
 	fuego.Get(s, "/api/tasks/{id}", a.showTask, operation("showTask", "Tasks", "Show a task with event history")...)
 	fuego.Post(s, "/api/tasks/{id}/comment", a.commentTask, append(operation("commentTask", "Tasks", "Add a task comment"), jsonBody()...)...)
 	fuego.Post(s, "/api/tasks/{id}/progress", a.progressTask, append(operation("progressTask", "Tasks", "Add task progress"), jsonBody()...)...)
+	fuego.Patch(s, "/api/tasks/{id}/source", a.updateTaskSource, append(operation("updateTaskSource", "Tasks", "Update a task external source reference"), jsonBody()...)...)
 	fuego.Post(s, "/api/tasks/{id}/block", a.blockTask, append(operation("blockTask", "Tasks", "Block a task"), jsonBody()...)...)
 	fuego.Post(s, "/api/tasks/{id}/unblock", a.unblockTask, append(operation("unblockTask", "Tasks", "Unblock a task"), jsonBody()...)...)
 	fuego.Post(s, "/api/tasks/{id}/done", a.doneTask, append(operation("completeTask", "Tasks", "Complete a task"), jsonBody()...)...)

@@ -19,6 +19,9 @@
         },
         "created_at": { "type": "string" },
         "description": { "type": "string" },
+        "external_id": { "type": "string" },
+        "external_revision": { "type": "string" },
+        "external_url": { "type": "string" },
         "id": { "format": "int64", "type": "integer" },
         "notes": { "type": "string" },
         "project": {
@@ -32,6 +35,7 @@
           "x-readme-ref-name": "TaskProject"
         },
         "project_id": { "format": "int64", "type": "integer" },
+        "source": { "type": "string" },
         "status": { "type": "string" },
         "title": { "type": "string" },
         "updated_at": { "type": "string" }
@@ -41,10 +45,14 @@
         "agents",
         "created_at",
         "description",
+        "external_id",
+        "external_revision",
+        "external_url",
         "id",
         "notes",
         "project",
         "project_id",
+        "source",
         "status",
         "title",
         "updated_at"

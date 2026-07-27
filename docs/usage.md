@@ -106,6 +106,16 @@ tok project show my-project --json
 
 ```bash
 tok task create --project my-project --title "Fix pagination"
+tok task create \
+  --project my-project \
+  --title "Fix GitHub issue" \
+  --source github \
+  --external-id 42 \
+  --external-url https://github.com/example/repo/issues/42
+tok task source <task-id> \
+  --source linear \
+  --external-id ENG-42 \
+  --external-url https://linear.app/example/issue/ENG-42
 tok task ready --project my-project --json
 tok task claim --project my-project <task-id>
 tok task progress <task-id> --body "Implemented the first slice."

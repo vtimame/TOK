@@ -10,7 +10,7 @@ import {
   useTaskQuery,
   useUnblockTaskMutation,
 } from "@/api/queries/tasks.ts";
-import { statusLabel, statusTone } from "@/api/mappers.ts";
+import { statusLabel, statusTone, taskSourceLabel } from "@/api/mappers.ts";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useTitle } from "@vueuse/core";
@@ -42,6 +42,12 @@ const blocks = computed(() =>
   dependencies.value.filter((dependency) => dependency.role === "blocks"),
 );
 const project = computed(() => task.value?.project);
+const hasExternalSource = computed(() => Boolean(task.value && task.value.source !== "local"));
+const sourceLabel = computed(() => taskSourceLabel(task.value?.source || "local"));
+const externalIssueLabel = computed(() => {
+  if (!task.value || !hasExternalSource.value) return "";
+  return task.value.externalId || task.value.externalUrl || sourceLabel.value;
+});
 const canClaim = computed(() => task.value?.status === "open");
 const canComplete = computed(() => task.value?.status === "in_progress");
 const notePlaceholder = computed(() => {
@@ -305,6 +311,28 @@ useTitle(computed(() => task.value?.title || "Task"));
               <Button size="sm" :disabled="actionPending || !canComplete" @click="completeTask">
                 Done
               </Button>
+            </div>
+          </div>
+
+          <div>
+            <div class="text-sm font-medium text-muted-foreground">Source</div>
+            <div class="mt-2 text-sm">
+              <div v-if="hasExternalSource" class="space-y-1">
+                <a
+                  v-if="task.externalUrl"
+                  :href="task.externalUrl"
+                  target="_blank"
+                  rel="noreferrer"
+                  class="font-medium hover:underline"
+                >
+                  {{ sourceLabel }} {{ externalIssueLabel }}
+                </a>
+                <div v-else class="font-medium">{{ sourceLabel }} {{ externalIssueLabel }}</div>
+                <div v-if="task.externalRevision" class="text-xs text-muted-foreground">
+                  Revision {{ task.externalRevision }}
+                </div>
+              </div>
+              <div v-else class="text-muted-foreground">Local task</div>
             </div>
           </div>
 

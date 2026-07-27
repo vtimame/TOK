@@ -140,6 +140,54 @@ TOK Run #9: failed validation
 TOK should keep the failed execution evidence. The closed external issue does
 not erase the local audit trail.
 
+## User Workflows
+
+The alpha workflow is intentionally small:
+
+```bash
+tok task create \
+  --project tok \
+  --title "Fix release validation" \
+  --source github \
+  --external-id 42 \
+  --external-url https://github.com/vtimame/TOK/issues/42
+```
+
+This creates a local TOK execution task linked to the external issue. TOK stores
+the link and shows it in CLI, MCP, HTTP API and the Web UI, but it does not
+automatically read from or write to the tracker.
+
+Existing local tasks can be linked later:
+
+```bash
+tok task source 174 \
+  --source linear \
+  --external-id TOK-174 \
+  --external-url https://linear.app/tok/issue/TOK-174
+```
+
+They can also be reset to local mode:
+
+```bash
+tok task source 174 --source local
+```
+
+Future integrations should remain explicit user actions:
+
+```bash
+tok task import github https://github.com/vtimame/TOK/issues/42
+tok task export-result 174
+```
+
+`import` would create or update a local execution task from the tracker item and
+record the external reference. `export-result` would write a concise completion
+summary back to the tracker, such as the TOK task id, run id, validation status,
+evidence artifact and relevant commit or pull request reference.
+
+If a tracker item changes after TOK last observed `external_revision`, TOK
+should show `external_updated` or `diverged` and ask for human review. It should
+not silently overwrite local execution state or tracker planning state.
+
 ## Unsupported In The Current Alpha
 
 The current alpha direction does not promise:

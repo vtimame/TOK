@@ -199,7 +199,19 @@
           "description": {
             "type": "string"
           },
+          "external_id": {
+            "type": "string"
+          },
+          "external_revision": {
+            "type": "string"
+          },
+          "external_url": {
+            "type": "string"
+          },
           "notes": {
+            "type": "string"
+          },
+          "source": {
             "type": "string"
           },
           "title": {
@@ -820,6 +832,15 @@
           "description": {
             "type": "string"
           },
+          "external_id": {
+            "type": "string"
+          },
+          "external_revision": {
+            "type": "string"
+          },
+          "external_url": {
+            "type": "string"
+          },
           "id": {
             "format": "int64",
             "type": "integer"
@@ -833,6 +854,9 @@
           "project_id": {
             "format": "int64",
             "type": "integer"
+          },
+          "source": {
+            "type": "string"
           },
           "status": {
             "type": "string"
@@ -849,10 +873,14 @@
           "agents",
           "created_at",
           "description",
+          "external_id",
+          "external_revision",
+          "external_url",
           "id",
           "notes",
           "project",
           "project_id",
+          "source",
           "status",
           "title",
           "updated_at"
@@ -920,6 +948,27 @@
           "dependencies",
           "events",
           "task"
+        ],
+        "type": "object"
+      },
+      "TaskSourceInput": {
+        "description": "TaskSourceInput schema",
+        "properties": {
+          "external_id": {
+            "type": "string"
+          },
+          "external_revision": {
+            "type": "string"
+          },
+          "external_url": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source"
         ],
         "type": "object"
       },
@@ -3478,6 +3527,84 @@
           }
         },
         "summary": "Add task progress",
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
+    "/api/tasks/{id}/source": {
+      "patch": {
+        "description": "Update a task external source reference.",
+        "operationId": "updateTaskSource",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskSourceInput"
+              }
+            }
+          },
+          "description": "Request body for httpserver.TaskSourceInput",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskResponse"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Bad Request _(validation or deserialization error)_"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Internal Server Error _(panics)_"
+          }
+        },
+        "summary": "Update a task external source reference",
         "tags": [
           "Tasks"
         ]

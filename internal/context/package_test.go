@@ -112,6 +112,7 @@ func TestBuilderBuildsDeterministicTextPackage(t *testing.T) {
 		"title: Refresh token retrieval",
 		"acceptance_criteria:",
 		"  - package includes retrieval results",
+		"source: local",
 		"## Current State",
 		"active_blockers: 1",
 		"repository_available: true",

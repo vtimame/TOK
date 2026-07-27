@@ -19,6 +19,10 @@ export type Task = {
   description: string;
   acceptanceCriteria: string;
   notes: string;
+  source: string;
+  externalId: string;
+  externalUrl: string;
+  externalRevision: string;
   status: string;
   createdAt: string;
   updatedAt: string;
@@ -124,6 +128,10 @@ export function taskFromApi(task: TaskOutput): Task {
     description: task.description,
     acceptanceCriteria: task.acceptance_criteria,
     notes: task.notes,
+    source: task.source || "local",
+    externalId: task.external_id || "",
+    externalUrl: task.external_url || "",
+    externalRevision: task.external_revision || "",
     status: task.status,
     createdAt: task.created_at,
     updatedAt: task.updated_at,
@@ -189,5 +197,18 @@ export function statusTone(status: string): string {
       return "border-destructive/30 bg-destructive/10 text-destructive";
     default:
       return "border-border bg-muted text-muted-foreground";
+  }
+}
+
+export function taskSourceLabel(source: string): string {
+  switch (source) {
+    case "github":
+      return "GitHub";
+    case "linear":
+      return "Linear";
+    case "jira":
+      return "Jira";
+    default:
+      return "Local task";
   }
 }

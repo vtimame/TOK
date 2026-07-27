@@ -87,6 +87,7 @@ func TestServerListsProjectsAndExposesOpenAPI(t *testing.T) {
 		"/api/tasks/{id} GET":                                    "showTask",
 		"/api/tasks/{id}/comment POST":                           "commentTask",
 		"/api/tasks/{id}/progress POST":                          "progressTask",
+		"/api/tasks/{id}/source PATCH":                           "updateTaskSource",
 		"/api/tasks/{id}/block POST":                             "blockTask",
 		"/api/tasks/{id}/unblock POST":                           "unblockTask",
 		"/api/tasks/{id}/done POST":                              "completeTask",
@@ -110,7 +111,7 @@ func TestServerListsProjectsAndExposesOpenAPI(t *testing.T) {
 		}
 	}
 
-	for _, name := range []string{"AgentListResponse", "AgentResponse", "CreateAgentResponse", "AgentOutput", "AgentProjectOutput", "CreateAgentInput", "UpdateAgentInput", "ProjectListResponse", "ProjectResponse", "ProjectInstructionListResponse", "ProjectInstructionResponse", "ProjectInstructionOutput", "ProjectInstructionInput", "TaskListResponse", "TaskResponse", "TaskShowResponse", "TaskProject", "TaskEventResponse", "TaskDependencyOutput", "CreateTaskInput", "UpdateProjectInput", "ClaimTaskInput", "TaskDoneInput", "IndexResponse", "IndexListResponse", "IndexIgnorePolicyResponse", "IndexIgnorePatternInput"} {
+	for _, name := range []string{"AgentListResponse", "AgentResponse", "CreateAgentResponse", "AgentOutput", "AgentProjectOutput", "CreateAgentInput", "UpdateAgentInput", "ProjectListResponse", "ProjectResponse", "ProjectInstructionListResponse", "ProjectInstructionResponse", "ProjectInstructionOutput", "ProjectInstructionInput", "TaskListResponse", "TaskResponse", "TaskShowResponse", "TaskProject", "TaskEventResponse", "TaskDependencyOutput", "CreateTaskInput", "UpdateProjectInput", "ClaimTaskInput", "TaskDoneInput", "TaskSourceInput", "IndexResponse", "IndexListResponse", "IndexIgnorePolicyResponse", "IndexIgnorePatternInput"} {
 		if _, ok := spec.Components.Schemas[name]; !ok {
 			t.Fatalf("openapi spec missing schema %s", name)
 		}
@@ -124,7 +125,9 @@ func TestServerListsProjectsAndExposesOpenAPI(t *testing.T) {
 		"TaskListResponse":               {"tasks", "total", "limit", "next_cursor"},
 		"ProjectOutput":                  {"tasks_count", "task_counts", "agents"},
 		"TaskCounts":                     {"total", "open", "in_progress", "blocked", "done", "ready"},
-		"TaskOutput":                     {"project", "agents"},
+		"TaskOutput":                     {"project", "agents", "source", "external_id", "external_url", "external_revision"},
+		"CreateTaskInput":                {"source", "external_id", "external_url", "external_revision"},
+		"TaskSourceInput":                {"source", "external_id", "external_url", "external_revision"},
 		"TaskProject":                    {"id", "name", "display_name"},
 		"TaskShowResponse":               {"dependencies"},
 		"AgentListResponse":              {"agents"},
@@ -699,6 +702,10 @@ func TestServerTaskActionsWriteHumanActorHistory(t *testing.T) {
 		"description":         "Expose task actions over HTTP.",
 		"acceptance_criteria": "OpenAPI includes task creation.",
 		"notes":               "Keep UI untouched.",
+		"source":              "github",
+		"external_id":         "42",
+		"external_url":        "https://github.com/vtimame/TOK/issues/42",
+		"external_revision":   "rev-1",
 	})
 	defer createRes.Body.Close()
 	if createRes.StatusCode != http.StatusOK {
@@ -706,8 +713,24 @@ func TestServerTaskActionsWriteHumanActorHistory(t *testing.T) {
 	}
 	var created TaskResponse
 	decodeJSON(t, createRes, &created)
-	if created.Task.ID <= 0 || created.Task.Status != "open" || created.Task.Title != "Build local UI API" {
+	if created.Task.ID <= 0 || created.Task.Status != "open" || created.Task.Title != "Build local UI API" ||
+		created.Task.Source != "github" || created.Task.ExternalID != "42" || created.Task.ExternalURL != "https://github.com/vtimame/TOK/issues/42" || created.Task.ExternalRevision != "rev-1" {
 		t.Fatalf("unexpected created task: %+v", created)
+	}
+
+	sourceRes := doJSON(t, handler, http.MethodPatch, "/api/tasks/"+jsonNumber(created.Task.ID)+"/source", map[string]string{
+		"source":       "linear",
+		"external_id":  "TOK-42",
+		"external_url": "https://linear.app/tok/issue/TOK-42",
+	})
+	defer sourceRes.Body.Close()
+	if sourceRes.StatusCode != http.StatusOK {
+		t.Fatalf("source status = %d", sourceRes.StatusCode)
+	}
+	var sourced TaskResponse
+	decodeJSON(t, sourceRes, &sourced)
+	if sourced.Task.Source != "linear" || sourced.Task.ExternalID != "TOK-42" || sourced.Task.ExternalURL != "https://linear.app/tok/issue/TOK-42" || sourced.Task.ExternalRevision != "" {
+		t.Fatalf("unexpected sourced task: %+v", sourced)
 	}
 
 	claimRes := doJSON(t, handler, http.MethodPost, "/api/projects/tok/tasks/claim", map[string]any{"id": created.Task.ID})
@@ -734,11 +757,18 @@ func TestServerTaskActionsWriteHumanActorHistory(t *testing.T) {
 	}
 	var shown TaskShowResponse
 	decodeJSON(t, showRes, &shown)
-	if len(shown.Events) != 3 {
-		t.Fatalf("expected created, claimed and commented events, got %+v", shown.Events)
+	if shown.Task.Source != "linear" || shown.Task.ExternalID != "TOK-42" {
+		t.Fatalf("show task missing external reference: %+v", shown.Task)
 	}
-	claimedEvent := shown.Events[1]
-	commentEvent := shown.Events[2]
+	if len(shown.Events) != 4 {
+		t.Fatalf("expected created, source_updated, claimed and commented events, got %+v", shown.Events)
+	}
+	sourceEvent := shown.Events[1]
+	claimedEvent := shown.Events[2]
+	commentEvent := shown.Events[3]
+	if sourceEvent.Type != "source_updated" || !strings.Contains(sourceEvent.Body, "source=linear") {
+		t.Fatalf("source event missing source update: %+v", sourceEvent)
+	}
 	if claimedEvent.Actor == nil || claimedEvent.Actor.Kind != "human" || claimedEvent.Actor.Name != "TOK Operator" {
 		t.Fatalf("claim event missing human actor: %+v", claimedEvent)
 	}

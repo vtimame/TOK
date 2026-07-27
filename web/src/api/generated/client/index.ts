@@ -34,3 +34,4 @@ export { updateAgent } from "./updateAgent.ts";
 export { updateAllProjectIndexes } from "./updateAllProjectIndexes.ts";
 export { updateProject } from "./updateProject.ts";
 export { updateProjectIndex } from "./updateProjectIndex.ts";
+export { updateTaskSource } from "./updateTaskSource.ts";

@@ -41,6 +41,7 @@ func TestCLITaskCreateListShowStatusAndComment(t *testing.T) {
 		"description: Create issue-like task CLI.",
 		"acceptance_criteria: - create",
 		"notes: Keep it local.",
+		"source: local",
 		"created_at:",
 		"updated_at:",
 	} {
@@ -82,6 +83,7 @@ func TestCLITaskCreateListShowStatusAndComment(t *testing.T) {
 		listedTasks[0].Description != "Create issue-like task CLI." ||
 		listedTasks[0].AcceptanceCriteria != "- create\n- list\n- show\n- status" ||
 		listedTasks[0].Notes != "Keep it local." ||
+		listedTasks[0].Source != "local" ||
 		listedTasks[0].CreatedAt == "" ||
 		listedTasks[0].UpdatedAt == "" {
 		t.Fatalf("unexpected task list JSON: %+v", listedTasks)
@@ -168,6 +170,87 @@ func TestCLITaskCreateListShowStatusAndComment(t *testing.T) {
 	}
 	if len(showJSON.Events) != 3 || showJSON.Events[0].Type != "created" || showJSON.Events[1].Type != "status_changed" || showJSON.Events[2].Type != "commented" {
 		t.Fatalf("unexpected task show JSON events: %+v", showJSON.Events)
+	}
+}
+
+func TestCLITaskExternalReferenceCreateShowAndUpdate(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	projectDir := t.TempDir()
+
+	projectCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	if err := projectCLI.Run(ctx, []string{"project", "add", projectDir, "--name", "tok"}); err != nil {
+		t.Fatalf("project add returned error: %v", err)
+	}
+
+	var createOut bytes.Buffer
+	createCLI := newProjectTestCLI(dataDir, &createOut)
+	if err := createCLI.Run(ctx, []string{
+		"task", "create",
+		"--project", "tok",
+		"--title", "Linked issue",
+		"--source", "github",
+		"--external-id", "42",
+		"--external-url", "https://github.com/vtimame/TOK/issues/42",
+		"--external-revision", "rev-1",
+		"--json",
+	}); err != nil {
+		t.Fatalf("task create external reference returned error: %v", err)
+	}
+	var created readyTaskOutput
+	if err := json.Unmarshal(createOut.Bytes(), &created); err != nil {
+		t.Fatalf("parse task create JSON: %v\n%s", err, createOut.String())
+	}
+	if created.Source != "github" || created.ExternalID != "42" || created.ExternalURL != "https://github.com/vtimame/TOK/issues/42" || created.ExternalRevision != "rev-1" {
+		t.Fatalf("unexpected created external reference: %+v", created)
+	}
+
+	var showOut bytes.Buffer
+	showCLI := newProjectTestCLI(dataDir, &showOut)
+	if err := showCLI.Run(ctx, []string{"task", "show", strconv.FormatInt(created.ID, 10)}); err != nil {
+		t.Fatalf("task show external reference returned error: %v", err)
+	}
+	for _, want := range []string{
+		"source: github",
+		"external_id: 42",
+		"external_url: https://github.com/vtimame/TOK/issues/42",
+		"external_revision: rev-1",
+	} {
+		if !strings.Contains(showOut.String(), want) {
+			t.Fatalf("task show output missing %q:\n%s", want, showOut.String())
+		}
+	}
+
+	var sourceOut bytes.Buffer
+	sourceCLI := newProjectTestCLI(dataDir, &sourceOut)
+	if err := sourceCLI.Run(ctx, []string{
+		"task", "source", strconv.FormatInt(created.ID, 10),
+		"--source", "jira",
+		"--external-id", "TOK-42",
+		"--external-url", "https://example.atlassian.net/browse/TOK-42",
+		"--json",
+	}); err != nil {
+		t.Fatalf("task source returned error: %v", err)
+	}
+	var updated readyTaskOutput
+	if err := json.Unmarshal(sourceOut.Bytes(), &updated); err != nil {
+		t.Fatalf("parse task source JSON: %v\n%s", err, sourceOut.String())
+	}
+	if updated.Source != "jira" || updated.ExternalID != "TOK-42" || updated.ExternalURL != "https://example.atlassian.net/browse/TOK-42" || updated.ExternalRevision != "" {
+		t.Fatalf("unexpected updated external reference: %+v", updated)
+	}
+
+	var localOut bytes.Buffer
+	localCLI := newProjectTestCLI(dataDir, &localOut)
+	if err := localCLI.Run(ctx, []string{"task", "source", strconv.FormatInt(created.ID, 10), "--source", "local", "--json"}); err != nil {
+		t.Fatalf("task source local returned error: %v", err)
+	}
+	var local readyTaskOutput
+	if err := json.Unmarshal(localOut.Bytes(), &local); err != nil {
+		t.Fatalf("parse task source local JSON: %v\n%s", err, localOut.String())
+	}
+	if local.Source != "local" || local.ExternalID != "" || local.ExternalURL != "" || local.ExternalRevision != "" {
+		t.Fatalf("unexpected local source reset: %+v", local)
 	}
 }
 

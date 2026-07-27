@@ -226,6 +226,8 @@ func mapTaskError(err error) error {
 		return fuego.ConflictError{Title: "Task has an active run"}
 	case errors.Is(err, storage.ErrTaskCompletionNoteEmpty), errors.Is(err, storage.ErrTaskNoteEmpty):
 		return badRequest("task note is required")
+	case errors.Is(err, storage.ErrInvalidTaskSource), errors.Is(err, storage.ErrInvalidTaskExternalReference):
+		return badRequest(err.Error())
 	case errors.Is(err, tokservice.ErrTaskCompletionEvidenceRequired):
 		return fuego.ConflictError{Title: "Task completion evidence is required"}
 	case errors.Is(err, tokservice.ErrOverrideReasonRequired):

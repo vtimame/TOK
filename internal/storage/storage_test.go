@@ -36,8 +36,8 @@ func TestInitAppliesEmbeddedMigrations(t *testing.T) {
 	if err := store.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM schema_migrations").Scan(&applied); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if applied != 14 {
-		t.Fatalf("expected 14 applied migrations, got %d", applied)
+	if applied != 15 {
+		t.Fatalf("expected 15 applied migrations, got %d", applied)
 	}
 }
 
@@ -85,6 +85,9 @@ func TestStoreBasicCRUDPaths(t *testing.T) {
 	}
 	if task.Status != "open" || task.ProjectID != project.ID {
 		t.Fatalf("unexpected created task: %+v", task)
+	}
+	if task.Source != "local" || task.ExternalID != "" || task.ExternalURL != "" || task.ExternalRevision != "" {
+		t.Fatalf("unexpected default task source: %+v", task)
 	}
 
 	task, err = store.UpdateTaskStatus(ctx, task.ID, "in_progress")
@@ -146,6 +149,97 @@ func TestStoreBasicCRUDPaths(t *testing.T) {
 	}
 	if metadata.Key != "last_path" || metadata.Value != "README.md" || !metadata.SourceID.Valid {
 		t.Fatalf("unexpected index metadata: %+v", metadata)
+	}
+}
+
+func TestStoreTaskExternalReferenceCreateReadAndUpdate(t *testing.T) {
+	ctx := context.Background()
+	store := openInitializedTestStore(t)
+
+	project, err := store.CreateProject(ctx, CreateProjectInput{
+		Name:        "tok",
+		DisplayName: "TOK",
+		Path:        "/tmp/tok",
+	})
+	if err != nil {
+		t.Fatalf("CreateProject returned error: %v", err)
+	}
+
+	task, err := store.CreateTask(ctx, CreateTaskInput{
+		ProjectID:        project.ID,
+		Title:            "Implement linked issue",
+		Source:           "github",
+		ExternalID:       "42",
+		ExternalURL:      "https://github.com/vtimame/TOK/issues/42",
+		ExternalRevision: "2026-07-27T19:00:00Z",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask returned error: %v", err)
+	}
+	if task.Source != "github" || task.ExternalID != "42" || task.ExternalURL != "https://github.com/vtimame/TOK/issues/42" || task.ExternalRevision != "2026-07-27T19:00:00Z" {
+		t.Fatalf("unexpected created external reference: %+v", task)
+	}
+
+	got, err := store.GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("GetTask returned error: %v", err)
+	}
+	if got.Source != task.Source || got.ExternalID != task.ExternalID || got.ExternalURL != task.ExternalURL || got.ExternalRevision != task.ExternalRevision {
+		t.Fatalf("unexpected read external reference: %+v", got)
+	}
+
+	updated, err := store.UpdateTaskExternalReference(ctx, UpdateTaskExternalReferenceInput{
+		ID:               task.ID,
+		Source:           "linear",
+		ExternalID:       "TOK-42",
+		ExternalURL:      "https://linear.app/tok/issue/TOK-42",
+		ExternalRevision: "rev-2",
+	})
+	if err != nil {
+		t.Fatalf("UpdateTaskExternalReference returned error: %v", err)
+	}
+	if updated.Source != "linear" || updated.ExternalID != "TOK-42" || updated.ExternalURL != "https://linear.app/tok/issue/TOK-42" || updated.ExternalRevision != "rev-2" {
+		t.Fatalf("unexpected updated external reference: %+v", updated)
+	}
+
+	events, err := store.ListTaskEvents(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListTaskEvents returned error: %v", err)
+	}
+	if len(events) != 2 || events[1].Type != "source_updated" || !strings.Contains(events[1].Body, "source=linear") {
+		t.Fatalf("unexpected source update event: %+v", events)
+	}
+
+	local, err := store.UpdateTaskExternalReference(ctx, UpdateTaskExternalReferenceInput{
+		ID:     task.ID,
+		Source: "local",
+	})
+	if err != nil {
+		t.Fatalf("UpdateTaskExternalReference local returned error: %v", err)
+	}
+	if local.Source != "local" || local.ExternalID != "" || local.ExternalURL != "" || local.ExternalRevision != "" {
+		t.Fatalf("unexpected local external reference reset: %+v", local)
+	}
+}
+
+func TestStoreTaskExternalReferenceValidation(t *testing.T) {
+	ctx := context.Background()
+	store := openInitializedTestStore(t)
+
+	project, err := store.CreateProject(ctx, CreateProjectInput{Name: "tok", DisplayName: "TOK", Path: "/tmp/tok"})
+	if err != nil {
+		t.Fatalf("CreateProject returned error: %v", err)
+	}
+
+	for _, input := range []CreateTaskInput{
+		{ProjectID: project.ID, Title: "Invalid source", Source: "trello", ExternalID: "1", ExternalURL: "https://example.com/1"},
+		{ProjectID: project.ID, Title: "Missing id", Source: "github", ExternalURL: "https://github.com/vtimame/TOK/issues/1"},
+		{ProjectID: project.ID, Title: "Missing url", Source: "github", ExternalID: "1"},
+		{ProjectID: project.ID, Title: "Local with external", Source: "local", ExternalID: "1"},
+	} {
+		if _, err := store.CreateTask(ctx, input); err == nil {
+			t.Fatalf("CreateTask(%+v) succeeded, want validation error", input)
+		}
 	}
 }
 

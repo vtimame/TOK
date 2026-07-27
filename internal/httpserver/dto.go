@@ -38,6 +38,10 @@ type CreateTaskInput struct {
 	Description        string `json:"description,omitempty"`
 	AcceptanceCriteria string `json:"acceptance_criteria,omitempty"`
 	Notes              string `json:"notes,omitempty"`
+	Source             string `json:"source,omitempty"`
+	ExternalID         string `json:"external_id,omitempty"`
+	ExternalURL        string `json:"external_url,omitempty"`
+	ExternalRevision   string `json:"external_revision,omitempty"`
 }
 
 type ProjectListResponse struct {
@@ -139,6 +143,13 @@ type TaskDoneInput struct {
 	OverrideReason   string `json:"override_reason,omitempty"`
 }
 
+type TaskSourceInput struct {
+	Source           string `json:"source" validate:"required"`
+	ExternalID       string `json:"external_id,omitempty"`
+	ExternalURL      string `json:"external_url,omitempty"`
+	ExternalRevision string `json:"external_revision,omitempty"`
+}
+
 type TaskOutput struct {
 	ID                 int64         `json:"id"`
 	ProjectID          int64         `json:"project_id"`
@@ -148,6 +159,10 @@ type TaskOutput struct {
 	Description        string        `json:"description"`
 	AcceptanceCriteria string        `json:"acceptance_criteria"`
 	Notes              string        `json:"notes"`
+	Source             string        `json:"source"`
+	ExternalID         string        `json:"external_id"`
+	ExternalURL        string        `json:"external_url"`
+	ExternalRevision   string        `json:"external_revision"`
 	Agents             []ActorOutput `json:"agents"`
 	CreatedAt          string        `json:"created_at"`
 	UpdatedAt          string        `json:"updated_at"`
@@ -327,6 +342,10 @@ func taskFromStorage(task storage.Task, project storage.Project, agents []ActorO
 		Description:        task.Description,
 		AcceptanceCriteria: task.AcceptanceCriteria,
 		Notes:              task.Notes,
+		Source:             task.Source,
+		ExternalID:         task.ExternalID,
+		ExternalURL:        task.ExternalURL,
+		ExternalRevision:   task.ExternalRevision,
 		Agents:             agents,
 		CreatedAt:          task.CreatedAt,
 		UpdatedAt:          task.UpdatedAt,

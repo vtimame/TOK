@@ -3,7 +3,11 @@
   "properties": {
     "acceptance_criteria": { "type": "string" },
     "description": { "type": "string" },
+    "external_id": { "type": "string" },
+    "external_revision": { "type": "string" },
+    "external_url": { "type": "string" },
     "notes": { "type": "string" },
+    "source": { "type": "string" },
     "title": { "type": "string" }
   },
   "required": ["title"],

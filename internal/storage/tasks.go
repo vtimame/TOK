@@ -16,6 +16,10 @@ type Task struct {
 	Description        string
 	AcceptanceCriteria string
 	Notes              string
+	Source             string
+	ExternalID         string
+	ExternalURL        string
+	ExternalRevision   string
 	CreatedAt          string
 	UpdatedAt          string
 }
@@ -26,6 +30,10 @@ type CreateTaskInput struct {
 	Description        string
 	AcceptanceCriteria string
 	Notes              string
+	Source             string
+	ExternalID         string
+	ExternalURL        string
+	ExternalRevision   string
 	Actor              ActorRef
 }
 
@@ -61,12 +69,25 @@ type CompleteTaskInput struct {
 	Actor            ActorRef
 }
 
+type UpdateTaskExternalReferenceInput struct {
+	ID               int64
+	Source           string
+	ExternalID       string
+	ExternalURL      string
+	ExternalRevision string
+	Actor            ActorRef
+}
+
 func (s *Store) CreateTask(ctx context.Context, input CreateTaskInput) (Task, error) {
 	if strings.TrimSpace(input.Title) == "" {
 		return Task{}, errors.New("task title is required")
 	}
 	if input.ProjectID <= 0 {
 		return Task{}, errors.New("task project id is required")
+	}
+	source, externalID, externalURL, externalRevision, err := normalizeTaskExternalReference(input.Source, input.ExternalID, input.ExternalURL, input.ExternalRevision)
+	if err != nil {
+		return Task{}, err
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -76,9 +97,9 @@ func (s *Store) CreateTask(ctx context.Context, input CreateTaskInput) (Task, er
 	defer rollback(tx)
 
 	res, err := tx.ExecContext(ctx, `
-		INSERT INTO tasks (project_id, title, description, acceptance_criteria, notes)
-		VALUES (?, ?, ?, ?, ?)
-	`, input.ProjectID, input.Title, input.Description, input.AcceptanceCriteria, input.Notes)
+		INSERT INTO tasks (project_id, title, description, acceptance_criteria, notes, source, external_id, external_url, external_revision)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, input.ProjectID, input.Title, input.Description, input.AcceptanceCriteria, input.Notes, source, externalID, externalURL, externalRevision)
 	if err != nil {
 		return Task{}, fmt.Errorf("create task: %w", err)
 	}
@@ -105,7 +126,7 @@ func (s *Store) CreateTask(ctx context.Context, input CreateTaskInput) (Task, er
 
 func (s *Store) GetTask(ctx context.Context, id int64) (Task, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, project_id, status, title, description, acceptance_criteria, notes, created_at, updated_at
+		SELECT id, project_id, status, title, description, acceptance_criteria, notes, source, external_id, external_url, external_revision, created_at, updated_at
 		FROM tasks
 		WHERE id = ?
 	`, id)
@@ -134,7 +155,7 @@ func (s *Store) listTasksWithOptions(ctx context.Context, projectID int64, opts 
 	}
 
 	query := `
-		SELECT id, project_id, status, title, description, acceptance_criteria, notes, created_at, updated_at
+		SELECT id, project_id, status, title, description, acceptance_criteria, notes, source, external_id, external_url, external_revision, created_at, updated_at
 		FROM tasks
 	`
 	args := []any{}
@@ -183,7 +204,7 @@ func (s *Store) listTasksWithOptions(ctx context.Context, projectID int64, opts 
 	var tasks []Task
 	for rows.Next() {
 		var task Task
-		if err := rows.Scan(&task.ID, &task.ProjectID, &task.Status, &task.Title, &task.Description, &task.AcceptanceCriteria, &task.Notes, &task.CreatedAt, &task.UpdatedAt); err != nil {
+		if err := rows.Scan(&task.ID, &task.ProjectID, &task.Status, &task.Title, &task.Description, &task.AcceptanceCriteria, &task.Notes, &task.Source, &task.ExternalID, &task.ExternalURL, &task.ExternalRevision, &task.CreatedAt, &task.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan task: %w", err)
 		}
 		tasks = append(tasks, task)
@@ -421,9 +442,64 @@ func (s *Store) CompleteTaskWithOptions(ctx context.Context, input CompleteTaskI
 	return s.GetTask(ctx, input.ID)
 }
 
+func (s *Store) UpdateTaskExternalReference(ctx context.Context, input UpdateTaskExternalReferenceInput) (Task, error) {
+	if input.ID <= 0 {
+		return Task{}, errors.New("task id is required")
+	}
+	source, externalID, externalURL, externalRevision, err := normalizeTaskExternalReference(input.Source, input.ExternalID, input.ExternalURL, input.ExternalRevision)
+	if err != nil {
+		return Task{}, err
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Task{}, fmt.Errorf("begin update task source transaction: %w", err)
+	}
+	defer rollback(tx)
+
+	current, err := getTaskInTx(ctx, tx, input.ID)
+	if err != nil {
+		return Task{}, err
+	}
+	if current.Source == source && current.ExternalID == externalID && current.ExternalURL == externalURL && current.ExternalRevision == externalRevision {
+		return current, nil
+	}
+
+	res, err := tx.ExecContext(ctx, `
+		UPDATE tasks
+		SET source = ?, external_id = ?, external_url = ?, external_revision = ?,
+		    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+		WHERE id = ?
+	`, source, externalID, externalURL, externalRevision, input.ID)
+	if err != nil {
+		return Task{}, fmt.Errorf("update task external reference: %w", err)
+	}
+	updated, err := res.RowsAffected()
+	if err != nil {
+		return Task{}, fmt.Errorf("read task external reference count: %w", err)
+	}
+	if updated == 0 {
+		return Task{}, sql.ErrNoRows
+	}
+
+	actor := sanitizeActorRef(input.Actor)
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO task_events (task_id, type, body, actor_id, actor_kind, actor_name)
+		VALUES (?, 'source_updated', ?, ?, ?, ?)
+	`, input.ID, taskExternalReferenceEventBody(source, externalID, externalURL, externalRevision), actor.ID, actor.Kind, actor.Name); err != nil {
+		return Task{}, fmt.Errorf("record task external reference event: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return Task{}, fmt.Errorf("commit update task source transaction: %w", err)
+	}
+
+	return s.GetTask(ctx, input.ID)
+}
+
 func (s *Store) ListReadyTasks(ctx context.Context, projectID int64) ([]Task, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT t.id, t.project_id, t.status, t.title, t.description, t.acceptance_criteria, t.notes, t.created_at, t.updated_at
+		SELECT t.id, t.project_id, t.status, t.title, t.description, t.acceptance_criteria, t.notes, t.source, t.external_id, t.external_url, t.external_revision, t.created_at, t.updated_at
 		FROM tasks t
 		WHERE t.project_id = ?
 		  AND t.status = 'open'
@@ -445,7 +521,7 @@ func (s *Store) ListReadyTasks(ctx context.Context, projectID int64) ([]Task, er
 	var tasks []Task
 	for rows.Next() {
 		var task Task
-		if err := rows.Scan(&task.ID, &task.ProjectID, &task.Status, &task.Title, &task.Description, &task.AcceptanceCriteria, &task.Notes, &task.CreatedAt, &task.UpdatedAt); err != nil {
+		if err := rows.Scan(&task.ID, &task.ProjectID, &task.Status, &task.Title, &task.Description, &task.AcceptanceCriteria, &task.Notes, &task.Source, &task.ExternalID, &task.ExternalURL, &task.ExternalRevision, &task.CreatedAt, &task.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan ready task: %w", err)
 		}
 		tasks = append(tasks, task)
@@ -602,9 +678,59 @@ func claimTaskInTx(ctx context.Context, tx *sql.Tx, projectID, taskID int64, act
 
 func getTaskInTx(ctx context.Context, tx *sql.Tx, id int64) (Task, error) {
 	row := tx.QueryRowContext(ctx, `
-		SELECT id, project_id, status, title, description, acceptance_criteria, notes, created_at, updated_at
+		SELECT id, project_id, status, title, description, acceptance_criteria, notes, source, external_id, external_url, external_revision, created_at, updated_at
 		FROM tasks
 		WHERE id = ?
 	`, id)
 	return scanTask(row)
+}
+
+func normalizeTaskExternalReference(source, externalID, externalURL, externalRevision string) (string, string, string, string, error) {
+	source = strings.TrimSpace(source)
+	externalID = strings.TrimSpace(externalID)
+	externalURL = strings.TrimSpace(externalURL)
+	externalRevision = strings.TrimSpace(externalRevision)
+	if source == "" {
+		source = "local"
+	}
+	if !validTaskSource(source) {
+		return "", "", "", "", fmt.Errorf("%w: %q", ErrInvalidTaskSource, source)
+	}
+	if source == "local" {
+		if externalID != "" || externalURL != "" || externalRevision != "" {
+			return "", "", "", "", fmt.Errorf("%w: local source cannot include external reference fields", ErrInvalidTaskExternalReference)
+		}
+		return source, "", "", "", nil
+	}
+	if externalID == "" {
+		return "", "", "", "", fmt.Errorf("%w: external source requires external id", ErrInvalidTaskExternalReference)
+	}
+	if externalURL == "" {
+		return "", "", "", "", fmt.Errorf("%w: external source requires external url", ErrInvalidTaskExternalReference)
+	}
+	return source, externalID, externalURL, externalRevision, nil
+}
+
+func validTaskSource(source string) bool {
+	switch source {
+	case "local", "github", "linear", "jira":
+		return true
+	default:
+		return false
+	}
+}
+
+func taskExternalReferenceEventBody(source, externalID, externalURL, externalRevision string) string {
+	if source == "local" {
+		return "source=local"
+	}
+	parts := []string{
+		"source=" + source,
+		"external_id=" + externalID,
+		"external_url=" + externalURL,
+	}
+	if externalRevision != "" {
+		parts = append(parts, "external_revision="+externalRevision)
+	}
+	return strings.Join(parts, " ")
 }

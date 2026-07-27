@@ -5,17 +5,9 @@
  */
 
 /**
- * @description CreateTaskInput schema
+ * @description TaskSourceInput schema
  */
-export type CreateTaskInput = {
-  /**
-   * @type string | undefined
-   */
-  acceptance_criteria?: string;
-  /**
-   * @type string | undefined
-   */
-  description?: string;
+export type TaskSourceInput = {
   /**
    * @type string | undefined
    */
@@ -29,15 +21,7 @@ export type CreateTaskInput = {
    */
   external_url?: string;
   /**
-   * @type string | undefined
-   */
-  notes?: string;
-  /**
-   * @type string | undefined
-   */
-  source?: string;
-  /**
    * @type string
    */
-  title: string;
+  source: string;
 };

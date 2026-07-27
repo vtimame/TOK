@@ -14,7 +14,7 @@ func scanProject(row scanner) (Project, error) {
 
 func scanTask(row scanner) (Task, error) {
 	var task Task
-	if err := row.Scan(&task.ID, &task.ProjectID, &task.Status, &task.Title, &task.Description, &task.AcceptanceCriteria, &task.Notes, &task.CreatedAt, &task.UpdatedAt); err != nil {
+	if err := row.Scan(&task.ID, &task.ProjectID, &task.Status, &task.Title, &task.Description, &task.AcceptanceCriteria, &task.Notes, &task.Source, &task.ExternalID, &task.ExternalURL, &task.ExternalRevision, &task.CreatedAt, &task.UpdatedAt); err != nil {
 		return Task{}, err
 	}
 	return task, nil

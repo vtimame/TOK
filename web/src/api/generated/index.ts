@@ -34,6 +34,7 @@ export type { UpdateAgentMutationKey } from "./hooks/useUpdateAgent.ts";
 export type { UpdateAllProjectIndexesMutationKey } from "./hooks/useUpdateAllProjectIndexes.ts";
 export type { UpdateProjectMutationKey } from "./hooks/useUpdateProject.ts";
 export type { UpdateProjectIndexMutationKey } from "./hooks/useUpdateProjectIndex.ts";
+export type { UpdateTaskSourceMutationKey } from "./hooks/useUpdateTaskSource.ts";
 export type { ActorOutput } from "./models/ActorOutput.ts";
 export type {
   AddProjectIndexIgnorePattern200,
@@ -326,6 +327,7 @@ export type { TaskOutput } from "./models/TaskOutput.ts";
 export type { TaskProject } from "./models/TaskProject.ts";
 export type { TaskResponse } from "./models/TaskResponse.ts";
 export type { TaskShowResponse } from "./models/TaskShowResponse.ts";
+export type { TaskSourceInput } from "./models/TaskSourceInput.ts";
 export type { TaskUnblockInput } from "./models/TaskUnblockInput.ts";
 export type {
   UnblockTask200,
@@ -372,6 +374,15 @@ export type {
   UpdateProjectIndexPathParams,
 } from "./models/UpdateProjectIndex.ts";
 export type { UpdateProjectInput } from "./models/UpdateProjectInput.ts";
+export type {
+  UpdateTaskSource200,
+  UpdateTaskSource400,
+  UpdateTaskSource500,
+  UpdateTaskSourceMutation,
+  UpdateTaskSourceMutationRequest,
+  UpdateTaskSourceMutationResponse,
+  UpdateTaskSourcePathParams,
+} from "./models/UpdateTaskSource.ts";
 export { addProjectIndexIgnorePattern } from "./client/addProjectIndexIgnorePattern.ts";
 export { blockTask } from "./client/blockTask.ts";
 export { claimTask } from "./client/claimTask.ts";
@@ -408,6 +419,7 @@ export { updateAgent } from "./client/updateAgent.ts";
 export { updateAllProjectIndexes } from "./client/updateAllProjectIndexes.ts";
 export { updateProject } from "./client/updateProject.ts";
 export { updateProjectIndex } from "./client/updateProjectIndex.ts";
+export { updateTaskSource } from "./client/updateTaskSource.ts";
 export { addProjectIndexIgnorePatternMutationKey } from "./hooks/useAddProjectIndexIgnorePattern.ts";
 export { useAddProjectIndexIgnorePattern } from "./hooks/useAddProjectIndexIgnorePattern.ts";
 export { blockTaskMutationKey } from "./hooks/useBlockTask.ts";
@@ -494,3 +506,5 @@ export { updateProjectMutationKey } from "./hooks/useUpdateProject.ts";
 export { useUpdateProject } from "./hooks/useUpdateProject.ts";
 export { updateProjectIndexMutationKey } from "./hooks/useUpdateProjectIndex.ts";
 export { useUpdateProjectIndex } from "./hooks/useUpdateProjectIndex.ts";
+export { updateTaskSourceMutationKey } from "./hooks/useUpdateTaskSource.ts";
+export { useUpdateTaskSource } from "./hooks/useUpdateTaskSource.ts";

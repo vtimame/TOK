@@ -117,6 +117,10 @@ func (s *service) addTools(server *mcp.Server) {
 		Description: "Set an arbitrary task status with actor attribution.",
 	}, s.taskStatus)
 	mcp.AddTool(server, &mcp.Tool{
+		Name:        "task_source",
+		Description: "Update a task external source reference.",
+	}, s.taskSource)
+	mcp.AddTool(server, &mcp.Tool{
 		Name:        "task_dependency_add",
 		Description: "Create a task dependency edge.",
 	}, s.taskDependencyAdd)
@@ -261,11 +265,23 @@ type taskCreateInput struct {
 	Description        string `json:"description,omitempty" jsonschema:"task description"`
 	AcceptanceCriteria string `json:"acceptance_criteria,omitempty" jsonschema:"acceptance criteria"`
 	Notes              string `json:"notes,omitempty" jsonschema:"notes"`
+	Source             string `json:"source,omitempty" jsonschema:"task source: local, github, linear, or jira"`
+	ExternalID         string `json:"external_id,omitempty" jsonschema:"external tracker issue id or key"`
+	ExternalURL        string `json:"external_url,omitempty" jsonschema:"external tracker issue URL"`
+	ExternalRevision   string `json:"external_revision,omitempty" jsonschema:"last known external tracker revision"`
 }
 
 type taskStatusInput struct {
 	ID     int64  `json:"id" jsonschema:"task id"`
 	Status string `json:"status" jsonschema:"open, in_progress, blocked, or done"`
+}
+
+type taskSourceInput struct {
+	ID               int64  `json:"id" jsonschema:"task id"`
+	Source           string `json:"source" jsonschema:"task source: local, github, linear, or jira"`
+	ExternalID       string `json:"external_id,omitempty" jsonschema:"external tracker issue id or key"`
+	ExternalURL      string `json:"external_url,omitempty" jsonschema:"external tracker issue URL"`
+	ExternalRevision string `json:"external_revision,omitempty" jsonschema:"last known external tracker revision"`
 }
 
 type taskDependencyInput struct {
@@ -502,6 +518,10 @@ type TaskOutput struct {
 	Description        string `json:"description"`
 	AcceptanceCriteria string `json:"acceptance_criteria"`
 	Notes              string `json:"notes"`
+	Source             string `json:"source"`
+	ExternalID         string `json:"external_id"`
+	ExternalURL        string `json:"external_url"`
+	ExternalRevision   string `json:"external_revision"`
 	CreatedAt          string `json:"created_at"`
 	UpdatedAt          string `json:"updated_at"`
 }
@@ -632,7 +652,29 @@ func (s *service) taskCreate(ctx context.Context, _ *mcp.CallToolRequest, input 
 		Description:        strings.TrimSpace(input.Description),
 		AcceptanceCriteria: strings.TrimSpace(input.AcceptanceCriteria),
 		Notes:              strings.TrimSpace(input.Notes),
+		Source:             strings.TrimSpace(input.Source),
+		ExternalID:         strings.TrimSpace(input.ExternalID),
+		ExternalURL:        strings.TrimSpace(input.ExternalURL),
+		ExternalRevision:   strings.TrimSpace(input.ExternalRevision),
 		Actor:              s.actor,
+	})
+	if err != nil {
+		return nil, taskOutput{}, err
+	}
+	return nil, taskOutput{Task: taskFromStorage(task)}, nil
+}
+
+func (s *service) taskSource(ctx context.Context, _ *mcp.CallToolRequest, input taskSourceInput) (*mcp.CallToolResult, taskOutput, error) {
+	if input.ID <= 0 {
+		return nil, taskOutput{}, errors.New("task source requires id")
+	}
+	task, err := s.store.UpdateTaskExternalReference(ctx, storage.UpdateTaskExternalReferenceInput{
+		ID:               input.ID,
+		Source:           strings.TrimSpace(input.Source),
+		ExternalID:       strings.TrimSpace(input.ExternalID),
+		ExternalURL:      strings.TrimSpace(input.ExternalURL),
+		ExternalRevision: strings.TrimSpace(input.ExternalRevision),
+		Actor:            s.actor,
 	})
 	if err != nil {
 		return nil, taskOutput{}, err
@@ -1307,6 +1349,10 @@ func taskFromStorage(task storage.Task) TaskOutput {
 		Description:        task.Description,
 		AcceptanceCriteria: task.AcceptanceCriteria,
 		Notes:              task.Notes,
+		Source:             task.Source,
+		ExternalID:         task.ExternalID,
+		ExternalURL:        task.ExternalURL,
+		ExternalRevision:   task.ExternalRevision,
 		CreatedAt:          task.CreatedAt,
 		UpdatedAt:          task.UpdatedAt,
 	}

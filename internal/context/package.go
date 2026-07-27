@@ -145,6 +145,16 @@ func (p Package) RenderText() string {
 	writeBlock(&out, "description", p.Task.Description)
 	writeBlock(&out, "acceptance_criteria", p.Task.AcceptanceCriteria)
 	writeBlock(&out, "notes", p.Task.Notes)
+	fmt.Fprintf(&out, "source: %s\n", p.Task.Source)
+	if p.Task.ExternalID != "" {
+		fmt.Fprintf(&out, "external_id: %s\n", p.Task.ExternalID)
+	}
+	if p.Task.ExternalURL != "" {
+		fmt.Fprintf(&out, "external_url: %s\n", p.Task.ExternalURL)
+	}
+	if p.Task.ExternalRevision != "" {
+		fmt.Fprintf(&out, "external_revision: %s\n", p.Task.ExternalRevision)
+	}
 	fmt.Fprintf(&out, "created_at: %s\n", p.Task.CreatedAt)
 	fmt.Fprintf(&out, "updated_at: %s\n\n", p.Task.UpdatedAt)
 
@@ -371,6 +381,9 @@ func taskRetrievalQuery(task storage.Task) string {
 		task.Description,
 		task.AcceptanceCriteria,
 		task.Notes,
+		task.Source,
+		task.ExternalID,
+		task.ExternalURL,
 	}, " "))
 }
 

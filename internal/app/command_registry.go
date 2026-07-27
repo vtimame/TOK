@@ -89,12 +89,23 @@ func tokCommandSpec() *commandSpec {
 				Summary: "Create and update project tasks",
 				Usage:   "tok task <command>",
 				Children: []*commandSpec{
-					{Name: "create", Summary: "Create a task", Usage: "tok task create --project <name> --title <title> [--description <text>] [--acceptance-criteria <text>] [--notes <text>] [--json]", Flags: []flagSpec{
+					{Name: "create", Summary: "Create a task", Usage: "tok task create --project <name> --title <title> [--description <text>] [--acceptance-criteria <text>] [--notes <text>] [--source <source> --external-id <id> --external-url <url> [--external-revision <rev>]] [--json]", Flags: []flagSpec{
 						projectFlag(),
 						{Name: "--title", ValueName: "<title>", Summary: "Task title"},
 						{Name: "--description", ValueName: "<text>", Summary: "Task description"},
 						{Name: "--acceptance-criteria", ValueName: "<text>", Summary: "Acceptance criteria"},
 						{Name: "--notes", ValueName: "<text>", Summary: "Initial notes"},
+						{Name: "--source", ValueName: "<source>", Summary: "Task source: local, github, linear, or jira", ValueChoices: taskSourceChoices()},
+						{Name: "--external-id", ValueName: "<id>", Summary: "External tracker issue id or key"},
+						{Name: "--external-url", ValueName: "<url>", Summary: "External tracker issue URL"},
+						{Name: "--external-revision", ValueName: "<rev>", Summary: "Last known external tracker revision"},
+						{Name: "--json", Summary: "Print JSON output"},
+					}},
+					{Name: "source", Summary: "Update a task external source reference", Usage: "tok task source <task-id> --source <source> [--external-id <id>] [--external-url <url>] [--external-revision <rev>] [--json]", Flags: []flagSpec{
+						{Name: "--source", ValueName: "<source>", Summary: "Task source: local, github, linear, or jira", ValueChoices: taskSourceChoices()},
+						{Name: "--external-id", ValueName: "<id>", Summary: "External tracker issue id or key"},
+						{Name: "--external-url", ValueName: "<url>", Summary: "External tracker issue URL"},
+						{Name: "--external-revision", ValueName: "<rev>", Summary: "Last known external tracker revision"},
 						{Name: "--json", Summary: "Print JSON output"},
 					}},
 					{Name: "list", Summary: "List project tasks", Usage: "tok task list --project <name> [--status <status>] [--json]", Flags: []flagSpec{
@@ -300,6 +311,10 @@ func projectFlag() flagSpec {
 
 func taskStatusChoices() []string {
 	return []string{"open", "in_progress", "blocked", "done"}
+}
+
+func taskSourceChoices() []string {
+	return []string{"local", "github", "linear", "jira"}
 }
 
 func instructionPriorityChoices() []string {

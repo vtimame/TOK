@@ -135,6 +135,10 @@ func (a *api) createTask(ctx fuego.ContextWithBody[CreateTaskInput]) (TaskRespon
 		Description:        strings.TrimSpace(body.Description),
 		AcceptanceCriteria: strings.TrimSpace(body.AcceptanceCriteria),
 		Notes:              strings.TrimSpace(body.Notes),
+		Source:             strings.TrimSpace(body.Source),
+		ExternalID:         strings.TrimSpace(body.ExternalID),
+		ExternalURL:        strings.TrimSpace(body.ExternalURL),
+		ExternalRevision:   strings.TrimSpace(body.ExternalRevision),
 		Actor:              actor,
 	})
 	if err != nil {
@@ -211,6 +215,33 @@ func (a *api) commentTask(ctx fuego.ContextWithBody[TaskNoteInput]) (TaskEventRe
 
 func (a *api) progressTask(ctx fuego.ContextWithBody[TaskNoteInput]) (TaskEventResponse, error) {
 	return a.addTaskNote(ctx, "progress")
+}
+
+func (a *api) updateTaskSource(ctx fuego.ContextWithBody[TaskSourceInput]) (TaskResponse, error) {
+	taskID, err := taskIDFromPath(ctx)
+	if err != nil {
+		return TaskResponse{}, err
+	}
+	body, err := ctx.Body()
+	if err != nil {
+		return TaskResponse{}, err
+	}
+	actor, err := currentLocalHumanActor(ctx.Context(), a.store)
+	if err != nil {
+		return TaskResponse{}, err
+	}
+	task, err := a.store.UpdateTaskExternalReference(ctx.Context(), storage.UpdateTaskExternalReferenceInput{
+		ID:               taskID,
+		Source:           strings.TrimSpace(body.Source),
+		ExternalID:       strings.TrimSpace(body.ExternalID),
+		ExternalURL:      strings.TrimSpace(body.ExternalURL),
+		ExternalRevision: strings.TrimSpace(body.ExternalRevision),
+		Actor:            actor,
+	})
+	if err != nil {
+		return TaskResponse{}, mapTaskError(err)
+	}
+	return a.taskResponse(ctx.Context(), task)
 }
 
 func (a *api) blockTask(ctx fuego.ContextWithBody[TaskBlockInput]) (TaskResponse, error) {

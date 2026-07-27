@@ -290,6 +290,7 @@ export type { TaskOutput } from "./TaskOutput.ts";
 export type { TaskProject } from "./TaskProject.ts";
 export type { TaskResponse } from "./TaskResponse.ts";
 export type { TaskShowResponse } from "./TaskShowResponse.ts";
+export type { TaskSourceInput } from "./TaskSourceInput.ts";
 export type { TaskUnblockInput } from "./TaskUnblockInput.ts";
 export type {
   UnblockTask200,
@@ -336,3 +337,12 @@ export type {
   UpdateProjectIndexPathParams,
 } from "./UpdateProjectIndex.ts";
 export type { UpdateProjectInput } from "./UpdateProjectInput.ts";
+export type {
+  UpdateTaskSource200,
+  UpdateTaskSource400,
+  UpdateTaskSource500,
+  UpdateTaskSourceMutation,
+  UpdateTaskSourceMutationRequest,
+  UpdateTaskSourceMutationResponse,
+  UpdateTaskSourcePathParams,
+} from "./UpdateTaskSource.ts";

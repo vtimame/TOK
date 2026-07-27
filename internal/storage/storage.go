@@ -24,6 +24,8 @@ var (
 	ErrRunResultSummaryEmpty          = errors.New("run result summary is required")
 	ErrActiveRunExists                = errors.New("active run already exists for task")
 	ErrTaskCompletionEvidenceRequired = errors.New("task completion evidence run with passed validation is required")
+	ErrInvalidTaskSource              = errors.New("invalid task source")
+	ErrInvalidTaskExternalReference   = errors.New("invalid task external reference")
 )
 
 // Store persists and retrieves application state.
