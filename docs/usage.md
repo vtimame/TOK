@@ -1,5 +1,15 @@
 # Usage Guide
 
+TOK is a local execution control plane for coding agents. Its core workflow is
+the execution loop around a task: build deterministic context, claim work,
+record one or more runs, keep lease and heartbeat state, preserve artifacts,
+record validation evidence and complete the task with an auditable link to that
+evidence.
+
+TOK can sit alongside Jira, Linear or GitHub Issues. Those systems can remain
+the backlog or planning source of truth; TOK tracks the local execution attempt
+and evidence for work happening inside a repository.
+
 ## Web UI
 
 TOK ships with a local HTTP API and web UI.
@@ -44,7 +54,8 @@ name, task counts, project instructions and indexing metadata.
 ### Task
 
 A unit of work with status, description, acceptance criteria, notes,
-dependencies and events. Tasks move through:
+dependencies and events. In TOK, tasks are local execution records rather than
+a replacement for a planning backlog. Tasks move through:
 
 ```text
 open -> in_progress -> done
@@ -69,6 +80,10 @@ state, leases, artifacts and validation evidence.
 
 Evidence that a run was checked. TOK can execute a validation command and store
 bounded output artifacts, or record manual validation evidence.
+
+Completing a task records which succeeded run and validation artifact provided
+the evidence. An explicit override can be used when validation is intentionally
+skipped, but the override remains visible in the task history.
 
 ## Common Commands
 
@@ -158,7 +173,7 @@ TOK provides the adapter with:
 The adapter writes a structured result to `TOK_AGENT_RESULT_FILE`:
 
 ```json
-{"status":"succeeded","summary":"Implemented and validated."}
+{ "status": "succeeded", "summary": "Implemented and validated." }
 ```
 
 Supported statuses:

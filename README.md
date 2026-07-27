@@ -1,20 +1,24 @@
 # TOK
 
-TOK, the Task Operations Kernel, is a local-first workflow system for
-agentic software development.
+TOK, the Task Operations Kernel, is a local execution control plane for coding
+agents.
 
-It gives developers and coding agents a shared operating layer for:
+It makes agent work reproducible, recoverable and auditable by connecting:
 
-- project-aware task tracking;
+- tasks and project instructions;
 - reproducible task context packages;
-- local code indexing and search;
 - agent run history, leases and artifacts;
 - validation evidence before work is marked complete;
+- audited overrides when validation is intentionally skipped;
 - MCP tools for IDEs and AI coding agents.
 
 TOK is not trying to replace Jira, Linear or GitHub Issues. It is designed to
-sit closer to the codebase: a small local control plane for the work that
-happens when humans and agents collaborate inside a repository.
+sit closer to the codebase as the execution layer for work that happens after a
+task is selected: claim, context, run, heartbeat, artifacts, validation and
+completion evidence.
+
+TOK is also not a sandbox or security boundary. It is intended for trusted local
+developer machines where humans and coding agents work on the same repositories.
 
 ## Status
 

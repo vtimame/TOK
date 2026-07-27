@@ -1,7 +1,8 @@
 # Security Policy
 
-TOK is alpha software. It is intended for local developer workflows and is not
-yet hardened as a multi-tenant service.
+TOK is alpha software. It is intended for trusted local developer workflows and
+is not hardened as a multi-tenant service, hosted control plane or security
+boundary.
 
 ## Supported Versions
 
@@ -26,7 +27,8 @@ public disclosure.
 
 ## Security Boundaries
 
-TOK improves workflow auditability, but it is not a sandbox.
+TOK improves local workflow auditability, but it is not a sandbox or security
+boundary.
 
 - `tok run exec`, `tok run validate` and `tok run agent` execute local child
   processes.

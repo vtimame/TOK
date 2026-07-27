@@ -3,6 +3,11 @@
 TOK is alpha software. It is intended for trusted local developer machines and
 local agent workflows.
 
+The product direction is a local execution control plane for coding agents, not
+a hosted team task tracker or a generic multi-user agent platform. TOK focuses
+on making local agent work reproducible, recoverable and auditable through
+tasks, deterministic context, runs, leases, artifacts and validation evidence.
+
 ## Versioning
 
 The current public alpha release is `v0.2.1`.
@@ -19,6 +24,8 @@ While TOK remains on `v0.x.y`, CLI, HTTP and MCP contracts may change.
   untrusted networks.
 - Storage is local SQLite; there is no team sync or multi-tenant deployment
   model in the first alpha.
+- TOK can complement Jira, Linear or GitHub Issues, but it is not intended to
+  replace those systems as a planning backlog.
 - Release assets initially cover Linux x86_64 and macOS x86_64/arm64 only.
 - Run artifacts, indexed source content and handoff packages may contain
   sensitive project data.
