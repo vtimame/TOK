@@ -20,6 +20,14 @@ export type TaskEventOutput = {
    */
   created_at: string;
   /**
+   * @type integer | undefined, int64
+   */
+  evidence_artifact_id?: number;
+  /**
+   * @type integer | undefined, int64
+   */
+  evidence_run_id?: number;
+  /**
    * @type string
    */
   from_status: string;

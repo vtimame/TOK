@@ -81,6 +81,7 @@ override.
 - [Usage Guide](docs/usage.md)
 - [Alpha Notes and Safety](docs/alpha.md)
 - [Development](docs/development.md)
+- [Release checklist and draft notes](docs/release-checklist.md)
 - [Security Policy](SECURITY.md)
 
 ## License

@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"strings"
 
@@ -31,10 +30,11 @@ func (s *TaskService) UpdateStatus(ctx context.Context, id int64, status string,
 	if status != "done" {
 		return s.store.UpdateTaskStatusByActor(ctx, id, status, actor)
 	}
-	if err := s.requireTaskCompletionEvidence(ctx, id, 0); err != nil {
-		return storage.Task{}, err
+	task, err := s.store.UpdateTaskStatusByActorWithEvidence(ctx, id, status, actor, 0)
+	if errors.Is(err, storage.ErrTaskCompletionEvidenceRequired) {
+		return storage.Task{}, ErrTaskCompletionEvidenceRequired
 	}
-	return s.store.UpdateTaskStatusByActor(ctx, id, status, actor)
+	return task, err
 }
 
 func (s *TaskService) CompleteTask(ctx context.Context, input CompleteTaskInput) (storage.Task, error) {
@@ -51,92 +51,27 @@ func (s *TaskService) CompleteTask(ctx context.Context, input CompleteTaskInput)
 		if input.OverrideReason == "" {
 			return storage.Task{}, ErrOverrideReasonRequired
 		}
-		return s.store.CompleteTaskWithOptions(ctx, storage.CompleteTaskInput{
-			ID:             input.ID,
-			Note:           input.Note,
-			OverrideReason: input.OverrideReason,
-			Actor:          input.Actor,
+		task, err := s.store.CompleteTaskWithOptions(ctx, storage.CompleteTaskInput{
+			ID:               input.ID,
+			Note:             input.Note,
+			OverrideReason:   input.OverrideReason,
+			ValidateEvidence: false,
+			Actor:            input.Actor,
 		})
+		if errors.Is(err, storage.ErrTaskCompletionEvidenceRequired) {
+			return storage.Task{}, ErrTaskCompletionEvidenceRequired
+		}
+		return task, err
 	}
-
-	if err := s.requireTaskCompletionEvidence(ctx, input.ID, input.EvidenceRunID); err != nil {
-		return storage.Task{}, err
-	}
-	return s.store.CompleteTaskWithOptions(ctx, storage.CompleteTaskInput{
-		ID:    input.ID,
-		Note:  input.Note,
-		Actor: input.Actor,
+	task, err := s.store.CompleteTaskWithOptions(ctx, storage.CompleteTaskInput{
+		ID:               input.ID,
+		Note:             input.Note,
+		EvidenceRunID:    input.EvidenceRunID,
+		ValidateEvidence: true,
+		Actor:            input.Actor,
 	})
-}
-
-func (s *TaskService) requireTaskCompletionEvidence(ctx context.Context, taskID, evidenceRunID int64) error {
-	if taskID <= 0 {
-		return errors.New("task id is required")
+	if errors.Is(err, storage.ErrTaskCompletionEvidenceRequired) {
+		return storage.Task{}, ErrTaskCompletionEvidenceRequired
 	}
-	task, err := s.store.GetTask(ctx, taskID)
-	if err != nil {
-		return err
-	}
-	if task.Status != "in_progress" {
-		return storage.ErrInvalidTaskTransition
-	}
-	activeRun, err := s.store.HasActiveRunForTask(ctx, taskID)
-	if err != nil {
-		return err
-	}
-	if activeRun {
-		return storage.ErrActiveRunExists
-	}
-
-	if evidenceRunID == 0 {
-		evidenceRunID, err = s.latestValidatedSucceededRunID(ctx, taskID)
-		if err != nil {
-			return err
-		}
-	}
-	if evidenceRunID == 0 {
-		return ErrTaskCompletionEvidenceRequired
-	}
-	valid, err := s.isTaskCompletionEvidenceRun(ctx, taskID, evidenceRunID)
-	if err != nil {
-		return err
-	}
-	if !valid {
-		return ErrTaskCompletionEvidenceRequired
-	}
-	return nil
-}
-
-func (s *TaskService) latestValidatedSucceededRunID(ctx context.Context, taskID int64) (int64, error) {
-	runs, err := s.store.ListRuns(ctx, storage.ListRunsOptions{
-		TaskID: taskID,
-		Status: "succeeded",
-	})
-	if err != nil {
-		return 0, err
-	}
-	for _, run := range runs {
-		hasValidation, err := s.store.HasPassedValidationArtifact(ctx, run.ID)
-		if err != nil {
-			return 0, err
-		}
-		if hasValidation {
-			return run.ID, nil
-		}
-	}
-	return 0, nil
-}
-
-func (s *TaskService) isTaskCompletionEvidenceRun(ctx context.Context, taskID, runID int64) (bool, error) {
-	run, err := s.store.GetRun(ctx, runID)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return false, nil
-		}
-		return false, err
-	}
-	if run.TaskID != taskID || run.Status != "succeeded" {
-		return false, nil
-	}
-	return s.store.HasPassedValidationArtifact(ctx, runID)
+	return task, err
 }

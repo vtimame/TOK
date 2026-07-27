@@ -664,8 +664,9 @@ func TestServerWorkflowToolsSupportTaskInstructionDependencyAndRunLifecycle(t *t
 	doneResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
 		Name: "task_done",
 		Arguments: map[string]any{
-			"id":   createdTask.Task.ID,
-			"note": "MCP workflow completed",
+			"id":              createdTask.Task.ID,
+			"note":            "MCP workflow completed",
+			"evidence_run_id": run.ID,
 		},
 	})
 	if err != nil {
@@ -678,6 +679,31 @@ func TestServerWorkflowToolsSupportTaskInstructionDependencyAndRunLifecycle(t *t
 	decodeStructured(t, doneResult.StructuredContent, &doneTask)
 	if doneTask.Task.Status != "done" {
 		t.Fatalf("unexpected task_done output: %+v", doneTask)
+	}
+
+	showDoneResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "task_show",
+		Arguments: map[string]any{
+			"id": createdTask.Task.ID,
+		},
+	})
+	if err != nil {
+		t.Fatalf("task_show returned error: %v", err)
+	}
+	if showDoneResult.IsError {
+		t.Fatalf("task_show returned tool error: %+v", showDoneResult)
+	}
+	var shownDoneTask taskShowOutput
+	decodeStructured(t, showDoneResult.StructuredContent, &shownDoneTask)
+	if len(shownDoneTask.Events) == 0 || shownDoneTask.Events[len(shownDoneTask.Events)-1].Type != "completed" {
+		t.Fatalf("expected completion event in task history: %+v", shownDoneTask.Events)
+	}
+	lastDoneEvent := shownDoneTask.Events[len(shownDoneTask.Events)-1]
+	if lastDoneEvent.EvidenceRunID != run.ID {
+		t.Fatalf("expected completion evidence run id %d, got %d", run.ID, lastDoneEvent.EvidenceRunID)
+	}
+	if lastDoneEvent.EvidenceArtifactID != artifact.ID {
+		t.Fatalf("expected completion evidence artifact id %d, got %d", artifact.ID, lastDoneEvent.EvidenceArtifactID)
 	}
 
 	deleteResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{

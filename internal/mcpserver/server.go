@@ -530,14 +530,16 @@ type ActorOutput struct {
 }
 
 type TaskEventOutput struct {
-	ID         int64        `json:"id"`
-	TaskID     int64        `json:"task_id"`
-	Type       string       `json:"type"`
-	Body       string       `json:"body"`
-	FromStatus string       `json:"from_status"`
-	ToStatus   string       `json:"to_status"`
-	Actor      *ActorOutput `json:"actor,omitempty"`
-	CreatedAt  string       `json:"created_at"`
+	ID                 int64        `json:"id"`
+	TaskID             int64        `json:"task_id"`
+	Type               string       `json:"type"`
+	Body               string       `json:"body"`
+	FromStatus         string       `json:"from_status"`
+	ToStatus           string       `json:"to_status"`
+	EvidenceRunID      int64        `json:"evidence_run_id,omitempty"`
+	EvidenceArtifactID int64        `json:"evidence_artifact_id,omitempty"`
+	Actor              *ActorOutput `json:"actor,omitempty"`
+	CreatedAt          string       `json:"created_at"`
 }
 
 type SearchResultOutput struct {
@@ -1312,14 +1314,16 @@ func taskFromStorage(task storage.Task) TaskOutput {
 
 func taskEventFromStorage(event storage.TaskEvent) TaskEventOutput {
 	return TaskEventOutput{
-		ID:         event.ID,
-		TaskID:     event.TaskID,
-		Type:       event.Type,
-		Body:       event.Body,
-		FromStatus: event.FromStatus,
-		ToStatus:   event.ToStatus,
-		Actor:      actorFromSnapshot(event.ActorID, event.ActorKind, event.ActorName),
-		CreatedAt:  event.CreatedAt,
+		ID:                 event.ID,
+		TaskID:             event.TaskID,
+		Type:               event.Type,
+		Body:               event.Body,
+		FromStatus:         event.FromStatus,
+		ToStatus:           event.ToStatus,
+		EvidenceRunID:      event.EvidenceRunID,
+		EvidenceArtifactID: event.EvidenceArtifactID,
+		Actor:              actorFromSnapshot(event.ActorID, event.ActorKind, event.ActorName),
+		CreatedAt:          event.CreatedAt,
 	}
 }
 

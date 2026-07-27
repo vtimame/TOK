@@ -38,23 +38,27 @@ type ListTasksOptions struct {
 }
 
 type TaskEvent struct {
-	ID         int64
-	TaskID     int64
-	Type       string
-	Body       string
-	FromStatus string
-	ToStatus   string
-	ActorID    int64
-	ActorKind  string
-	ActorName  string
-	CreatedAt  string
+	ID                 int64
+	TaskID             int64
+	Type               string
+	Body               string
+	FromStatus         string
+	ToStatus           string
+	ActorID            int64
+	ActorKind          string
+	ActorName          string
+	EvidenceRunID      int64
+	EvidenceArtifactID int64
+	CreatedAt          string
 }
 
 type CompleteTaskInput struct {
-	ID             int64
-	Note           string
-	OverrideReason string
-	Actor          ActorRef
+	ID               int64
+	Note             string
+	EvidenceRunID    int64
+	ValidateEvidence bool
+	OverrideReason   string
+	Actor            ActorRef
 }
 
 func (s *Store) CreateTask(ctx context.Context, input CreateTaskInput) (Task, error) {
@@ -235,25 +239,16 @@ func (s *Store) UpdateTaskStatus(ctx context.Context, id int64, status string) (
 }
 
 func (s *Store) UpdateTaskStatusByActor(ctx context.Context, id int64, status string, actor ActorRef) (Task, error) {
+	return s.updateTaskStatusByActor(ctx, id, status, actor, false, 0)
+}
+
+func (s *Store) UpdateTaskStatusByActorWithEvidence(ctx context.Context, id int64, status string, actor ActorRef, evidenceRunID int64) (Task, error) {
+	return s.updateTaskStatusByActor(ctx, id, status, actor, true, evidenceRunID)
+}
+
+func (s *Store) updateTaskStatusByActor(ctx context.Context, id int64, status string, actor ActorRef, validateEvidence bool, evidenceRunID int64) (Task, error) {
 	if !validTaskStatus(status) {
 		return Task{}, fmt.Errorf("invalid task status %q", status)
-	}
-
-	current, err := s.GetTask(ctx, id)
-	if err != nil {
-		return Task{}, err
-	}
-	if current.Status == status {
-		return current, nil
-	}
-	if status == "done" {
-		activeRun, err := s.hasActiveRunForTask(ctx, id)
-		if err != nil {
-			return Task{}, err
-		}
-		if activeRun {
-			return Task{}, ErrActiveRunExists
-		}
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -262,20 +257,69 @@ func (s *Store) UpdateTaskStatusByActor(ctx context.Context, id int64, status st
 	}
 	defer rollback(tx)
 
-	if _, err := tx.ExecContext(ctx, `
+	current, err := getTaskInTx(ctx, tx, id)
+	if err != nil {
+		return Task{}, err
+	}
+	if current.Status == status {
+		return current, nil
+	}
+
+	var validationEvidenceRunID int64
+	var validationEvidenceArtifactID int64
+	if status == "done" {
+		if current.Status != "in_progress" {
+			return Task{}, ErrInvalidTaskTransition
+		}
+		activeRun, err := s.hasActiveRunForTaskInTx(ctx, tx, id)
+		if err != nil {
+			return Task{}, err
+		}
+		if activeRun {
+			return Task{}, ErrActiveRunExists
+		}
+	}
+	if status == "done" && validateEvidence {
+		validationEvidenceRunID, validationEvidenceArtifactID, err = s.validateTaskCompletionEvidenceInTx(ctx, tx, id, evidenceRunID)
+		if err != nil {
+			return Task{}, err
+		}
+		if validationEvidenceRunID == 0 {
+			return Task{}, ErrTaskCompletionEvidenceRequired
+		}
+	}
+
+	res, err := tx.ExecContext(ctx, `
 		UPDATE tasks
 		SET status = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 		WHERE id = ?
-	`, status, id); err != nil {
+	`, status, id)
+	if err != nil {
 		return Task{}, fmt.Errorf("update task status: %w", err)
+	}
+	updated, err := res.RowsAffected()
+	if err != nil {
+		return Task{}, fmt.Errorf("read task status count: %w", err)
+	}
+	if updated == 0 {
+		return Task{}, ErrInvalidTaskTransition
 	}
 
 	actor = sanitizeActorRef(actor)
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO task_events (task_id, type, from_status, to_status, actor_id, actor_kind, actor_name)
-		VALUES (?, 'status_changed', ?, ?, ?, ?, ?)
-	`, id, current.Status, status, actor.ID, actor.Kind, actor.Name); err != nil {
-		return Task{}, fmt.Errorf("record task status event: %w", err)
+	if status == "done" && validateEvidence {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO task_events (task_id, type, from_status, to_status, actor_id, actor_kind, actor_name, evidence_run_id, evidence_artifact_id)
+			VALUES (?, 'status_changed', ?, ?, ?, ?, ?, ?, ?)
+		`, id, current.Status, status, actor.ID, actor.Kind, actor.Name, validationEvidenceRunID, validationEvidenceArtifactID); err != nil {
+			return Task{}, fmt.Errorf("record task status event: %w", err)
+		}
+	} else {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO task_events (task_id, type, from_status, to_status, actor_id, actor_kind, actor_name)
+			VALUES (?, 'status_changed', ?, ?, ?, ?, ?)
+		`, id, current.Status, status, actor.ID, actor.Kind, actor.Name); err != nil {
+			return Task{}, fmt.Errorf("record task status event: %w", err)
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -284,7 +328,6 @@ func (s *Store) UpdateTaskStatusByActor(ctx context.Context, id int64, status st
 
 	return s.GetTask(ctx, id)
 }
-
 func (s *Store) CompleteTask(ctx context.Context, id int64, note string) (Task, error) {
 	return s.CompleteTaskByActor(ctx, id, note, ActorRef{})
 }
@@ -307,26 +350,37 @@ func (s *Store) CompleteTaskWithOptions(ctx context.Context, input CompleteTaskI
 		return Task{}, ErrTaskCompletionNoteEmpty
 	}
 
-	current, err := s.GetTask(ctx, input.ID)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Task{}, fmt.Errorf("begin complete task transaction: %w", err)
+	}
+	defer rollback(tx)
+
+	current, err := getTaskInTx(ctx, tx, input.ID)
 	if err != nil {
 		return Task{}, err
 	}
 	if current.Status != "in_progress" {
 		return Task{}, ErrInvalidTaskTransition
 	}
-	activeRun, err := s.hasActiveRunForTask(ctx, input.ID)
+	activeRun, err := s.hasActiveRunForTaskInTx(ctx, tx, input.ID)
 	if err != nil {
 		return Task{}, err
 	}
 	if activeRun {
 		return Task{}, ErrActiveRunExists
 	}
-
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return Task{}, fmt.Errorf("begin complete task transaction: %w", err)
+	evidenceRunID := int64(0)
+	evidenceArtifactID := int64(0)
+	if input.ValidateEvidence {
+		evidenceRunID, evidenceArtifactID, err = s.validateTaskCompletionEvidenceInTx(ctx, tx, input.ID, input.EvidenceRunID)
+		if err != nil {
+			return Task{}, err
+		}
+		if evidenceRunID == 0 {
+			return Task{}, ErrTaskCompletionEvidenceRequired
+		}
 	}
-	defer rollback(tx)
 
 	res, err := tx.ExecContext(ctx, `
 		UPDATE tasks
@@ -346,9 +400,9 @@ func (s *Store) CompleteTaskWithOptions(ctx context.Context, input CompleteTaskI
 
 	actor := sanitizeActorRef(input.Actor)
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO task_events (task_id, type, body, from_status, to_status, actor_id, actor_kind, actor_name)
-		VALUES (?, 'completed', ?, 'in_progress', 'done', ?, ?, ?)
-	`, input.ID, input.Note, actor.ID, actor.Kind, actor.Name); err != nil {
+		INSERT INTO task_events (task_id, type, body, from_status, to_status, actor_id, actor_kind, actor_name, evidence_run_id, evidence_artifact_id)
+		VALUES (?, 'completed', ?, 'in_progress', 'done', ?, ?, ?, ?, ?)
+	`, input.ID, input.Note, actor.ID, actor.Kind, actor.Name, evidenceRunID, evidenceArtifactID); err != nil {
 		return Task{}, fmt.Errorf("record task completion event: %w", err)
 	}
 	if input.OverrideReason != "" {
@@ -365,73 +419,6 @@ func (s *Store) CompleteTaskWithOptions(ctx context.Context, input CompleteTaskI
 	}
 
 	return s.GetTask(ctx, input.ID)
-}
-
-func (s *Store) AddTaskProgress(ctx context.Context, taskID int64, body string) (TaskEvent, error) {
-	return s.AddTaskProgressByActor(ctx, taskID, body, ActorRef{})
-}
-
-func (s *Store) AddTaskProgressByActor(ctx context.Context, taskID int64, body string, actor ActorRef) (TaskEvent, error) {
-	return s.addTaskNoteEvent(ctx, taskID, "progress", body, actor)
-}
-
-func (s *Store) BlockTask(ctx context.Context, id int64, reason string) (Task, error) {
-	return s.BlockTaskByActor(ctx, id, reason, ActorRef{})
-}
-
-func (s *Store) BlockTaskByActor(ctx context.Context, id int64, reason string, actor ActorRef) (Task, error) {
-	return s.transitionTaskWithNote(ctx, id, "blocked", "blocked", reason, actor)
-}
-
-func (s *Store) UnblockTask(ctx context.Context, id int64, note string) (Task, error) {
-	return s.UnblockTaskByActor(ctx, id, note, ActorRef{})
-}
-
-func (s *Store) UnblockTaskByActor(ctx context.Context, id int64, note string, actor ActorRef) (Task, error) {
-	note = strings.TrimSpace(note)
-	if id <= 0 {
-		return Task{}, errors.New("task id is required")
-	}
-	if note == "" {
-		return Task{}, ErrTaskNoteEmpty
-	}
-
-	current, err := s.GetTask(ctx, id)
-	if err != nil {
-		return Task{}, err
-	}
-	if current.Status != "blocked" {
-		return Task{}, ErrInvalidTaskTransition
-	}
-
-	return s.transitionTaskWithNote(ctx, id, "open", "unblocked", note, actor)
-}
-
-func (s *Store) ListTaskEvents(ctx context.Context, taskID int64) ([]TaskEvent, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, task_id, type, body, from_status, to_status, actor_id, actor_kind, actor_name, created_at
-		FROM task_events
-		WHERE task_id = ?
-		ORDER BY id
-	`, taskID)
-	if err != nil {
-		return nil, fmt.Errorf("list task events: %w", err)
-	}
-	defer rows.Close()
-
-	var events []TaskEvent
-	for rows.Next() {
-		var event TaskEvent
-		if err := rows.Scan(&event.ID, &event.TaskID, &event.Type, &event.Body, &event.FromStatus, &event.ToStatus, &event.ActorID, &event.ActorKind, &event.ActorName, &event.CreatedAt); err != nil {
-			return nil, fmt.Errorf("scan task event: %w", err)
-		}
-		events = append(events, event)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate task events: %w", err)
-	}
-
-	return events, nil
 }
 
 func (s *Store) ListReadyTasks(ctx context.Context, projectID int64) ([]Task, error) {
@@ -549,90 +536,6 @@ func (s *Store) ClaimTaskByActor(ctx context.Context, projectID, taskID int64, a
 	return task, nil
 }
 
-func (s *Store) AddTaskComment(ctx context.Context, taskID int64, body string) (TaskEvent, error) {
-	return s.AddTaskCommentByActor(ctx, taskID, body, ActorRef{})
-}
-
-func (s *Store) AddTaskCommentByActor(ctx context.Context, taskID int64, body string, actor ActorRef) (TaskEvent, error) {
-	return s.addTaskNoteEvent(ctx, taskID, "commented", body, actor)
-}
-
-func (s *Store) addTaskNoteEvent(ctx context.Context, taskID int64, eventType, body string, actor ActorRef) (TaskEvent, error) {
-	if taskID <= 0 {
-		return TaskEvent{}, errors.New("task id is required")
-	}
-	body = strings.TrimSpace(body)
-	if body == "" {
-		return TaskEvent{}, ErrTaskNoteEmpty
-	}
-
-	if _, err := s.GetTask(ctx, taskID); err != nil {
-		return TaskEvent{}, err
-	}
-
-	actor = sanitizeActorRef(actor)
-	res, err := s.db.ExecContext(ctx, `
-		INSERT INTO task_events (task_id, type, body, actor_id, actor_kind, actor_name)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`, taskID, eventType, body, actor.ID, actor.Kind, actor.Name)
-	if err != nil {
-		return TaskEvent{}, fmt.Errorf("record task %s event: %w", eventType, err)
-	}
-
-	id, err := res.LastInsertId()
-	if err != nil {
-		return TaskEvent{}, fmt.Errorf("read task %s event id: %w", eventType, err)
-	}
-
-	return s.GetTaskEvent(ctx, id)
-}
-
-func (s *Store) transitionTaskWithNote(ctx context.Context, id int64, status, eventType, body string, actor ActorRef) (Task, error) {
-	body = strings.TrimSpace(body)
-	if id <= 0 {
-		return Task{}, errors.New("task id is required")
-	}
-	if body == "" {
-		return Task{}, ErrTaskNoteEmpty
-	}
-
-	current, err := s.GetTask(ctx, id)
-	if err != nil {
-		return Task{}, err
-	}
-	if current.Status == "done" {
-		return Task{}, ErrInvalidTaskTransition
-	}
-
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return Task{}, fmt.Errorf("begin task %s transaction: %w", eventType, err)
-	}
-	defer rollback(tx)
-
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE tasks
-		SET status = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-		WHERE id = ?
-	`, status, id); err != nil {
-		return Task{}, fmt.Errorf("update task %s status: %w", eventType, err)
-	}
-
-	actor = sanitizeActorRef(actor)
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO task_events (task_id, type, body, from_status, to_status, actor_id, actor_kind, actor_name)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`, id, eventType, body, current.Status, status, actor.ID, actor.Kind, actor.Name); err != nil {
-		return Task{}, fmt.Errorf("record task %s event: %w", eventType, err)
-	}
-
-	if err := tx.Commit(); err != nil {
-		return Task{}, fmt.Errorf("commit task %s transaction: %w", eventType, err)
-	}
-
-	return s.GetTask(ctx, id)
-}
-
 func claimTaskInTx(ctx context.Context, tx *sql.Tx, projectID, taskID int64, actor ActorRef) (Task, error) {
 	current, err := getTaskInTx(ctx, tx, taskID)
 	if err != nil {
@@ -704,18 +607,4 @@ func getTaskInTx(ctx context.Context, tx *sql.Tx, id int64) (Task, error) {
 		WHERE id = ?
 	`, id)
 	return scanTask(row)
-}
-
-func (s *Store) GetTaskEvent(ctx context.Context, id int64) (TaskEvent, error) {
-	row := s.db.QueryRowContext(ctx, `
-		SELECT id, task_id, type, body, from_status, to_status, actor_id, actor_kind, actor_name, created_at
-		FROM task_events
-		WHERE id = ?
-	`, id)
-
-	var event TaskEvent
-	if err := row.Scan(&event.ID, &event.TaskID, &event.Type, &event.Body, &event.FromStatus, &event.ToStatus, &event.ActorID, &event.ActorKind, &event.ActorName, &event.CreatedAt); err != nil {
-		return TaskEvent{}, err
-	}
-	return event, nil
 }

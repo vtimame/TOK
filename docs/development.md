@@ -96,6 +96,7 @@ Tracked file size budgets are:
 - Default: 700 lines, 70 KB.
 - Explicit exceptions:
   - `internal/app/run_cli.go`: 800 lines, 70 KB.
+    This is a strict cap after splitting the historical 3.4k-line run CLI monolith; the old broad ceiling is not used anymore.
   - `internal/app/run_cli_parse.go`: 900 lines, 70 KB.
   - `internal/storage/tasks.go`: 750 lines, 70 KB.
   - `internal/app/task_cli.go`: 1,400 lines, 60 KB.

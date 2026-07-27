@@ -15,14 +15,15 @@ import (
 const DatabaseFileName = "tok.db"
 
 var (
-	ErrNoReadyTask             = errors.New("no ready task")
-	ErrTaskNotReady            = errors.New("task is not ready to claim")
-	ErrInvalidTaskTransition   = errors.New("invalid task status transition")
-	ErrTaskCompletionNoteEmpty = errors.New("task completion note is required")
-	ErrTaskNoteEmpty           = errors.New("task note is required")
-	ErrInvalidRunTransition    = errors.New("invalid run status transition")
-	ErrRunResultSummaryEmpty   = errors.New("run result summary is required")
-	ErrActiveRunExists         = errors.New("active run already exists for task")
+	ErrNoReadyTask                    = errors.New("no ready task")
+	ErrTaskNotReady                   = errors.New("task is not ready to claim")
+	ErrInvalidTaskTransition          = errors.New("invalid task status transition")
+	ErrTaskCompletionNoteEmpty        = errors.New("task completion note is required")
+	ErrTaskNoteEmpty                  = errors.New("task note is required")
+	ErrInvalidRunTransition           = errors.New("invalid run status transition")
+	ErrRunResultSummaryEmpty          = errors.New("run result summary is required")
+	ErrActiveRunExists                = errors.New("active run already exists for task")
+	ErrTaskCompletionEvidenceRequired = errors.New("task completion evidence run with passed validation is required")
 )
 
 // Store persists and retrieves application state.

@@ -36,8 +36,8 @@ func TestInitAppliesEmbeddedMigrations(t *testing.T) {
 	if err := store.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM schema_migrations").Scan(&applied); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if applied != 13 {
-		t.Fatalf("expected 13 applied migrations, got %d", applied)
+	if applied != 14 {
+		t.Fatalf("expected 14 applied migrations, got %d", applied)
 	}
 }
 
@@ -484,11 +484,12 @@ func TestRunLifecycle(t *testing.T) {
 		t.Fatalf("unexpected run from GetRun: %+v", got)
 	}
 
-	if _, err := store.AddRunArtifact(ctx, AddRunArtifactInput{
+	_, err = store.AddRunArtifact(ctx, AddRunArtifactInput{
 		RunID:    run.ID,
 		Kind:     "validation",
 		Metadata: `{"status":"passed","command":"go test ./..."}`,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("AddRunArtifact validation returned error: %v", err)
 	}
 	finished, err := store.FinishRun(ctx, FinishRunInput{
@@ -912,9 +913,13 @@ func TestCompleteTaskPersistsCompletionWithoutEvidencePolicy(t *testing.T) {
 		t.Fatalf("UpdateTaskStatus returned error: %v", err)
 	}
 
-	_, err := store.CompleteTask(ctx, task.ID, "Completed without run evidence.")
-	if err != nil {
-		t.Fatalf("CompleteTask returned error: %v", err)
+	_, err := store.CompleteTaskWithOptions(ctx, CompleteTaskInput{
+		ID:               task.ID,
+		Note:             "Completed without run evidence.",
+		ValidateEvidence: true,
+	})
+	if !errors.Is(err, ErrTaskCompletionEvidenceRequired) {
+		t.Fatalf("expected evidence-required completion error, got %v", err)
 	}
 }
 
@@ -942,9 +947,13 @@ func TestCompleteTaskAllowsTerminalRunWithoutEvidencePolicy(t *testing.T) {
 		t.Fatalf("FinishRun failed returned error: %v", err)
 	}
 
-	_, err = store.CompleteTask(ctx, task.ID, "Completed after failed run.")
-	if err != nil {
-		t.Fatalf("CompleteTask after failed run returned error: %v", err)
+	_, err = store.CompleteTaskWithOptions(ctx, CompleteTaskInput{
+		ID:               task.ID,
+		Note:             "Completed after failed run.",
+		ValidateEvidence: true,
+	})
+	if !errors.Is(err, ErrTaskCompletionEvidenceRequired) {
+		t.Fatalf("expected evidence-required completion error, got %v", err)
 	}
 
 	finished, err := store.GetRun(ctx, run.ID)
@@ -953,6 +962,117 @@ func TestCompleteTaskAllowsTerminalRunWithoutEvidencePolicy(t *testing.T) {
 	}
 	if finished.Status != "failed" {
 		t.Fatalf("unexpected evidence run status: %+v", finished)
+	}
+}
+
+func TestCompleteTaskWithOptionsStoresCompletionEvidenceRunAndArtifact(t *testing.T) {
+	ctx := context.Background()
+	store := openInitializedTestStore(t)
+
+	_, task := createStorageProjectTask(t, ctx, store, "Validated completion")
+	if _, err := store.UpdateTaskStatus(ctx, task.ID, "in_progress"); err != nil {
+		t.Fatalf("UpdateTaskStatus returned error: %v", err)
+	}
+	run, err := store.CreateRun(ctx, CreateRunInput{
+		TaskID:                 task.ID,
+		Status:                 "in_progress",
+		HandoffContractVersion: "tok.handoff.v0",
+	})
+	if err != nil {
+		t.Fatalf("CreateRun returned error: %v", err)
+	}
+	validationArtifact, err := store.AddRunArtifact(ctx, AddRunArtifactInput{
+		RunID:    run.ID,
+		Kind:     "validation",
+		Metadata: `{"status":"passed","command":"go test ./..."}`,
+	})
+	if err != nil {
+		t.Fatalf("AddRunArtifact returned error: %v", err)
+	}
+	if _, err := store.FinishRun(ctx, FinishRunInput{
+		ID:            run.ID,
+		Status:        "succeeded",
+		ResultSummary: "Validation passed.",
+	}); err != nil {
+		t.Fatalf("FinishRun returned error: %v", err)
+	}
+
+	done, err := store.CompleteTaskWithOptions(ctx, CompleteTaskInput{
+		ID:               task.ID,
+		Note:             "Implemented and tests pass.",
+		ValidateEvidence: true,
+	})
+	if err != nil {
+		t.Fatalf("CompleteTaskWithOptions returned error: %v", err)
+	}
+	if done.Status != "done" {
+		t.Fatalf("expected done task, got %+v", done)
+	}
+
+	events, err := store.ListTaskEvents(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListTaskEvents returned error: %v", err)
+	}
+	last := events[len(events)-1]
+	if last.Type != "completed" || last.Body != "Implemented and tests pass." || last.FromStatus != "in_progress" || last.ToStatus != "done" {
+		t.Fatalf("unexpected completion event: %+v", last)
+	}
+	if last.EvidenceRunID != run.ID {
+		t.Fatalf("expected completion evidence run id %d, got %d", run.ID, last.EvidenceRunID)
+	}
+	if last.EvidenceArtifactID != validationArtifact.ID {
+		t.Fatalf("expected completion evidence artifact id %d, got %d", validationArtifact.ID, last.EvidenceArtifactID)
+	}
+}
+
+func TestCompleteTaskWithOptionsValidationCheckIsAtomic(t *testing.T) {
+	ctx := context.Background()
+	store := openInitializedTestStore(t)
+
+	_, task := createStorageProjectTask(t, ctx, store, "Missing validation atomicity")
+	if _, err := store.UpdateTaskStatus(ctx, task.ID, "in_progress"); err != nil {
+		t.Fatalf("UpdateTaskStatus returned error: %v", err)
+	}
+	run, err := store.CreateRun(ctx, CreateRunInput{
+		TaskID:                 task.ID,
+		Status:                 "in_progress",
+		HandoffContractVersion: "tok.handoff.v0",
+	})
+	if err != nil {
+		t.Fatalf("CreateRun returned error: %v", err)
+	}
+	if _, err := store.FinishRun(ctx, FinishRunInput{
+		ID:            run.ID,
+		Status:        "failed",
+		ResultSummary: "Validation failed.",
+	}); err != nil {
+		t.Fatalf("FinishRun failed returned error: %v", err)
+	}
+
+	_, err = store.CompleteTaskWithOptions(ctx, CompleteTaskInput{
+		ID:               task.ID,
+		Note:             "Should stay in progress",
+		ValidateEvidence: true,
+	})
+	if !errors.Is(err, ErrTaskCompletionEvidenceRequired) {
+		t.Fatalf("expected evidence-required completion error, got %v", err)
+	}
+
+	taskInProgress, err := store.GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("GetTask returned error: %v", err)
+	}
+	if taskInProgress.Status != "in_progress" {
+		t.Fatalf("expected task status in_progress, got %s", taskInProgress.Status)
+	}
+	events, err := store.ListTaskEvents(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListTaskEvents returned error: %v", err)
+	}
+	for _, event := range events {
+		if event.Type == "completed" {
+			t.Fatalf("expected no completion event when evidence validation fails, got %+v", event)
+		}
 	}
 }
 
@@ -1126,11 +1246,12 @@ func TestCompleteTaskRequiresInProgressAndRecordsCompletionEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateRun returned error: %v", err)
 	}
-	if _, err := store.AddRunArtifact(ctx, AddRunArtifactInput{
+	validationArtifact, err := store.AddRunArtifact(ctx, AddRunArtifactInput{
 		RunID:    run.ID,
 		Kind:     "validation",
 		Metadata: `{"status":"passed","command":"go test ./..."}`,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("AddRunArtifact returned error: %v", err)
 	}
 	if _, err := store.FinishRun(ctx, FinishRunInput{
@@ -1141,7 +1262,11 @@ func TestCompleteTaskRequiresInProgressAndRecordsCompletionEvent(t *testing.T) {
 		t.Fatalf("FinishRun returned error: %v", err)
 	}
 
-	done, err := store.CompleteTask(ctx, task.ID, "Implemented and tests pass.")
+	done, err := store.CompleteTaskWithOptions(ctx, CompleteTaskInput{
+		ID:               task.ID,
+		Note:             "Implemented and tests pass.",
+		ValidateEvidence: true,
+	})
 	if err != nil {
 		t.Fatalf("CompleteTask returned error: %v", err)
 	}
@@ -1156,6 +1281,12 @@ func TestCompleteTaskRequiresInProgressAndRecordsCompletionEvent(t *testing.T) {
 	last := events[len(events)-1]
 	if last.Type != "completed" || last.Body != "Implemented and tests pass." || last.FromStatus != "in_progress" || last.ToStatus != "done" {
 		t.Fatalf("unexpected completion event: %+v", last)
+	}
+	if last.EvidenceRunID != run.ID {
+		t.Fatalf("expected completion evidence run id %d, got %d", run.ID, last.EvidenceRunID)
+	}
+	if last.EvidenceArtifactID != validationArtifact.ID {
+		t.Fatalf("expected completion evidence artifact id %d, got %d", validationArtifact.ID, last.EvidenceArtifactID)
 	}
 
 	if _, err := store.CompleteTask(ctx, task.ID, "again"); !errors.Is(err, ErrInvalidTaskTransition) {

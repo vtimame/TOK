@@ -39,19 +39,16 @@ get_budgets() {
       max_lines=750
       reason="storage task aggregate"
     ;;
+    # run CLI was previously split from a 3400-line monolith into run_cli + run_cli_parse.
+    # Keep strict, explicit budgets now that the split is complete.
     internal/app/run_cli.go)
-      max_lines=3400
-      max_bytes=120000
-      reason="CLI orchestration entrypoint (historical)"
-      ;;
+      max_lines=800
+      reason="run CLI dispatcher and handlers (strict)"
+    ;;
     internal/app/task_cli.go)
       max_lines=1400
       max_bytes=60000
       reason="CLI command surface (bounded)"
-      ;;
-    internal/app/run_cli.go)
-      max_lines=800
-      reason="run CLI dispatcher and handlers (post-split)"
       ;;
     internal/app/run_cli_parse.go)
       max_lines=900

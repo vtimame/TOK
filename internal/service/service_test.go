@@ -148,6 +148,20 @@ func TestTaskServiceCompleteTaskRequiresValidatedEvidenceOrOverride(t *testing.T
 	if done.Status != "done" {
 		t.Fatalf("unexpected completed task: %+v", done)
 	}
+	events, err := store.ListTaskEvents(ctx, validatedTask.ID)
+	if err != nil {
+		t.Fatalf("ListTaskEvents returned error: %v", err)
+	}
+	last := events[len(events)-1]
+	if last.Type != "completed" {
+		t.Fatalf("unexpected completion event: %+v", last)
+	}
+	if last.EvidenceRunID != validatedRun.ID {
+		t.Fatalf("expected completion evidence run id %d, got %d", validatedRun.ID, last.EvidenceRunID)
+	}
+	if last.EvidenceArtifactID == 0 {
+		t.Fatalf("expected completion evidence artifact id for validated run")
+	}
 
 	_, overrideTask := createProjectTask(t, ctx, store, "Override completion")
 	claimTask(t, ctx, store, overrideTask.ProjectID, overrideTask.ID)
@@ -171,7 +185,7 @@ func TestTaskServiceCompleteTaskRequiresValidatedEvidenceOrOverride(t *testing.T
 	if overridden.Status != "done" {
 		t.Fatalf("unexpected override task: %+v", overridden)
 	}
-	events, err := store.ListTaskEvents(ctx, overrideTask.ID)
+	events, err = store.ListTaskEvents(ctx, overrideTask.ID)
 	if err != nil {
 		t.Fatalf("ListTaskEvents override returned error: %v", err)
 	}

@@ -24,14 +24,21 @@ The first release workflow builds assets for:
 - Linux x86_64: `tok_linux_amd64.tar.gz`
 - macOS Apple Silicon: `tok_darwin_arm64.tar.gz`
 - macOS Intel: `tok_darwin_amd64.tar.gz`
+- Checksums: `SHA256SUMS`
 
 Windows binaries are not part of the first alpha release.
+
+Download `SHA256SUMS` next to the asset you want to install and verify the
+archive before extracting it.
 
 ## Linux x86_64
 
 ```bash
 curl -L -o tok_linux_amd64.tar.gz \
   https://github.com/vtimame/TOK/releases/latest/download/tok_linux_amd64.tar.gz
+curl -L -o SHA256SUMS \
+  https://github.com/vtimame/TOK/releases/latest/download/SHA256SUMS
+grep ' tok_linux_amd64.tar.gz$' SHA256SUMS | sha256sum -c -
 tar -xzf tok_linux_amd64.tar.gz
 chmod +x tok
 sudo mv tok /usr/local/bin/tok
@@ -42,6 +49,9 @@ sudo mv tok /usr/local/bin/tok
 ```bash
 curl -L -o tok_darwin_arm64.tar.gz \
   https://github.com/vtimame/TOK/releases/latest/download/tok_darwin_arm64.tar.gz
+curl -L -o SHA256SUMS \
+  https://github.com/vtimame/TOK/releases/latest/download/SHA256SUMS
+grep ' tok_darwin_arm64.tar.gz$' SHA256SUMS | shasum -a 256 -c -
 tar -xzf tok_darwin_arm64.tar.gz
 chmod +x tok
 sudo mv tok /usr/local/bin/tok
@@ -52,6 +62,9 @@ sudo mv tok /usr/local/bin/tok
 ```bash
 curl -L -o tok_darwin_amd64.tar.gz \
   https://github.com/vtimame/TOK/releases/latest/download/tok_darwin_amd64.tar.gz
+curl -L -o SHA256SUMS \
+  https://github.com/vtimame/TOK/releases/latest/download/SHA256SUMS
+grep ' tok_darwin_amd64.tar.gz$' SHA256SUMS | shasum -a 256 -c -
 tar -xzf tok_darwin_amd64.tar.gz
 chmod +x tok
 sudo mv tok /usr/local/bin/tok

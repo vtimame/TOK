@@ -589,6 +589,94 @@ func TestServerTaskDoneCurrentBehaviorAllowsMissingEvidenceExpectedToChange(t *t
 	}
 }
 
+func TestServerTaskDoneStoresCompletionEvidenceMetadata(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+
+	project, err := store.CreateProject(ctx, storage.CreateProjectInput{
+		Name:        "tok",
+		DisplayName: "TOK",
+		Path:        t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("CreateProject returned error: %v", err)
+	}
+	task, err := store.CreateTask(ctx, storage.CreateTaskInput{
+		ProjectID: project.ID,
+		Title:     "HTTP completion evidence metadata",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask returned error: %v", err)
+	}
+	if _, err := store.SetLocalHuman(ctx, "TOK Operator"); err != nil {
+		t.Fatalf("SetLocalHuman returned error: %v", err)
+	}
+	if _, err := store.ClaimTask(ctx, project.ID, task.ID); err != nil {
+		t.Fatalf("ClaimTask returned error: %v", err)
+	}
+
+	run, err := store.CreateRun(ctx, storage.CreateRunInput{
+		TaskID:                 task.ID,
+		Status:                 "in_progress",
+		HandoffContractVersion: "tok.handoff.v0",
+	})
+	if err != nil {
+		t.Fatalf("CreateRun returned error: %v", err)
+	}
+	validationArtifact, err := store.AddRunArtifact(ctx, storage.AddRunArtifactInput{
+		RunID:    run.ID,
+		Kind:     "validation",
+		Metadata: `{"status":"passed","command":"go test ./internal/httpserver"}`,
+	})
+	if err != nil {
+		t.Fatalf("AddRunArtifact returned error: %v", err)
+	}
+	finishedRun, err := store.FinishRun(ctx, storage.FinishRunInput{
+		ID:            run.ID,
+		Status:        "succeeded",
+		ResultSummary: "Validation passed.",
+	})
+	if err != nil {
+		t.Fatalf("FinishRun returned error: %v", err)
+	}
+	if finishedRun.Status != "succeeded" || finishedRun.ResultSummary != "Validation passed." {
+		t.Fatalf("unexpected finished run: %+v", finishedRun)
+	}
+
+	handler := newTestHandler(t, store)
+	doneRes := doJSON(t, handler, http.MethodPost, "/api/tasks/"+jsonNumber(task.ID)+"/done", TaskDoneInput{
+		Note:          "HTTP workflow completed",
+		EvidenceRunID: run.ID,
+	})
+	defer doneRes.Body.Close()
+	if doneRes.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/tasks/{id}/done status = %d body=%s", doneRes.StatusCode, readBody(t, doneRes))
+	}
+	var done TaskResponse
+	decodeJSON(t, doneRes, &done)
+	if done.Task.Status != "done" {
+		t.Fatalf("unexpected task_done output: %+v", done)
+	}
+
+	showRes := doJSON(t, handler, http.MethodGet, "/api/tasks/"+jsonNumber(task.ID), nil)
+	defer showRes.Body.Close()
+	if showRes.StatusCode != http.StatusOK {
+		t.Fatalf("task show status = %d body=%s", showRes.StatusCode, readBody(t, showRes))
+	}
+	var shown TaskShowResponse
+	decodeJSON(t, showRes, &shown)
+	if len(shown.Events) == 0 || shown.Events[len(shown.Events)-1].Type != "completed" {
+		t.Fatalf("expected completion event in task history: %+v", shown.Events)
+	}
+	last := shown.Events[len(shown.Events)-1]
+	if last.EvidenceRunID != run.ID {
+		t.Fatalf("expected completion evidence run id %d, got %d", run.ID, last.EvidenceRunID)
+	}
+	if last.EvidenceArtifactID != validationArtifact.ID {
+		t.Fatalf("expected completion evidence artifact id %d, got %d", validationArtifact.ID, last.EvidenceArtifactID)
+	}
+}
+
 func TestServerTaskActionsWriteHumanActorHistory(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)

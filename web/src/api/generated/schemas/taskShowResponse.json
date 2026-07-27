@@ -32,6 +32,8 @@
           },
           "body": { "type": "string" },
           "created_at": { "type": "string" },
+          "evidence_artifact_id": { "format": "int64", "type": "integer" },
+          "evidence_run_id": { "format": "int64", "type": "integer" },
           "from_status": { "type": "string" },
           "id": { "format": "int64", "type": "integer" },
           "task_id": { "format": "int64", "type": "integer" },
