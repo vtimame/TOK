@@ -22,7 +22,7 @@ TOK is alpha software. The core CLI, local SQLite storage, retrieval index,
 HTTP API, web UI and MCP server are usable today, but public contracts can
 change while the project remains on `v0.x.y`.
 
-The current public alpha release is `v0.1.0`. TOK uses Semantic Versioning;
+The current public alpha release is `v0.2.0`. TOK uses Semantic Versioning;
 the git release tag is the source of truth for the product version shown by
 `tok version`.
 

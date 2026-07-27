@@ -5,11 +5,7 @@ yet hardened as a multi-tenant service.
 
 ## Supported Versions
 
-Until the first public alpha release is tagged, security fixes apply to the
-current `main` branch only.
-
-After public releases begin, this file should be updated with the supported
-version policy.
+Security fixes apply to the current public alpha release and the `main` branch.
 
 ## Reporting a Vulnerability
 
