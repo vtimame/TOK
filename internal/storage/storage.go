@@ -21,17 +21,14 @@ import (
 const DatabaseFileName = "tok.db"
 
 var (
-	ErrNoReadyTask                    = errors.New("no ready task")
-	ErrTaskNotReady                   = errors.New("task is not ready to claim")
-	ErrInvalidTaskTransition          = errors.New("invalid task status transition")
-	ErrTaskCompletionNoteEmpty        = errors.New("task completion note is required")
-	ErrTaskNoteEmpty                  = errors.New("task note is required")
-	ErrInvalidRunTransition           = errors.New("invalid run status transition")
-	ErrRunResultSummaryEmpty          = errors.New("run result summary is required")
-	ErrActiveRunExists                = errors.New("active run already exists for task")
-	ErrRunValidationRequired          = errors.New("passed validation evidence is required")
-	ErrTaskCompletionEvidenceRequired = errors.New("task completion evidence run with passed validation is required")
-	ErrOverrideReasonRequired         = errors.New("override reason is required")
+	ErrNoReadyTask             = errors.New("no ready task")
+	ErrTaskNotReady            = errors.New("task is not ready to claim")
+	ErrInvalidTaskTransition   = errors.New("invalid task status transition")
+	ErrTaskCompletionNoteEmpty = errors.New("task completion note is required")
+	ErrTaskNoteEmpty           = errors.New("task note is required")
+	ErrInvalidRunTransition    = errors.New("invalid run status transition")
+	ErrRunResultSummaryEmpty   = errors.New("run result summary is required")
+	ErrActiveRunExists         = errors.New("active run already exists for task")
 )
 
 //go:embed migrations/*.sql
@@ -179,21 +176,18 @@ type CreateRunInput struct {
 }
 
 type FinishRunInput struct {
-	ID               int64
-	Status           string
-	ResultSummary    string
-	AllowUnvalidated bool
-	OverrideReason   string
-	Actor            ActorRef
+	ID             int64
+	Status         string
+	ResultSummary  string
+	OverrideReason string
+	Actor          ActorRef
 }
 
 type CompleteTaskInput struct {
-	ID               int64
-	Note             string
-	EvidenceRunID    int64
-	AllowUnvalidated bool
-	OverrideReason   string
-	Actor            ActorRef
+	ID             int64
+	Note           string
+	OverrideReason string
+	Actor          ActorRef
 }
 
 type HeartbeatRunInput struct {
@@ -773,13 +767,6 @@ func (s *Store) UpdateTaskStatusByActor(ctx context.Context, id int64, status st
 		if activeRun {
 			return Task{}, ErrActiveRunExists
 		}
-		evidenceRunID, err := s.latestValidatedSucceededRunID(ctx, id)
-		if err != nil {
-			return Task{}, err
-		}
-		if evidenceRunID == 0 {
-			return Task{}, ErrTaskCompletionEvidenceRequired
-		}
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -847,30 +834,6 @@ func (s *Store) CompleteTaskWithOptions(ctx context.Context, input CompleteTaskI
 	if activeRun {
 		return Task{}, ErrActiveRunExists
 	}
-	if input.AllowUnvalidated {
-		if input.OverrideReason == "" {
-			return Task{}, ErrOverrideReasonRequired
-		}
-	} else {
-		evidenceRunID := input.EvidenceRunID
-		if evidenceRunID == 0 {
-			var err error
-			evidenceRunID, err = s.latestValidatedSucceededRunID(ctx, input.ID)
-			if err != nil {
-				return Task{}, err
-			}
-		}
-		if evidenceRunID == 0 {
-			return Task{}, ErrTaskCompletionEvidenceRequired
-		}
-		valid, err := s.isTaskCompletionEvidenceRun(ctx, input.ID, evidenceRunID)
-		if err != nil {
-			return Task{}, err
-		}
-		if !valid {
-			return Task{}, ErrTaskCompletionEvidenceRequired
-		}
-	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -901,7 +864,7 @@ func (s *Store) CompleteTaskWithOptions(ctx context.Context, input CompleteTaskI
 	`, input.ID, input.Note, actor.ID, actor.Kind, actor.Name); err != nil {
 		return Task{}, fmt.Errorf("record task completion event: %w", err)
 	}
-	if input.AllowUnvalidated {
+	if input.OverrideReason != "" {
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO task_events (task_id, type, body, from_status, to_status, actor_id, actor_kind, actor_name)
 			VALUES (?, 'completion_override', ?, 'in_progress', 'done', ?, ?, ?)
@@ -1143,6 +1106,10 @@ func (s *Store) CreateRun(ctx context.Context, input CreateRunInput) (Run, error
 }
 
 func (s *Store) hasActiveRunForTask(ctx context.Context, taskID int64) (bool, error) {
+	return s.HasActiveRunForTask(ctx, taskID)
+}
+
+func (s *Store) HasActiveRunForTask(ctx context.Context, taskID int64) (bool, error) {
 	var id int64
 	err := s.db.QueryRowContext(ctx, `
 		SELECT id
@@ -1259,21 +1226,6 @@ func (s *Store) FinishRun(ctx context.Context, input FinishRunInput) (Run, error
 	if runStatusTerminal(current.Status) {
 		return Run{}, ErrInvalidRunTransition
 	}
-	if input.Status == "succeeded" {
-		if input.AllowUnvalidated {
-			if input.OverrideReason == "" {
-				return Run{}, ErrOverrideReasonRequired
-			}
-		} else {
-			hasValidation, err := s.hasPassedValidationArtifact(ctx, input.ID)
-			if err != nil {
-				return Run{}, err
-			}
-			if !hasValidation {
-				return Run{}, ErrRunValidationRequired
-			}
-		}
-	}
 
 	actor := sanitizeActorRef(input.Actor)
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -1303,7 +1255,7 @@ func (s *Store) FinishRun(ctx context.Context, input FinishRunInput) (Run, error
 	if updated == 0 {
 		return Run{}, ErrInvalidRunTransition
 	}
-	if input.Status == "succeeded" && input.AllowUnvalidated {
+	if input.Status == "succeeded" && input.OverrideReason != "" {
 		metadata, err := runValidationOverrideMetadata(input.ResultSummary, input.OverrideReason)
 		if err != nil {
 			return Run{}, err
@@ -1323,41 +1275,7 @@ func (s *Store) FinishRun(ctx context.Context, input FinishRunInput) (Run, error
 	return s.GetRun(ctx, input.ID)
 }
 
-func (s *Store) latestValidatedSucceededRunID(ctx context.Context, taskID int64) (int64, error) {
-	runs, err := s.ListRuns(ctx, ListRunsOptions{
-		TaskID: taskID,
-		Status: "succeeded",
-	})
-	if err != nil {
-		return 0, err
-	}
-	for _, run := range runs {
-		hasValidation, err := s.hasPassedValidationArtifact(ctx, run.ID)
-		if err != nil {
-			return 0, err
-		}
-		if hasValidation {
-			return run.ID, nil
-		}
-	}
-	return 0, nil
-}
-
-func (s *Store) isTaskCompletionEvidenceRun(ctx context.Context, taskID, runID int64) (bool, error) {
-	run, err := s.GetRun(ctx, runID)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return false, nil
-		}
-		return false, err
-	}
-	if run.TaskID != taskID || run.Status != "succeeded" {
-		return false, nil
-	}
-	return s.hasPassedValidationArtifact(ctx, runID)
-}
-
-func (s *Store) hasPassedValidationArtifact(ctx context.Context, runID int64) (bool, error) {
+func (s *Store) HasPassedValidationArtifact(ctx context.Context, runID int64) (bool, error) {
 	artifacts, err := s.ListRunArtifacts(ctx, runID)
 	if err != nil {
 		return false, err

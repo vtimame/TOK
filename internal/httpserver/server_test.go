@@ -727,11 +727,10 @@ func TestServerAggregatesAgentsFromTaskHistory(t *testing.T) {
 		t.Fatalf("ClaimTaskByActor done returned error: %v", err)
 	}
 	if _, err := store.CompleteTaskWithOptions(ctx, storage.CompleteTaskInput{
-		ID:               doneTask.ID,
-		Note:             "Done.",
-		AllowUnvalidated: true,
-		OverrideReason:   "HTTP aggregate fixture override.",
-		Actor:            storage.ActorRefFromActor(agent.Agent),
+		ID:             doneTask.ID,
+		Note:           "Done.",
+		OverrideReason: "HTTP aggregate fixture override.",
+		Actor:          storage.ActorRefFromActor(agent.Agent),
 	}); err != nil {
 		t.Fatalf("CompleteTaskByActor returned error: %v", err)
 	}

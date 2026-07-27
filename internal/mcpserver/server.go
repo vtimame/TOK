@@ -14,6 +14,7 @@ import (
 
 	contextpkg "s26.sh/tok/internal/context"
 	"s26.sh/tok/internal/retrieval"
+	tokservice "s26.sh/tok/internal/service"
 	"s26.sh/tok/internal/storage"
 )
 
@@ -27,6 +28,8 @@ type Config struct {
 
 type service struct {
 	store     *storage.Store
+	tasks     *tokservice.TaskService
+	runs      *tokservice.RunService
 	actor     storage.ActorRef
 	retrieval *retrieval.Service
 }
@@ -46,6 +49,8 @@ func New(cfg Config) (*mcp.Server, error) {
 
 	svc := &service{
 		store:     cfg.Store,
+		tasks:     tokservice.NewTaskService(cfg.Store),
+		runs:      tokservice.NewRunService(cfg.Store),
 		actor:     actor,
 		retrieval: retrieval.NewService(cfg.Store),
 	}
@@ -641,7 +646,7 @@ func (s *service) taskStatus(ctx context.Context, _ *mcp.CallToolRequest, input 
 	if !validTaskStatus(input.Status) {
 		return nil, taskOutput{}, fmt.Errorf("invalid task status %q", input.Status)
 	}
-	task, err := s.store.UpdateTaskStatusByActor(ctx, input.ID, input.Status, s.actor)
+	task, err := s.tasks.UpdateStatus(ctx, input.ID, input.Status, s.actor)
 	if err != nil {
 		return nil, taskOutput{}, friendlyTaskError(err)
 	}
@@ -871,7 +876,7 @@ func (s *service) taskDone(ctx context.Context, _ *mcp.CallToolRequest, input ta
 	if strings.TrimSpace(input.Note) == "" {
 		return nil, taskOutput{}, errors.New("task_done requires note")
 	}
-	task, err := s.store.CompleteTaskWithOptions(ctx, storage.CompleteTaskInput{
+	task, err := s.tasks.CompleteTask(ctx, tokservice.CompleteTaskInput{
 		ID:               input.ID,
 		Note:             input.Note,
 		EvidenceRunID:    input.EvidenceRunID,
@@ -1102,7 +1107,7 @@ func (s *service) runFinish(ctx context.Context, _ *mcp.CallToolRequest, input r
 	if input.Summary == "" {
 		return nil, runOutput{}, errors.New("run_finish requires summary")
 	}
-	run, err := s.store.FinishRun(ctx, storage.FinishRunInput{
+	run, err := s.runs.FinishRun(ctx, tokservice.FinishRunInput{
 		ID:               input.ID,
 		Status:           input.Status,
 		ResultSummary:    input.Summary,
@@ -1146,7 +1151,7 @@ func (s *service) runArtifactAdd(ctx context.Context, _ *mcp.CallToolRequest, in
 	input.Path = strings.TrimSpace(input.Path)
 	input.ContentHash = strings.TrimSpace(input.ContentHash)
 	input.Metadata = strings.TrimSpace(input.Metadata)
-	artifact, err := s.store.AddRunArtifact(ctx, storage.AddRunArtifactInput{
+	addInput := storage.AddRunArtifactInput{
 		RunID:       input.RunID,
 		Kind:        input.Kind,
 		Path:        input.Path,
@@ -1155,7 +1160,16 @@ func (s *service) runArtifactAdd(ctx context.Context, _ *mcp.CallToolRequest, in
 		Truncated:   input.Truncated,
 		Metadata:    input.Metadata,
 		Actor:       s.actor,
-	})
+	}
+	var (
+		artifact storage.RunArtifact
+		err      error
+	)
+	if input.Kind == "validation" {
+		artifact, err = s.runs.RecordValidationArtifact(ctx, addInput)
+	} else {
+		artifact, err = s.store.AddRunArtifact(ctx, addInput)
+	}
 	if err != nil {
 		return nil, runArtifactOutput{}, friendlyRunError(err)
 	}
@@ -1182,9 +1196,8 @@ func (s *service) runValidationRecord(ctx context.Context, _ *mcp.CallToolReques
 	if err != nil {
 		return nil, runArtifactOutput{}, err
 	}
-	artifact, err := s.store.AddRunArtifact(ctx, storage.AddRunArtifactInput{
+	artifact, err := s.runs.RecordValidationArtifact(ctx, storage.AddRunArtifactInput{
 		RunID:    input.RunID,
-		Kind:     "validation",
 		Metadata: metadata,
 		Actor:    s.actor,
 	})
@@ -1505,9 +1518,9 @@ func friendlyTaskError(err error) error {
 		return errors.New("invalid task status transition")
 	case errors.Is(err, storage.ErrActiveRunExists):
 		return errors.New("task cannot be completed while an active run exists")
-	case errors.Is(err, storage.ErrTaskCompletionEvidenceRequired):
+	case errors.Is(err, tokservice.ErrTaskCompletionEvidenceRequired):
 		return errors.New("task completion evidence run with passed validation is required")
-	case errors.Is(err, storage.ErrOverrideReasonRequired):
+	case errors.Is(err, tokservice.ErrOverrideReasonRequired):
 		return errors.New("override reason is required")
 	default:
 		return err
@@ -1518,9 +1531,9 @@ func friendlyRunError(err error) error {
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		return errors.New("run not found")
-	case errors.Is(err, storage.ErrRunValidationRequired):
+	case errors.Is(err, tokservice.ErrRunValidationRequired):
 		return errors.New("passed validation evidence is required")
-	case errors.Is(err, storage.ErrOverrideReasonRequired):
+	case errors.Is(err, tokservice.ErrOverrideReasonRequired):
 		return errors.New("override reason is required")
 	case errors.Is(err, storage.ErrRunResultSummaryEmpty):
 		return errors.New("run result summary is required")

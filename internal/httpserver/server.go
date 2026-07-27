@@ -19,6 +19,7 @@ import (
 	"github.com/go-fuego/fuego/option"
 
 	"s26.sh/tok/internal/retrieval"
+	tokservice "s26.sh/tok/internal/service"
 	"s26.sh/tok/internal/storage"
 )
 
@@ -43,6 +44,7 @@ type Server struct {
 
 type api struct {
 	store     *storage.Store
+	tasks     *tokservice.TaskService
 	retrieval *retrieval.Service
 	version   string
 }
@@ -74,6 +76,7 @@ func New(cfg Config) (*Server, error) {
 	)
 	a := &api{
 		store:     cfg.Store,
+		tasks:     tokservice.NewTaskService(cfg.Store),
 		retrieval: retrieval.NewService(cfg.Store),
 		version:   version,
 	}
@@ -798,7 +801,7 @@ func (a *api) doneTask(ctx fuego.ContextWithBody[TaskDoneInput]) (TaskResponse, 
 	if err != nil {
 		return TaskResponse{}, err
 	}
-	task, err := a.store.CompleteTaskWithOptions(ctx.Context(), storage.CompleteTaskInput{
+	task, err := a.tasks.CompleteTask(ctx.Context(), tokservice.CompleteTaskInput{
 		ID:               taskID,
 		Note:             body.Note,
 		EvidenceRunID:    body.EvidenceRunID,
@@ -1281,9 +1284,9 @@ func mapTaskError(err error) error {
 		return fuego.ConflictError{Title: "Task has an active run"}
 	case errors.Is(err, storage.ErrTaskCompletionNoteEmpty), errors.Is(err, storage.ErrTaskNoteEmpty):
 		return badRequest("task note is required")
-	case errors.Is(err, storage.ErrTaskCompletionEvidenceRequired):
+	case errors.Is(err, tokservice.ErrTaskCompletionEvidenceRequired):
 		return fuego.ConflictError{Title: "Task completion evidence is required"}
-	case errors.Is(err, storage.ErrOverrideReasonRequired):
+	case errors.Is(err, tokservice.ErrOverrideReasonRequired):
 		return badRequest("override reason is required")
 	default:
 		return err

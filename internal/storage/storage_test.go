@@ -341,10 +341,9 @@ func TestListReadyTasksExcludesActiveBlockedAndNonOpenTasks(t *testing.T) {
 		t.Fatalf("UpdateTaskStatus in_progress returned error: %v", err)
 	}
 	if _, err := store.CompleteTaskWithOptions(ctx, CompleteTaskInput{
-		ID:               blocker.ID,
-		Note:             "Dependency blocker resolved.",
-		AllowUnvalidated: true,
-		OverrideReason:   "Ready task fixture override.",
+		ID:             blocker.ID,
+		Note:           "Dependency blocker resolved.",
+		OverrideReason: "Ready task fixture override.",
 	}); err != nil {
 		t.Fatalf("CompleteTaskWithOptions override returned error: %v", err)
 	}
@@ -417,10 +416,9 @@ func TestClaimTasksAtomicallyMarksReadyTaskInProgress(t *testing.T) {
 	}
 
 	if _, err := store.CompleteTaskWithOptions(ctx, CompleteTaskInput{
-		ID:               blocker.ID,
-		Note:             "Dependency blocker resolved.",
-		AllowUnvalidated: true,
-		OverrideReason:   "Claim task fixture override.",
+		ID:             blocker.ID,
+		Note:           "Dependency blocker resolved.",
+		OverrideReason: "Claim task fixture override.",
 	}); err != nil {
 		t.Fatalf("CompleteTaskWithOptions override returned error: %v", err)
 	}
@@ -486,14 +484,6 @@ func TestRunLifecycle(t *testing.T) {
 		t.Fatalf("unexpected run from GetRun: %+v", got)
 	}
 
-	_, err = store.FinishRun(ctx, FinishRunInput{
-		ID:            run.ID,
-		Status:        "succeeded",
-		ResultSummary: "Implemented and tests pass.",
-	})
-	if !errors.Is(err, ErrRunValidationRequired) {
-		t.Fatalf("expected validation required error, got %v", err)
-	}
 	if _, err := store.AddRunArtifact(ctx, AddRunArtifactInput{
 		RunID:    run.ID,
 		Kind:     "validation",
@@ -798,7 +788,7 @@ func TestRunLifecycleValidation(t *testing.T) {
 	}
 }
 
-func TestRunSucceededRequiresPassedValidationOrOverride(t *testing.T) {
+func TestFinishRunRecordsOverrideAuditArtifact(t *testing.T) {
 	ctx := context.Background()
 	store := openInitializedTestStore(t)
 
@@ -826,45 +816,13 @@ func TestRunSucceededRequiresPassedValidationOrOverride(t *testing.T) {
 		t.Fatalf("CreateRun returned error: %v", err)
 	}
 
-	_, err = store.FinishRun(ctx, FinishRunInput{
-		ID:            run.ID,
-		Status:        "succeeded",
-		ResultSummary: "No validation yet.",
-	})
-	if !errors.Is(err, ErrRunValidationRequired) {
-		t.Fatalf("expected validation required error, got %v", err)
-	}
-
-	if _, err := store.AddRunArtifact(ctx, AddRunArtifactInput{
-		RunID:    run.ID,
-		Kind:     "validation",
-		Metadata: `{"status":"failed","command":"go test ./..."}`,
-	}); err != nil {
-		t.Fatalf("AddRunArtifact failed validation returned error: %v", err)
-	}
-	_, err = store.FinishRun(ctx, FinishRunInput{
-		ID:            run.ID,
-		Status:        "succeeded",
-		ResultSummary: "Validation failed.",
-	})
-	if !errors.Is(err, ErrRunValidationRequired) {
-		t.Fatalf("expected failed validation to block success, got %v", err)
-	}
-
-	if _, err := store.AddRunArtifact(ctx, AddRunArtifactInput{
-		RunID:    run.ID,
-		Kind:     "validation",
-		Metadata: `{"status":"passed","command":"go test ./..."}`,
-	}); err != nil {
-		t.Fatalf("AddRunArtifact passed validation returned error: %v", err)
-	}
 	finished, err := store.FinishRun(ctx, FinishRunInput{
 		ID:            run.ID,
 		Status:        "succeeded",
-		ResultSummary: "Validation passed.",
+		ResultSummary: "Storage records terminal state.",
 	})
 	if err != nil {
-		t.Fatalf("FinishRun with passed validation returned error: %v", err)
+		t.Fatalf("FinishRun returned error: %v", err)
 	}
 	if finished.Status != "succeeded" {
 		t.Fatalf("unexpected finished run: %+v", finished)
@@ -885,21 +843,11 @@ func TestRunSucceededRequiresPassedValidationOrOverride(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateRun override returned error: %v", err)
 	}
-	_, err = store.FinishRun(ctx, FinishRunInput{
-		ID:               overrideRun.ID,
-		Status:           "succeeded",
-		ResultSummary:    "Explicit override.",
-		AllowUnvalidated: true,
-	})
-	if !errors.Is(err, ErrOverrideReasonRequired) {
-		t.Fatalf("expected override reason error, got %v", err)
-	}
 	overridden, err := store.FinishRun(ctx, FinishRunInput{
-		ID:               overrideRun.ID,
-		Status:           "succeeded",
-		ResultSummary:    "Explicit override.",
-		AllowUnvalidated: true,
-		OverrideReason:   "Manual operator override for characterization.",
+		ID:             overrideRun.ID,
+		Status:         "succeeded",
+		ResultSummary:  "Explicit override.",
+		OverrideReason: "Manual operator override for characterization.",
 	})
 	if err != nil {
 		t.Fatalf("FinishRun override returned error: %v", err)
@@ -950,12 +898,12 @@ func TestCompleteTaskRejectsActiveRun(t *testing.T) {
 		t.Fatalf("FinishRun failed returned error: %v", err)
 	}
 	_, err = store.CompleteTask(ctx, task.ID, "Closed after terminal run.")
-	if !errors.Is(err, ErrTaskCompletionEvidenceRequired) {
-		t.Fatalf("expected evidence required after failed terminal run, got %v", err)
+	if err != nil {
+		t.Fatalf("CompleteTask after terminal run returned error: %v", err)
 	}
 }
 
-func TestCompleteTaskRejectsMissingEvidence(t *testing.T) {
+func TestCompleteTaskPersistsCompletionWithoutEvidencePolicy(t *testing.T) {
 	ctx := context.Background()
 	store := openInitializedTestStore(t)
 
@@ -965,16 +913,12 @@ func TestCompleteTaskRejectsMissingEvidence(t *testing.T) {
 	}
 
 	_, err := store.CompleteTask(ctx, task.ID, "Completed without run evidence.")
-	if !errors.Is(err, ErrTaskCompletionEvidenceRequired) {
-		t.Fatalf("expected missing evidence error, got %v", err)
-	}
-	_, err = store.UpdateTaskStatus(ctx, task.ID, "done")
-	if !errors.Is(err, ErrTaskCompletionEvidenceRequired) {
-		t.Fatalf("expected direct status done missing evidence error, got %v", err)
+	if err != nil {
+		t.Fatalf("CompleteTask returned error: %v", err)
 	}
 }
 
-func TestCompleteTaskRejectsFailedRunEvidence(t *testing.T) {
+func TestCompleteTaskAllowsTerminalRunWithoutEvidencePolicy(t *testing.T) {
 	ctx := context.Background()
 	store := openInitializedTestStore(t)
 
@@ -999,8 +943,8 @@ func TestCompleteTaskRejectsFailedRunEvidence(t *testing.T) {
 	}
 
 	_, err = store.CompleteTask(ctx, task.ID, "Completed after failed run.")
-	if !errors.Is(err, ErrTaskCompletionEvidenceRequired) {
-		t.Fatalf("expected failed run evidence rejection, got %v", err)
+	if err != nil {
+		t.Fatalf("CompleteTask after failed run returned error: %v", err)
 	}
 
 	finished, err := store.GetRun(ctx, run.ID)

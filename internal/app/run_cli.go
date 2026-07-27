@@ -19,6 +19,7 @@ import (
 
 	contextpkg "s26.sh/tok/internal/context"
 	"s26.sh/tok/internal/retrieval"
+	tokservice "s26.sh/tok/internal/service"
 	"s26.sh/tok/internal/storage"
 )
 
@@ -295,7 +296,7 @@ func (c *CLI) runRunExec(ctx context.Context, store *storage.Store, dataDir stri
 		return err
 	}
 
-	finished, err := store.FinishRun(ctx, storage.FinishRunInput{
+	finished, err := tokservice.NewRunService(store).FinishRun(ctx, tokservice.FinishRunInput{
 		ID:            run.ID,
 		Status:        result.RunStatus,
 		ResultSummary: result.Summary,
@@ -371,7 +372,7 @@ func (c *CLI) runRunAgent(ctx context.Context, store *storage.Store, dataDir str
 		return err
 	}
 
-	finished, err := store.FinishRun(ctx, storage.FinishRunInput{
+	finished, err := tokservice.NewRunService(store).FinishRun(ctx, tokservice.FinishRunInput{
 		ID:               run.ID,
 		Status:           result.RunStatus,
 		ResultSummary:    result.Summary,
@@ -478,7 +479,7 @@ func (c *CLI) runRunCancel(ctx context.Context, store *storage.Store, args []str
 		return err
 	}
 
-	run, err := store.FinishRun(ctx, storage.FinishRunInput{
+	run, err := tokservice.NewRunService(store).FinishRun(ctx, tokservice.FinishRunInput{
 		ID:            cancelOpts.runID,
 		Status:        "cancelled",
 		ResultSummary: cancelOpts.summary,
@@ -608,7 +609,7 @@ func (c *CLI) runRunFinish(ctx context.Context, store *storage.Store, args []str
 		return err
 	}
 
-	run, err := store.FinishRun(ctx, storage.FinishRunInput{
+	run, err := tokservice.NewRunService(store).FinishRun(ctx, tokservice.FinishRunInput{
 		ID:               finishOpts.runID,
 		Status:           finishOpts.status,
 		ResultSummary:    finishOpts.summary,
@@ -626,10 +627,10 @@ func (c *CLI) runRunFinish(ctx context.Context, store *storage.Store, args []str
 		if errors.Is(err, storage.ErrRunResultSummaryEmpty) {
 			return fmt.Errorf("run finish requires --summary")
 		}
-		if errors.Is(err, storage.ErrRunValidationRequired) {
+		if errors.Is(err, tokservice.ErrRunValidationRequired) {
 			return fmt.Errorf("run finish succeeded requires passed validation evidence; use run record-validation or --allow-unvalidated with --override-reason")
 		}
-		if errors.Is(err, storage.ErrOverrideReasonRequired) {
+		if errors.Is(err, tokservice.ErrOverrideReasonRequired) {
 			return fmt.Errorf("run finish --allow-unvalidated requires --override-reason")
 		}
 		return err
@@ -661,9 +662,8 @@ func (c *CLI) runRunRecordValidation(ctx context.Context, store *storage.Store, 
 		return err
 	}
 
-	artifact, err := store.AddRunArtifact(ctx, storage.AddRunArtifactInput{
+	artifact, err := tokservice.NewRunService(store).RecordValidationArtifact(ctx, storage.AddRunArtifactInput{
 		RunID:    recordOpts.runID,
-		Kind:     "validation",
 		Metadata: metadata,
 		Actor:    actor,
 	})
@@ -2378,9 +2378,8 @@ func executeRunValidation(ctx context.Context, store *storage.Store, dataDir str
 	if err != nil {
 		return storage.RunArtifact{}, err
 	}
-	return store.AddRunArtifact(ctx, storage.AddRunArtifactInput{
+	return tokservice.NewRunService(store).RecordValidationArtifact(ctx, storage.AddRunArtifactInput{
 		RunID:    run.ID,
-		Kind:     "validation",
 		Metadata: metadata,
 		Actor:    actor,
 	})
@@ -2588,9 +2587,8 @@ func executeRunCommand(ctx context.Context, store *storage.Store, dataDir string
 	if err != nil {
 		return runExecResult{}, err
 	}
-	if _, err := store.AddRunArtifact(ctx, storage.AddRunArtifactInput{
+	if _, err := tokservice.NewRunService(store).RecordValidationArtifact(ctx, storage.AddRunArtifactInput{
 		RunID:    run.ID,
-		Kind:     "validation",
 		Metadata: validationMetadata,
 		Actor:    actor,
 	}); err != nil {

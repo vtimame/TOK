@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	tokservice "s26.sh/tok/internal/service"
 	"s26.sh/tok/internal/storage"
 )
 
@@ -192,7 +193,7 @@ func (c *CLI) runTaskStatus(ctx context.Context, store *storage.Store, args []st
 		return err
 	}
 
-	task, err := store.UpdateTaskStatusByActor(ctx, statusOpts.taskID, statusOpts.status, actor)
+	task, err := tokservice.NewTaskService(store).UpdateStatus(ctx, statusOpts.taskID, statusOpts.status, actor)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("task not found: %d", statusOpts.taskID)
@@ -200,7 +201,7 @@ func (c *CLI) runTaskStatus(ctx context.Context, store *storage.Store, args []st
 		if errors.Is(err, storage.ErrActiveRunExists) {
 			return fmt.Errorf("task cannot be marked done while an active run exists")
 		}
-		if errors.Is(err, storage.ErrTaskCompletionEvidenceRequired) {
+		if errors.Is(err, tokservice.ErrTaskCompletionEvidenceRequired) {
 			return fmt.Errorf("task status done requires a succeeded run with passed validation; use task done with --allow-unvalidated and --override-reason for an audited override")
 		}
 		return err
@@ -238,7 +239,7 @@ func (c *CLI) runTaskDone(ctx context.Context, store *storage.Store, args []stri
 		return err
 	}
 
-	task, err := store.CompleteTaskWithOptions(ctx, storage.CompleteTaskInput{
+	task, err := tokservice.NewTaskService(store).CompleteTask(ctx, tokservice.CompleteTaskInput{
 		ID:               doneOpts.taskID,
 		Note:             doneOpts.note,
 		EvidenceRunID:    doneOpts.evidenceRunID,
@@ -256,10 +257,10 @@ func (c *CLI) runTaskDone(ctx context.Context, store *storage.Store, args []stri
 		if errors.Is(err, storage.ErrActiveRunExists) {
 			return fmt.Errorf("task cannot be completed while an active run exists")
 		}
-		if errors.Is(err, storage.ErrTaskCompletionEvidenceRequired) {
+		if errors.Is(err, tokservice.ErrTaskCompletionEvidenceRequired) {
 			return fmt.Errorf("task done requires a succeeded evidence run with passed validation; use --evidence-run or --allow-unvalidated with --override-reason")
 		}
-		if errors.Is(err, storage.ErrOverrideReasonRequired) {
+		if errors.Is(err, tokservice.ErrOverrideReasonRequired) {
 			return fmt.Errorf("task done --allow-unvalidated requires --override-reason")
 		}
 		return err
