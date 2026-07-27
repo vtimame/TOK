@@ -8,7 +8,9 @@ evidence.
 
 TOK can sit alongside Jira, Linear or GitHub Issues. Those systems can remain
 the backlog or planning source of truth; TOK tracks the local execution attempt
-and evidence for work happening inside a repository.
+and evidence for work happening inside a repository. Local TOK tasks remain the
+minimum supported mode and require no external service, network access or
+tracker credentials.
 
 ## Web UI
 
@@ -63,6 +65,11 @@ open -> in_progress -> done
 
 Tasks can also be blocked and unblocked. Blocked tasks are excluded from ready
 work and cannot be claimed until unblocked.
+
+Tasks can be local-only or linked to an external tracker item. The minimum
+external reference contract is `source`, `external_id`, `external_url` and
+`external_revision`; see [Task Sources and External Trackers](task-sources.md)
+for the product decision, sync states and unsupported alpha scenarios.
 
 ### Context Package
 

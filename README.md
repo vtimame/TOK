@@ -30,7 +30,8 @@ For example, if an agent crashes after a long run, TOK can still preserve:
 TOK is not trying to replace Jira, Linear or GitHub Issues. It is designed to
 sit closer to the codebase as the execution layer for work that happens after a
 task is selected: claim, context, run, heartbeat, artifacts, validation and
-completion evidence.
+completion evidence. Local TOK tasks remain the dependency-free default, while
+external tracker references are a planned integration path.
 
 It also is not another `AGENTS.md` or shell-script convention. `AGENTS.md`
 explains how to work; TOK records what actually happened. Shell scripts can run
@@ -104,6 +105,7 @@ override.
 - [Install TOK](docs/install.md)
 - [First Demo Flow](docs/demo.md)
 - [Usage Guide](docs/usage.md)
+- [Task Sources and External Trackers](docs/task-sources.md)
 - [Alpha Notes and Safety](docs/alpha.md)
 - [Development](docs/development.md)
 - [Release checklist and draft notes](docs/release-checklist.md)

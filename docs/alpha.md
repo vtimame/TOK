@@ -26,6 +26,9 @@ While TOK remains on `v0.x.y`, CLI, HTTP and MCP contracts may change.
   model in the first alpha.
 - TOK can complement Jira, Linear or GitHub Issues, but it is not intended to
   replace those systems as a planning backlog.
+- Local TOK tasks are the dependency-free default. External tracker integration
+  is a product direction, but the current alpha does not promise automatic
+  import, export, webhooks, OAuth or bidirectional sync.
 - Release assets initially cover Linux x86_64 and macOS x86_64/arm64 only.
 - Run artifacts, indexed source content and handoff packages may contain
   sensitive project data.
