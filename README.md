@@ -70,6 +70,10 @@ tok run exec --task <task-id> --timeout 10m --json -- go test ./...
 tok task done <task-id> --note "Implemented and validated."
 ```
 
+`tok run exec` records validation evidence from the command result. For agent
+adapter runs, finish with passed validation evidence or use an explicit audited
+override.
+
 ## Documentation
 
 - [Install TOK](docs/install.md)

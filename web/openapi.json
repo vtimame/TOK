@@ -680,7 +680,17 @@
       "TaskDoneInput": {
         "description": "TaskDoneInput schema",
         "properties": {
+          "allow_unvalidated": {
+            "type": "boolean"
+          },
+          "evidence_run_id": {
+            "format": "int64",
+            "type": "integer"
+          },
           "note": {
+            "type": "string"
+          },
+          "override_reason": {
             "type": "string"
           }
         },

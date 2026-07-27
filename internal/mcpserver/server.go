@@ -280,8 +280,11 @@ type taskUnblockInput struct {
 }
 
 type taskDoneInput struct {
-	ID   int64  `json:"id" jsonschema:"task id"`
-	Note string `json:"note" jsonschema:"completion note"`
+	ID               int64  `json:"id" jsonschema:"task id"`
+	Note             string `json:"note" jsonschema:"completion note"`
+	EvidenceRunID    int64  `json:"evidence_run_id,omitempty" jsonschema:"succeeded run with passed validation evidence"`
+	AllowUnvalidated bool   `json:"allow_unvalidated,omitempty" jsonschema:"complete without validation evidence"`
+	OverrideReason   string `json:"override_reason,omitempty" jsonschema:"required reason for allow_unvalidated"`
 }
 
 type searchInput struct {
@@ -325,6 +328,7 @@ type runFinishInput struct {
 	Status           string `json:"status" jsonschema:"terminal run status"`
 	Summary          string `json:"summary" jsonschema:"result summary"`
 	AllowUnvalidated bool   `json:"allow_unvalidated,omitempty" jsonschema:"skip validation requirement"`
+	OverrideReason   string `json:"override_reason,omitempty" jsonschema:"required reason for allow_unvalidated"`
 }
 
 type runArtifactListInput struct {
@@ -867,7 +871,14 @@ func (s *service) taskDone(ctx context.Context, _ *mcp.CallToolRequest, input ta
 	if strings.TrimSpace(input.Note) == "" {
 		return nil, taskOutput{}, errors.New("task_done requires note")
 	}
-	task, err := s.store.CompleteTaskByActor(ctx, input.ID, input.Note, s.actor)
+	task, err := s.store.CompleteTaskWithOptions(ctx, storage.CompleteTaskInput{
+		ID:               input.ID,
+		Note:             input.Note,
+		EvidenceRunID:    input.EvidenceRunID,
+		AllowUnvalidated: input.AllowUnvalidated,
+		OverrideReason:   input.OverrideReason,
+		Actor:            s.actor,
+	})
 	if err != nil {
 		return nil, taskOutput{}, friendlyTaskError(err)
 	}
@@ -1096,6 +1107,7 @@ func (s *service) runFinish(ctx context.Context, _ *mcp.CallToolRequest, input r
 		Status:           input.Status,
 		ResultSummary:    input.Summary,
 		AllowUnvalidated: input.AllowUnvalidated,
+		OverrideReason:   input.OverrideReason,
 		Actor:            s.actor,
 	})
 	if err != nil {
@@ -1491,6 +1503,12 @@ func friendlyTaskError(err error) error {
 		return errors.New("task is not ready")
 	case errors.Is(err, storage.ErrInvalidTaskTransition):
 		return errors.New("invalid task status transition")
+	case errors.Is(err, storage.ErrActiveRunExists):
+		return errors.New("task cannot be completed while an active run exists")
+	case errors.Is(err, storage.ErrTaskCompletionEvidenceRequired):
+		return errors.New("task completion evidence run with passed validation is required")
+	case errors.Is(err, storage.ErrOverrideReasonRequired):
+		return errors.New("override reason is required")
 	default:
 		return err
 	}
@@ -1502,6 +1520,8 @@ func friendlyRunError(err error) error {
 		return errors.New("run not found")
 	case errors.Is(err, storage.ErrRunValidationRequired):
 		return errors.New("passed validation evidence is required")
+	case errors.Is(err, storage.ErrOverrideReasonRequired):
+		return errors.New("override reason is required")
 	case errors.Is(err, storage.ErrRunResultSummaryEmpty):
 		return errors.New("run result summary is required")
 	case errors.Is(err, storage.ErrInvalidRunTransition):

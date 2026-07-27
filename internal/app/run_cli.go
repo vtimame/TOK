@@ -99,15 +99,17 @@ type runExecOptions struct {
 }
 
 type runAgentOptions struct {
-	taskID         int64
-	retrievalLimit int
-	command        []string
-	contextMode    string
-	timeout        time.Duration
-	limitBytes     int64
-	allowDangerous bool
-	allowActive    bool
-	json           bool
+	taskID           int64
+	retrievalLimit   int
+	command          []string
+	contextMode      string
+	timeout          time.Duration
+	limitBytes       int64
+	allowDangerous   bool
+	allowActive      bool
+	allowUnvalidated bool
+	overrideReason   string
+	json             bool
 }
 
 type runListOptions struct {
@@ -146,6 +148,7 @@ type runFinishOptions struct {
 	status           string
 	summary          string
 	allowUnvalidated bool
+	overrideReason   string
 	json             bool
 }
 
@@ -293,11 +296,10 @@ func (c *CLI) runRunExec(ctx context.Context, store *storage.Store, dataDir stri
 	}
 
 	finished, err := store.FinishRun(ctx, storage.FinishRunInput{
-		ID:               run.ID,
-		Status:           result.RunStatus,
-		ResultSummary:    result.Summary,
-		AllowUnvalidated: result.RunStatus == "succeeded",
-		Actor:            actor,
+		ID:            run.ID,
+		Status:        result.RunStatus,
+		ResultSummary: result.Summary,
+		Actor:         actor,
 	})
 	if err != nil {
 		return err
@@ -373,7 +375,8 @@ func (c *CLI) runRunAgent(ctx context.Context, store *storage.Store, dataDir str
 		ID:               run.ID,
 		Status:           result.RunStatus,
 		ResultSummary:    result.Summary,
-		AllowUnvalidated: result.RunStatus == "succeeded",
+		AllowUnvalidated: agentOpts.allowUnvalidated,
+		OverrideReason:   agentOpts.overrideReason,
 		Actor:            actor,
 	})
 	if err != nil {
@@ -610,6 +613,7 @@ func (c *CLI) runRunFinish(ctx context.Context, store *storage.Store, args []str
 		Status:           finishOpts.status,
 		ResultSummary:    finishOpts.summary,
 		AllowUnvalidated: finishOpts.allowUnvalidated,
+		OverrideReason:   finishOpts.overrideReason,
 		Actor:            actor,
 	})
 	if err != nil {
@@ -623,7 +627,10 @@ func (c *CLI) runRunFinish(ctx context.Context, store *storage.Store, args []str
 			return fmt.Errorf("run finish requires --summary")
 		}
 		if errors.Is(err, storage.ErrRunValidationRequired) {
-			return fmt.Errorf("run finish succeeded requires passed validation evidence; use run record-validation or --allow-unvalidated")
+			return fmt.Errorf("run finish succeeded requires passed validation evidence; use run record-validation or --allow-unvalidated with --override-reason")
+		}
+		if errors.Is(err, storage.ErrOverrideReasonRequired) {
+			return fmt.Errorf("run finish --allow-unvalidated requires --override-reason")
 		}
 		return err
 	}
@@ -994,6 +1001,19 @@ func parseRunAgentOptions(args []string) (runAgentOptions, error) {
 			opts.allowDangerous = true
 		case arg == "--allow-active":
 			opts.allowActive = true
+		case arg == "--allow-unvalidated":
+			opts.allowUnvalidated = true
+		case arg == "--override-reason":
+			i++
+			if i >= len(args) {
+				return runAgentOptions{}, &UsageError{Message: "--override-reason requires a value", Code: 2}
+			}
+			opts.overrideReason = args[i]
+		case strings.HasPrefix(arg, "--override-reason="):
+			opts.overrideReason = strings.TrimPrefix(arg, "--override-reason=")
+			if opts.overrideReason == "" {
+				return runAgentOptions{}, &UsageError{Message: "--override-reason requires a value", Code: 2}
+			}
 		case arg == "--json":
 			opts.json = true
 		default:
@@ -1022,6 +1042,10 @@ func parseRunAgentOptions(args []string) (runAgentOptions, error) {
 		if reason := dangerousRunCommandReason(opts.command); reason != "" {
 			return runAgentOptions{}, &UsageError{Message: fmt.Sprintf("run agent rejected dangerous command: %s; use --allow-dangerous to override", reason), Code: 2}
 		}
+	}
+	opts.overrideReason = strings.TrimSpace(opts.overrideReason)
+	if opts.allowUnvalidated && opts.overrideReason == "" {
+		return runAgentOptions{}, &UsageError{Message: "run agent --allow-unvalidated requires --override-reason", Code: 2}
 	}
 	return opts, nil
 }
@@ -1488,6 +1512,17 @@ func parseRunFinishOptions(args []string) (runFinishOptions, error) {
 			}
 		case arg == "--allow-unvalidated":
 			opts.allowUnvalidated = true
+		case arg == "--override-reason":
+			i++
+			if i >= len(args) {
+				return runFinishOptions{}, &UsageError{Message: "--override-reason requires a value", Code: 2}
+			}
+			opts.overrideReason = args[i]
+		case strings.HasPrefix(arg, "--override-reason="):
+			opts.overrideReason = strings.TrimPrefix(arg, "--override-reason=")
+			if opts.overrideReason == "" {
+				return runFinishOptions{}, &UsageError{Message: "--override-reason requires a value", Code: 2}
+			}
 		case arg == "--json":
 			opts.json = true
 		default:
@@ -1502,6 +1537,10 @@ func parseRunFinishOptions(args []string) (runFinishOptions, error) {
 	opts.summary = strings.TrimSpace(opts.summary)
 	if opts.summary == "" {
 		return runFinishOptions{}, &UsageError{Message: "run finish requires --summary", Code: 2}
+	}
+	opts.overrideReason = strings.TrimSpace(opts.overrideReason)
+	if opts.allowUnvalidated && opts.overrideReason == "" {
+		return runFinishOptions{}, &UsageError{Message: "run finish --allow-unvalidated requires --override-reason", Code: 2}
 	}
 	return opts, nil
 }
@@ -2534,6 +2573,28 @@ func executeRunCommand(ctx context.Context, store *storage.Store, dataDir string
 			execution.ExitCode = cmd.ProcessState.ExitCode()
 		}
 		execution.Summary = fmt.Sprintf("Exec failed with exit code %d.", execution.ExitCode)
+	}
+
+	validationStatus := "failed"
+	if execution.Status == "passed" {
+		validationStatus = "passed"
+	}
+	validationMetadata, err := executedValidationArtifactMetadata(runValidateOptions{
+		command:        opts.command,
+		timeout:        opts.timeout,
+		limitBytes:     opts.limitBytes,
+		allowDangerous: opts.allowDangerous,
+	}, redactor, safety, validationStatus, execution.ExitCode, duration, timedOut, stdoutArtifact.ID, stderrArtifact.ID)
+	if err != nil {
+		return runExecResult{}, err
+	}
+	if _, err := store.AddRunArtifact(ctx, storage.AddRunArtifactInput{
+		RunID:    run.ID,
+		Kind:     "validation",
+		Metadata: validationMetadata,
+		Actor:    actor,
+	}); err != nil {
+		return runExecResult{}, err
 	}
 
 	metadata, err := runExecArtifactMetadata(opts, redactor, safety, execution, stdoutArtifact.ID, stderrArtifact.ID)

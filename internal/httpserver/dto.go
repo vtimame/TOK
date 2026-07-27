@@ -133,7 +133,10 @@ type TaskUnblockInput struct {
 }
 
 type TaskDoneInput struct {
-	Note string `json:"note" validate:"required"`
+	Note             string `json:"note" validate:"required"`
+	EvidenceRunID    int64  `json:"evidence_run_id,omitempty"`
+	AllowUnvalidated bool   `json:"allow_unvalidated,omitempty"`
+	OverrideReason   string `json:"override_reason,omitempty"`
 }
 
 type TaskOutput struct {

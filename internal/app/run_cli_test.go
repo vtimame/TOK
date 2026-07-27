@@ -108,6 +108,7 @@ func TestCLIRunStartShowFinish(t *testing.T) {
 		"--status", "succeeded",
 		"--summary", "Implemented and tests pass.",
 		"--allow-unvalidated",
+		"--override-reason", "Manual test override.",
 		"--json",
 	}); err != nil {
 		t.Fatalf("run finish --json returned error: %v", err)
@@ -119,7 +120,7 @@ func TestCLIRunStartShowFinish(t *testing.T) {
 	if finished.Status != "succeeded" || finished.FinishedAt == "" || finished.ResultSummary != "Implemented and tests pass." {
 		t.Fatalf("unexpected finished run: %+v", finished)
 	}
-	assertHandoffArtifactOutput(t, finished.Artifacts, started.ID, handoffPath, sha256ContentHash(string(handoffContent)))
+	assertHandoffArtifactOutput(t, finished.Artifacts[:1], started.ID, handoffPath, sha256ContentHash(string(handoffContent)))
 
 	var taskOut bytes.Buffer
 	taskCLI := newProjectTestCLI(dataDir, &taskOut)
@@ -177,10 +178,10 @@ func TestCLIRunExecSuccess(t *testing.T) {
 	if run.ResultSummary != "Exec succeeded." {
 		t.Fatalf("unexpected run exec summary: %+v", run)
 	}
-	if len(run.Artifacts) != 4 {
-		t.Fatalf("expected handoff, stdout, stderr and log artifacts, got %+v", run.Artifacts)
+	if len(run.Artifacts) != 5 {
+		t.Fatalf("expected handoff, stdout, stderr, validation and log artifacts, got %+v", run.Artifacts)
 	}
-	if run.Artifacts[0].Kind != "handoff" || run.Artifacts[1].Kind != "stdout" || run.Artifacts[2].Kind != "stderr" || run.Artifacts[3].Kind != "log" {
+	if run.Artifacts[0].Kind != "handoff" || run.Artifacts[1].Kind != "stdout" || run.Artifacts[2].Kind != "stderr" || run.Artifacts[3].Kind != "validation" || run.Artifacts[4].Kind != "log" {
 		t.Fatalf("unexpected run exec artifacts: %+v", run.Artifacts)
 	}
 	handoffContent, err := os.ReadFile(run.Artifacts[0].Path)
@@ -220,8 +221,8 @@ func TestCLIRunExecSuccess(t *testing.T) {
 			EnvPolicy string `json:"env_policy"`
 		} `json:"safety"`
 	}
-	if err := json.Unmarshal([]byte(run.Artifacts[3].Metadata), &metadata); err != nil {
-		t.Fatalf("parse run exec metadata: %v\n%s", err, run.Artifacts[3].Metadata)
+	if err := json.Unmarshal([]byte(run.Artifacts[4].Metadata), &metadata); err != nil {
+		t.Fatalf("parse run exec metadata: %v\n%s", err, run.Artifacts[4].Metadata)
 	}
 	if metadata.Source != "run exec" || metadata.Status != "passed" || metadata.RunStatus != "succeeded" || metadata.ExitCode != 0 || metadata.TimedOut {
 		t.Fatalf("unexpected run exec metadata: %+v", metadata)
@@ -247,7 +248,7 @@ func TestCLIRunExecSuccess(t *testing.T) {
 	}
 }
 
-func TestCLIRunExecCurrentBehaviorSucceedsWithoutValidationArtifactExpectedToChange(t *testing.T) {
+func TestCLIRunExecRecordsValidationArtifact(t *testing.T) {
 	if _, err := exec.LookPath("sh"); err != nil {
 		t.Skipf("sh is required for run exec test: %v", err)
 	}
@@ -278,19 +279,19 @@ func TestCLIRunExecCurrentBehaviorSucceedsWithoutValidationArtifactExpectedToCha
 		t.Fatalf("parse run exec JSON: %v\n%s", err, execOut.String())
 	}
 	if run.Status != "succeeded" {
-		t.Fatalf("unexpected current run exec status: %+v", run)
+		t.Fatalf("unexpected run exec status: %+v", run)
 	}
-	for _, artifact := range run.Artifacts {
-		if artifact.Kind == "validation" {
-			t.Fatalf("current characterization expected no validation artifact, got %+v", run.Artifacts)
-		}
+	if len(run.Artifacts) != 5 || run.Artifacts[3].Kind != "validation" || run.Artifacts[4].Kind != "log" {
+		t.Fatalf("unexpected run exec artifacts: %+v", run.Artifacts)
 	}
-
-	// Expected-to-change in task 154: run exec should become a
-	// validation-producing command instead of relying on hidden
-	// AllowUnvalidated.
-	if len(run.Artifacts) != 4 || run.Artifacts[3].Kind != "log" {
-		t.Fatalf("unexpected current run exec artifacts: %+v", run.Artifacts)
+	var validation struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal([]byte(run.Artifacts[3].Metadata), &validation); err != nil {
+		t.Fatalf("parse run exec validation metadata: %v\n%s", err, run.Artifacts[3].Metadata)
+	}
+	if validation.Status != "passed" {
+		t.Fatalf("unexpected validation metadata: %+v", validation)
 	}
 }
 
@@ -322,7 +323,7 @@ func TestCLIRunExecFailureAndTimeout(t *testing.T) {
 	if err := json.Unmarshal(failureOut.Bytes(), &failed); err != nil {
 		t.Fatalf("parse failed run exec JSON: %v\n%s", err, failureOut.String())
 	}
-	if failed.Status != "failed" || failed.ResultSummary != "Exec failed with exit code 7." || len(failed.Artifacts) != 4 {
+	if failed.Status != "failed" || failed.ResultSummary != "Exec failed with exit code 7." || len(failed.Artifacts) != 5 {
 		t.Fatalf("unexpected failed run exec output: %+v", failed)
 	}
 	var failedMetadata struct {
@@ -330,8 +331,8 @@ func TestCLIRunExecFailureAndTimeout(t *testing.T) {
 		RunStatus string `json:"run_status"`
 		ExitCode  int    `json:"exit_code"`
 	}
-	if err := json.Unmarshal([]byte(failed.Artifacts[3].Metadata), &failedMetadata); err != nil {
-		t.Fatalf("parse failed run exec metadata: %v\n%s", err, failed.Artifacts[3].Metadata)
+	if err := json.Unmarshal([]byte(failed.Artifacts[4].Metadata), &failedMetadata); err != nil {
+		t.Fatalf("parse failed run exec metadata: %v\n%s", err, failed.Artifacts[4].Metadata)
 	}
 	if failedMetadata.Status != "failed" || failedMetadata.RunStatus != "failed" || failedMetadata.ExitCode != 7 {
 		t.Fatalf("unexpected failed run exec metadata: %+v", failedMetadata)
@@ -354,7 +355,7 @@ func TestCLIRunExecFailureAndTimeout(t *testing.T) {
 	if err := json.Unmarshal(timeoutOut.Bytes(), &timedOut); err != nil {
 		t.Fatalf("parse timeout run exec JSON: %v\n%s", err, timeoutOut.String())
 	}
-	if timedOut.Status != "cancelled" || timedOut.ResultSummary != "Exec timed out after 50ms." || len(timedOut.Artifacts) != 4 {
+	if timedOut.Status != "cancelled" || timedOut.ResultSummary != "Exec timed out after 50ms." || len(timedOut.Artifacts) != 5 {
 		t.Fatalf("unexpected timeout run exec output: %+v", timedOut)
 	}
 	var timeoutMetadata struct {
@@ -363,8 +364,8 @@ func TestCLIRunExecFailureAndTimeout(t *testing.T) {
 		TimedOut  bool   `json:"timed_out"`
 		Signal    string `json:"signal"`
 	}
-	if err := json.Unmarshal([]byte(timedOut.Artifacts[3].Metadata), &timeoutMetadata); err != nil {
-		t.Fatalf("parse timeout run exec metadata: %v\n%s", err, timedOut.Artifacts[3].Metadata)
+	if err := json.Unmarshal([]byte(timedOut.Artifacts[4].Metadata), &timeoutMetadata); err != nil {
+		t.Fatalf("parse timeout run exec metadata: %v\n%s", err, timedOut.Artifacts[4].Metadata)
 	}
 	if timeoutMetadata.Status != "cancelled" || timeoutMetadata.RunStatus != "cancelled" || !timeoutMetadata.TimedOut || timeoutMetadata.Signal != "SIGTERM" {
 		t.Fatalf("unexpected timeout run exec metadata: %+v", timeoutMetadata)
@@ -407,6 +408,8 @@ func TestCLIRunAgentAdapterContextModesAndResultMapping(t *testing.T) {
 				"--context", mode,
 				"--timeout", "2s",
 				"--limit-bytes", "64",
+				"--allow-unvalidated",
+				"--override-reason", "Adapter success is asserted by test fixture.",
 				"--json",
 				"--",
 				fakeAdapter, title, "succeeded", "Adapter completed.", "0",
@@ -423,8 +426,8 @@ func TestCLIRunAgentAdapterContextModesAndResultMapping(t *testing.T) {
 			if run.BaseBranch != "main" || run.BaseHead != initialHead || run.RetrievalLimit != 2 {
 				t.Fatalf("run agent did not preserve git/context snapshot: %+v", run)
 			}
-			if len(run.Artifacts) != 4 {
-				t.Fatalf("expected handoff, stdout, stderr and log artifacts, got %+v", run.Artifacts)
+			if len(run.Artifacts) != 5 {
+				t.Fatalf("expected handoff, stdout, stderr, log and override artifacts, got %+v", run.Artifacts)
 			}
 			if run.Artifacts[0].Kind != "handoff" || run.Artifacts[1].Kind != "stdout" || run.Artifacts[2].Kind != "stderr" || run.Artifacts[3].Kind != "log" {
 				t.Fatalf("unexpected run agent artifacts: %+v", run.Artifacts)
@@ -508,7 +511,7 @@ func TestCLIRunAgentAdapterContextModesAndResultMapping(t *testing.T) {
 	}
 }
 
-func TestCLIRunAgentCurrentBehaviorSucceedsWithoutValidationArtifactExpectedToChange(t *testing.T) {
+func TestCLIRunAgentRequiresValidationOrOverride(t *testing.T) {
 	if _, err := exec.LookPath("sh"); err != nil {
 		t.Skipf("sh is required for run agent test: %v", err)
 	}
@@ -524,34 +527,16 @@ func TestCLIRunAgentCurrentBehaviorSucceedsWithoutValidationArtifactExpectedToCh
 	}
 	taskID := createTaskForTest(t, ctx, dataDir, "tok", "Run agent hidden bypass")
 
-	var agentOut bytes.Buffer
-	agentCLI := newProjectTestCLI(dataDir, &agentOut)
-	if err := agentCLI.Run(ctx, []string{
+	agentCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	err := agentCLI.Run(ctx, []string{
 		"run", "agent",
 		"--task", strconv.FormatInt(taskID, 10),
 		"--json",
 		"--",
 		fakeAdapter, "Run agent hidden bypass", "succeeded", "Adapter completed.", "0",
-	}); err != nil {
-		t.Fatalf("current run agent returned error: %v", err)
-	}
-	var run runOutput
-	if err := json.Unmarshal(agentOut.Bytes(), &run); err != nil {
-		t.Fatalf("parse run agent JSON: %v\n%s", err, agentOut.String())
-	}
-	if run.Status != "succeeded" {
-		t.Fatalf("unexpected current run agent status: %+v", run)
-	}
-	for _, artifact := range run.Artifacts {
-		if artifact.Kind == "validation" {
-			t.Fatalf("current characterization expected no validation artifact, got %+v", run.Artifacts)
-		}
-	}
-
-	// Expected-to-change in task 154: agent adapter success should not be
-	// treated as validation evidence by itself.
-	if len(run.Artifacts) != 4 || run.Artifacts[3].Kind != "log" {
-		t.Fatalf("unexpected current run agent artifacts: %+v", run.Artifacts)
+	})
+	if err == nil || !strings.Contains(err.Error(), "passed validation evidence") {
+		t.Fatalf("expected validation required error, got %v", err)
 	}
 }
 
@@ -1637,6 +1622,7 @@ func TestCLIRunFinishValidation(t *testing.T) {
 		"--status", "succeeded",
 		"--summary", "Explicit override.",
 		"--allow-unvalidated",
+		"--override-reason", "Manual test override.",
 	}); err != nil {
 		t.Fatalf("run finish override returned error: %v", err)
 	}

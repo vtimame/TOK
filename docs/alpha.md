@@ -29,8 +29,11 @@ TOK is local-first and intentionally explicit.
 
 - Tasks are not closed automatically when a run finishes.
 - A task cannot be completed while it has a non-terminal run.
+- Completing a task requires a succeeded evidence run with passed validation,
+  unless an explicit override reason is recorded.
+- `tok run exec` records validation evidence from the command result.
 - A run can finish as `succeeded` only after passed validation evidence exists,
-  unless `--allow-unvalidated` is used explicitly.
+  unless `--allow-unvalidated --override-reason <text>` is used explicitly.
 - Active runs carry a local lease and heartbeat.
 - Stale active runs can be recovered.
 - Local commands run in the project workspace, but TOK is not a sandbox.

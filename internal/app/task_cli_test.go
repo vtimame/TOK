@@ -233,8 +233,18 @@ func TestCLITaskDependencyReadyAndClaimFlow(t *testing.T) {
 	}
 
 	statusCLI = newProjectTestCLI(dataDir, &bytes.Buffer{})
-	if err := statusCLI.Run(ctx, []string{"task", "status", strconv.FormatInt(blockerID, 10), "done"}); err != nil {
-		t.Fatalf("task status done returned error: %v", err)
+	if err := statusCLI.Run(ctx, []string{"task", "status", strconv.FormatInt(blockerID, 10), "in_progress"}); err != nil {
+		t.Fatalf("task status blocker in_progress returned error: %v", err)
+	}
+	doneCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	if err := doneCLI.Run(ctx, []string{
+		"task", "done",
+		strconv.FormatInt(blockerID, 10),
+		"--note", "Dependency blocker resolved.",
+		"--allow-unvalidated",
+		"--override-reason", "Dependency ready fixture override.",
+	}); err != nil {
+		t.Fatalf("task done blocker returned error: %v", err)
 	}
 
 	readyOut.Reset()
@@ -413,7 +423,14 @@ func TestCLITaskMutationJSONOutputs(t *testing.T) {
 
 	var doneOut bytes.Buffer
 	doneCLI := newProjectTestCLI(dataDir, &doneOut)
-	if err := doneCLI.Run(ctx, []string{"task", "done", strconv.FormatInt(created.ID, 10), "--note", "JSON done.", "--json"}); err != nil {
+	if err := doneCLI.Run(ctx, []string{
+		"task", "done",
+		strconv.FormatInt(created.ID, 10),
+		"--note", "JSON done.",
+		"--allow-unvalidated",
+		"--override-reason", "Task mutation JSON test override.",
+		"--json",
+	}); err != nil {
 		t.Fatalf("task done --json returned error: %v", err)
 	}
 	var doneTask readyTaskOutput
@@ -502,7 +519,13 @@ func TestCLITaskDoneFlow(t *testing.T) {
 
 	var doneOut bytes.Buffer
 	doneCLI := newProjectTestCLI(dataDir, &doneOut)
-	if err := doneCLI.Run(ctx, []string{"task", "done", strconv.FormatInt(taskID, 10), "--note", "Implemented and tests pass."}); err != nil {
+	if err := doneCLI.Run(ctx, []string{
+		"task", "done",
+		strconv.FormatInt(taskID, 10),
+		"--note", "Implemented and tests pass.",
+		"--allow-unvalidated",
+		"--override-reason", "Task done flow test override.",
+	}); err != nil {
 		t.Fatalf("task done returned error: %v", err)
 	}
 	if !strings.Contains(doneOut.String(), "status: done") {
@@ -517,7 +540,9 @@ func TestCLITaskDoneFlow(t *testing.T) {
 	for _, want := range []string{
 		"type: claimed from: open to: in_progress",
 		"type: completed from: in_progress to: done",
+		"type: completion_override from: in_progress to: done",
 		"body: Implemented and tests pass.",
+		"body: Task done flow test override.",
 	} {
 		if !strings.Contains(showOut.String(), want) {
 			t.Fatalf("task show output missing %q:\n%s", want, showOut.String())
@@ -525,7 +550,7 @@ func TestCLITaskDoneFlow(t *testing.T) {
 	}
 }
 
-func TestCLITaskDoneCurrentBehaviorAllowsMissingEvidenceExpectedToChange(t *testing.T) {
+func TestCLITaskDoneRejectsMissingEvidence(t *testing.T) {
 	ctx := context.Background()
 	dataDir := t.TempDir()
 	projectDir := t.TempDir()
@@ -543,26 +568,9 @@ func TestCLITaskDoneCurrentBehaviorAllowsMissingEvidenceExpectedToChange(t *test
 
 	var doneOut bytes.Buffer
 	doneCLI := newProjectTestCLI(dataDir, &doneOut)
-	if err := doneCLI.Run(ctx, []string{"task", "done", strconv.FormatInt(taskID, 10), "--note", "Done without evidence."}); err != nil {
-		t.Fatalf("current task done without evidence returned error: %v", err)
-	}
-	if !strings.Contains(doneOut.String(), "status: done") {
-		t.Fatalf("unexpected task done output:\n%s", doneOut.String())
-	}
-
-	// Expected-to-change in task 153: CLI task done should require a succeeded
-	// evidence run with passed validation or an audited override.
-	var showOut bytes.Buffer
-	showCLI := newProjectTestCLI(dataDir, &showOut)
-	if err := showCLI.Run(ctx, []string{"task", "show", strconv.FormatInt(taskID, 10), "--json"}); err != nil {
-		t.Fatalf("task show returned error: %v", err)
-	}
-	var shown taskShowOutput
-	if err := json.Unmarshal(showOut.Bytes(), &shown); err != nil {
-		t.Fatalf("parse task show JSON: %v\n%s", err, showOut.String())
-	}
-	if shown.Task.Status != "done" || len(shown.Events) != 3 || shown.Events[2].Type != "completed" {
-		t.Fatalf("unexpected current task done characterization: %+v", shown)
+	err := doneCLI.Run(ctx, []string{"task", "done", strconv.FormatInt(taskID, 10), "--note", "Done without evidence."})
+	if err == nil || !strings.Contains(err.Error(), "requires a succeeded evidence run") {
+		t.Fatalf("expected missing evidence error, got %v", err)
 	}
 }
 

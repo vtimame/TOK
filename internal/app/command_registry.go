@@ -104,7 +104,13 @@ func tokCommandSpec() *commandSpec {
 					}},
 					{Name: "show", Summary: "Show task details and events", Usage: "tok task show <task-id> [--json]", Flags: []flagSpec{{Name: "--json", Summary: "Print JSON output"}}},
 					{Name: "status", Summary: "Set task status directly", Usage: "tok task status <task-id> <status> [--json]", Flags: []flagSpec{{Name: "--json", Summary: "Print JSON output"}}, ValuesByKey: map[string][]string{"status": taskStatusChoices()}},
-					{Name: "done", Summary: "Complete an in-progress task", Usage: "tok task done <task-id> --note <text> [--json]", Flags: []flagSpec{{Name: "--note", ValueName: "<text>", Summary: "Completion note"}, {Name: "--json", Summary: "Print JSON output"}}},
+					{Name: "done", Summary: "Complete an in-progress task", Usage: "tok task done <task-id> --note <text> [--evidence-run <run-id>] [--allow-unvalidated --override-reason <text>] [--json]", Flags: []flagSpec{
+						{Name: "--note", ValueName: "<text>", Summary: "Completion note"},
+						{Name: "--evidence-run", ValueName: "<run-id>", Summary: "Succeeded run with passed validation evidence"},
+						{Name: "--allow-unvalidated", Summary: "Complete without validation evidence"},
+						{Name: "--override-reason", ValueName: "<text>", Summary: "Required reason for --allow-unvalidated"},
+						{Name: "--json", Summary: "Print JSON output"},
+					}},
 					{Name: "comment", Summary: "Add a task comment", Usage: "tok task comment <task-id> --body <text> [--json]", Flags: []flagSpec{{Name: "--body", ValueName: "<text>", Summary: "Comment body"}, {Name: "--json", Summary: "Print JSON output"}}},
 					{Name: "progress", Summary: "Record task progress", Usage: "tok task progress <task-id> --body <text> [--json]", Flags: []flagSpec{{Name: "--body", ValueName: "<text>", Summary: "Progress note"}, {Name: "--json", Summary: "Print JSON output"}}},
 					{Name: "block", Summary: "Block a task", Usage: "tok task block <task-id> --reason <text> [--json]", Flags: []flagSpec{{Name: "--reason", ValueName: "<text>", Summary: "Blocker reason"}, {Name: "--json", Summary: "Print JSON output"}}},
@@ -228,7 +234,7 @@ func tokCommandSpec() *commandSpec {
 						{Name: "--allow-dangerous", Summary: "Allow commands rejected by the safety policy"},
 						{Name: "--json", Summary: "Print JSON output"},
 					}},
-					{Name: "agent", Summary: "Run a local agent adapter as a bounded run attempt", Usage: "tok run agent --task <task-id> [--limit <n>] [--context <file|stdin|env>] [--timeout <duration>] [--limit-bytes <n>] [--allow-active] [--allow-dangerous] [--json] -- <adapter-command...>", Flags: []flagSpec{
+					{Name: "agent", Summary: "Run a local agent adapter as a bounded run attempt", Usage: "tok run agent --task <task-id> [--limit <n>] [--context <file|stdin|env>] [--timeout <duration>] [--limit-bytes <n>] [--allow-active] [--allow-dangerous] [--allow-unvalidated --override-reason <text>] [--json] -- <adapter-command...>", Flags: []flagSpec{
 						{Name: "--task", ValueName: "<task-id>", Summary: "Task id"},
 						{Name: "--limit", ValueName: "<n>", Summary: "Maximum retrieval result count"},
 						{Name: "--context", ValueName: "<file|stdin|env>", Summary: "Context delivery channel", ValueChoices: []string{"file", "stdin", "env"}},
@@ -236,6 +242,8 @@ func tokCommandSpec() *commandSpec {
 						{Name: "--limit-bytes", ValueName: "<n>", Summary: "Maximum stdout/stderr bytes to store"},
 						{Name: "--allow-active", Summary: "Allow another active run for the task"},
 						{Name: "--allow-dangerous", Summary: "Allow commands rejected by the safety policy"},
+						{Name: "--allow-unvalidated", Summary: "Allow succeeded without passed validation evidence"},
+						{Name: "--override-reason", ValueName: "<text>", Summary: "Required reason for --allow-unvalidated"},
 						{Name: "--json", Summary: "Print JSON output"},
 					}},
 					{Name: "show", Summary: "Show a run", Usage: "tok run show <run-id> [--json]", Flags: []flagSpec{{Name: "--json", Summary: "Print JSON output"}}},
@@ -271,10 +279,11 @@ func tokCommandSpec() *commandSpec {
 						{Name: "--summary", ValueName: "<text>", Summary: "Cancellation summary"},
 						{Name: "--json", Summary: "Print JSON output"},
 					}},
-					{Name: "finish", Summary: "Finish a run", Usage: "tok run finish <run-id> --status <status> --summary <text> [--allow-unvalidated] [--json]", Flags: []flagSpec{
+					{Name: "finish", Summary: "Finish a run", Usage: "tok run finish <run-id> --status <status> --summary <text> [--allow-unvalidated --override-reason <text>] [--json]", Flags: []flagSpec{
 						{Name: "--status", ValueName: "<status>", Summary: "Final run status", ValueChoices: []string{"succeeded", "failed", "blocked", "cancelled"}},
 						{Name: "--summary", ValueName: "<text>", Summary: "Result summary"},
 						{Name: "--allow-unvalidated", Summary: "Allow succeeded without passed validation evidence"},
+						{Name: "--override-reason", ValueName: "<text>", Summary: "Required reason for --allow-unvalidated"},
 						{Name: "--json", Summary: "Print JSON output"},
 					}},
 				},

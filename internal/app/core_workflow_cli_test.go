@@ -271,7 +271,13 @@ func TestCLICoreWorkflowEndToEnd(t *testing.T) {
 	}
 
 	doneBlockedCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
-	if err := doneBlockedCLI.Run(ctx, []string{"task", "done", strconv.FormatInt(blockedID, 10), "--note", "Workflow completed."}); err != nil {
+	if err := doneBlockedCLI.Run(ctx, []string{
+		"task", "done",
+		strconv.FormatInt(blockedID, 10),
+		"--note", "Workflow completed.",
+		"--allow-unvalidated",
+		"--override-reason", "Workflow test covers block and unblock, not validation.",
+	}); err != nil {
 		t.Fatalf("task done blocked returned error: %v", err)
 	}
 
@@ -287,7 +293,7 @@ func TestCLICoreWorkflowEndToEnd(t *testing.T) {
 	if shown.Task.Status != "done" {
 		t.Fatalf("expected final task to be done, got %+v", shown.Task)
 	}
-	wantEvents := []string{"created", "claimed", "blocked", "unblocked", "claimed", "completed"}
+	wantEvents := []string{"created", "claimed", "blocked", "unblocked", "claimed", "completed", "completion_override"}
 	if len(shown.Events) != len(wantEvents) {
 		t.Fatalf("unexpected final task events: %+v", shown.Events)
 	}
@@ -340,8 +346,8 @@ func TestCLIRunnerProductionSmokeEndToEnd(t *testing.T) {
 		if execRun.Status != "succeeded" || execRun.ResultSummary != "Exec succeeded." || execRun.BaseHead != initialHead {
 			t.Fatalf("unexpected exec run: %+v", execRun)
 		}
-		if len(execRun.Artifacts) != 4 || execRun.Artifacts[0].Kind != "handoff" || execRun.Artifacts[1].Kind != "stdout" || execRun.Artifacts[2].Kind != "stderr" || execRun.Artifacts[3].Kind != "log" {
-			t.Fatalf("exec run did not record handoff/stdout/stderr/log artifacts: %+v", execRun.Artifacts)
+		if len(execRun.Artifacts) != 5 || execRun.Artifacts[0].Kind != "handoff" || execRun.Artifacts[1].Kind != "stdout" || execRun.Artifacts[2].Kind != "stderr" || execRun.Artifacts[3].Kind != "validation" || execRun.Artifacts[4].Kind != "log" {
+			t.Fatalf("exec run did not record handoff/stdout/stderr/validation/log artifacts: %+v", execRun.Artifacts)
 		}
 		assertFileContent(t, execRun.Artifacts[1].Path, "prod-out")
 		assertFileContent(t, execRun.Artifacts[2].Path, "prod-err")
@@ -422,7 +428,7 @@ func TestCLIRunnerProductionSmokeEndToEnd(t *testing.T) {
 		if cancelled.Status != "cancelled" || cancelled.ResultSummary != "Exec timed out after 50ms." {
 			t.Fatalf("unexpected cancelled exec run: %+v", cancelled)
 		}
-		if len(cancelled.Artifacts) != 4 || cancelled.Artifacts[2].Kind != "stderr" {
+		if len(cancelled.Artifacts) != 5 || cancelled.Artifacts[2].Kind != "stderr" || cancelled.Artifacts[3].Kind != "validation" || cancelled.Artifacts[4].Kind != "log" {
 			t.Fatalf("cancelled exec missing expected artifacts: %+v", cancelled.Artifacts)
 		}
 		stderrContent, err := os.ReadFile(cancelled.Artifacts[2].Path)

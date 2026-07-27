@@ -390,7 +390,7 @@ func suggestedCommands(project storage.Project, task storage.Task) []string {
 		"tok task show " + taskID + " --json",
 		"tok context build --project " + project.Name + " --task " + taskID + " --output context.md",
 		"tok task comment " + taskID + " --body \"Progress update.\"",
-		"tok task done " + taskID + " --note \"Done, tests pass.\"",
+		"tok task done " + taskID + " --note \"Done, tests pass.\" --evidence-run <run-id>",
 	}
 }
 

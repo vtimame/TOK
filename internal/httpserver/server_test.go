@@ -584,23 +584,8 @@ func TestServerTaskDoneCurrentBehaviorAllowsMissingEvidenceExpectedToChange(t *t
 		Note: "Done without evidence.",
 	})
 	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		t.Fatalf("current POST /api/tasks/{id}/done status = %d body=%s", res.StatusCode, readBody(t, res))
-	}
-	var completed TaskResponse
-	decodeJSON(t, res, &completed)
-	if completed.Task.Status != "done" {
-		t.Fatalf("unexpected current task done response: %+v", completed)
-	}
-
-	// Expected-to-change in task 153: HTTP task completion should use the same
-	// evidence policy as CLI/MCP/storage.
-	runs, err := store.ListRuns(ctx, storage.ListRunsOptions{TaskID: task.ID})
-	if err != nil {
-		t.Fatalf("ListRuns returned error: %v", err)
-	}
-	if len(runs) != 0 {
-		t.Fatalf("expected no evidence runs in current characterization, got %+v", runs)
+	if res.StatusCode != http.StatusConflict {
+		t.Fatalf("POST /api/tasks/{id}/done status = %d body=%s", res.StatusCode, readBody(t, res))
 	}
 }
 
@@ -741,7 +726,13 @@ func TestServerAggregatesAgentsFromTaskHistory(t *testing.T) {
 	if _, err := store.ClaimTaskByActor(ctx, project.ID, doneTask.ID, storage.ActorRefFromActor(agent.Agent)); err != nil {
 		t.Fatalf("ClaimTaskByActor done returned error: %v", err)
 	}
-	if _, err := store.CompleteTaskByActor(ctx, doneTask.ID, "Done.", storage.ActorRefFromActor(agent.Agent)); err != nil {
+	if _, err := store.CompleteTaskWithOptions(ctx, storage.CompleteTaskInput{
+		ID:               doneTask.ID,
+		Note:             "Done.",
+		AllowUnvalidated: true,
+		OverrideReason:   "HTTP aggregate fixture override.",
+		Actor:            storage.ActorRefFromActor(agent.Agent),
+	}); err != nil {
 		t.Fatalf("CompleteTaskByActor returned error: %v", err)
 	}
 	if _, err := store.AddTaskCommentByActor(ctx, task.ID, "HTTP aggregate is ready.", storage.ActorRefFromActor(agent.Agent)); err != nil {
@@ -856,10 +847,10 @@ func TestServerAggregatesAgentsFromTaskHistory(t *testing.T) {
 		t.Fatalf("expected two registered agents, got %+v", agents)
 	}
 	active := findAgentOutput(t, agents.Agents, agent.Agent.ID)
-	if active.Name != "Codex Backend" || active.TasksCount != 4 || active.EventsCount != 5 || active.LastActivityAt == "" {
+	if active.Name != "Codex Backend" || active.TasksCount != 4 || active.EventsCount != 6 || active.LastActivityAt == "" {
 		t.Fatalf("unexpected active agent aggregate: %+v", active)
 	}
-	if len(active.Projects) != 1 || active.Projects[0].ID != project.ID || active.Projects[0].TasksCount != 4 || active.Projects[0].EventsCount != 5 {
+	if len(active.Projects) != 1 || active.Projects[0].ID != project.ID || active.Projects[0].TasksCount != 4 || active.Projects[0].EventsCount != 6 {
 		t.Fatalf("unexpected active agent projects: %+v", active.Projects)
 	}
 	idle := findAgentOutput(t, agents.Agents, idleAgent.Agent.ID)

@@ -89,7 +89,7 @@ tok task claim --project my-project <task-id>
 tok task progress <task-id> --body "Implemented the first slice."
 tok task block <task-id> --reason "Waiting for API decision."
 tok task unblock <task-id> --note "Decision recorded."
-tok task done <task-id> --note "Implemented and validated."
+tok task done <task-id> --note "Implemented and validated." --evidence-run <run-id>
 tok task show <task-id> --json
 ```
 
@@ -120,16 +120,22 @@ tok run start --task <task-id> --handoff-output handoff.md --json
 tok run exec --task <task-id> --timeout 10m --json -- go test ./...
 tok run validate <run-id> --timeout 2m --json -- go test ./...
 tok run finish <run-id> --status succeeded --summary "Validation passed."
+tok run finish <run-id> --status succeeded --summary "Manual override." --allow-unvalidated --override-reason "Why validation was skipped."
 tok run list --project my-project --status in_progress --json
 tok run show <run-id> --json
 tok run heartbeat <run-id> --ttl 15m --json
 tok run recover --summary "Recovered stale run." --json
 ```
 
+`tok run exec` records validation evidence from the command result. Completing a
+task requires a succeeded run with passed validation evidence, unless
+`--allow-unvalidated --override-reason <text>` is used explicitly.
+
 ## Agent Adapter Runs
 
 `tok run agent` invokes a local adapter command and passes the task context via
-file, stdin or environment variable.
+file, stdin or environment variable. Adapter success is not validation evidence
+by itself; record validation separately, or use an explicit audited override.
 
 ```bash
 tok run agent \

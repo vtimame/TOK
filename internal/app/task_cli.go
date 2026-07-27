@@ -197,6 +197,12 @@ func (c *CLI) runTaskStatus(ctx context.Context, store *storage.Store, args []st
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("task not found: %d", statusOpts.taskID)
 		}
+		if errors.Is(err, storage.ErrActiveRunExists) {
+			return fmt.Errorf("task cannot be marked done while an active run exists")
+		}
+		if errors.Is(err, storage.ErrTaskCompletionEvidenceRequired) {
+			return fmt.Errorf("task status done requires a succeeded run with passed validation; use task done with --allow-unvalidated and --override-reason for an audited override")
+		}
 		return err
 	}
 
@@ -208,9 +214,12 @@ func (c *CLI) runTaskStatus(ctx context.Context, store *storage.Store, args []st
 }
 
 type taskDoneOptions struct {
-	taskID int64
-	note   string
-	json   bool
+	taskID           int64
+	note             string
+	evidenceRunID    int64
+	allowUnvalidated bool
+	overrideReason   string
+	json             bool
 }
 
 type taskShowOptions struct {
@@ -229,7 +238,14 @@ func (c *CLI) runTaskDone(ctx context.Context, store *storage.Store, args []stri
 		return err
 	}
 
-	task, err := store.CompleteTaskByActor(ctx, doneOpts.taskID, doneOpts.note, actor)
+	task, err := store.CompleteTaskWithOptions(ctx, storage.CompleteTaskInput{
+		ID:               doneOpts.taskID,
+		Note:             doneOpts.note,
+		EvidenceRunID:    doneOpts.evidenceRunID,
+		AllowUnvalidated: doneOpts.allowUnvalidated,
+		OverrideReason:   doneOpts.overrideReason,
+		Actor:            actor,
+	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("task not found: %d", doneOpts.taskID)
@@ -239,6 +255,12 @@ func (c *CLI) runTaskDone(ctx context.Context, store *storage.Store, args []stri
 		}
 		if errors.Is(err, storage.ErrActiveRunExists) {
 			return fmt.Errorf("task cannot be completed while an active run exists")
+		}
+		if errors.Is(err, storage.ErrTaskCompletionEvidenceRequired) {
+			return fmt.Errorf("task done requires a succeeded evidence run with passed validation; use --evidence-run or --allow-unvalidated with --override-reason")
+		}
+		if errors.Is(err, storage.ErrOverrideReasonRequired) {
+			return fmt.Errorf("task done --allow-unvalidated requires --override-reason")
 		}
 		return err
 	}
@@ -813,6 +835,9 @@ func parseTaskDoneOptions(args []string) (taskDoneOptions, error) {
 	var taskID int64
 	var note string
 	var jsonOutput bool
+	var evidenceRunID int64
+	var allowUnvalidated bool
+	var overrideReason string
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		switch {
@@ -826,6 +851,35 @@ func parseTaskDoneOptions(args []string) (taskDoneOptions, error) {
 			note = strings.TrimPrefix(arg, "--note=")
 			if note == "" {
 				return taskDoneOptions{}, &UsageError{Message: "--note requires a value", Code: 2}
+			}
+		case arg == "--evidence-run":
+			i++
+			if i >= len(args) {
+				return taskDoneOptions{}, &UsageError{Message: "--evidence-run requires a value", Code: 2}
+			}
+			id, err := parseRunID(args[i])
+			if err != nil {
+				return taskDoneOptions{}, err
+			}
+			evidenceRunID = id
+		case strings.HasPrefix(arg, "--evidence-run="):
+			id, err := parseRunID(strings.TrimPrefix(arg, "--evidence-run="))
+			if err != nil {
+				return taskDoneOptions{}, err
+			}
+			evidenceRunID = id
+		case arg == "--allow-unvalidated":
+			allowUnvalidated = true
+		case arg == "--override-reason":
+			i++
+			if i >= len(args) {
+				return taskDoneOptions{}, &UsageError{Message: "--override-reason requires a value", Code: 2}
+			}
+			overrideReason = args[i]
+		case strings.HasPrefix(arg, "--override-reason="):
+			overrideReason = strings.TrimPrefix(arg, "--override-reason=")
+			if overrideReason == "" {
+				return taskDoneOptions{}, &UsageError{Message: "--override-reason requires a value", Code: 2}
 			}
 		case arg == "--json":
 			jsonOutput = true
@@ -850,8 +904,19 @@ func parseTaskDoneOptions(args []string) (taskDoneOptions, error) {
 	if note == "" {
 		return taskDoneOptions{}, &UsageError{Message: "task done requires --note", Code: 2}
 	}
+	overrideReason = strings.TrimSpace(overrideReason)
+	if allowUnvalidated && overrideReason == "" {
+		return taskDoneOptions{}, &UsageError{Message: "task done --allow-unvalidated requires --override-reason", Code: 2}
+	}
 
-	return taskDoneOptions{taskID: taskID, note: note, json: jsonOutput}, nil
+	return taskDoneOptions{
+		taskID:           taskID,
+		note:             note,
+		evidenceRunID:    evidenceRunID,
+		allowUnvalidated: allowUnvalidated,
+		overrideReason:   overrideReason,
+		json:             jsonOutput,
+	}, nil
 }
 
 func parseRequiredProjectOption(args []string, command string) (string, error) {

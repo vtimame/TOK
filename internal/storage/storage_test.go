@@ -337,8 +337,16 @@ func TestListReadyTasksExcludesActiveBlockedAndNonOpenTasks(t *testing.T) {
 		t.Fatalf("expected only blocker to be ready, got %+v", ready)
 	}
 
-	if _, err := store.UpdateTaskStatus(ctx, blocker.ID, "done"); err != nil {
-		t.Fatalf("UpdateTaskStatus done returned error: %v", err)
+	if _, err := store.UpdateTaskStatus(ctx, blocker.ID, "in_progress"); err != nil {
+		t.Fatalf("UpdateTaskStatus in_progress returned error: %v", err)
+	}
+	if _, err := store.CompleteTaskWithOptions(ctx, CompleteTaskInput{
+		ID:               blocker.ID,
+		Note:             "Dependency blocker resolved.",
+		AllowUnvalidated: true,
+		OverrideReason:   "Ready task fixture override.",
+	}); err != nil {
+		t.Fatalf("CompleteTaskWithOptions override returned error: %v", err)
 	}
 
 	ready, err = store.ListReadyTasks(ctx, project.ID)
@@ -408,8 +416,13 @@ func TestClaimTasksAtomicallyMarksReadyTaskInProgress(t *testing.T) {
 		t.Fatalf("expected blocked task to be not ready, got %v", err)
 	}
 
-	if _, err := store.UpdateTaskStatus(ctx, blocker.ID, "done"); err != nil {
-		t.Fatalf("UpdateTaskStatus done returned error: %v", err)
+	if _, err := store.CompleteTaskWithOptions(ctx, CompleteTaskInput{
+		ID:               blocker.ID,
+		Note:             "Dependency blocker resolved.",
+		AllowUnvalidated: true,
+		OverrideReason:   "Claim task fixture override.",
+	}); err != nil {
+		t.Fatalf("CompleteTaskWithOptions override returned error: %v", err)
 	}
 	claimedBlocked, err := store.ClaimTask(ctx, project.ID, blocked.ID)
 	if err != nil {
@@ -872,19 +885,34 @@ func TestRunSucceededRequiresPassedValidationOrOverride(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateRun override returned error: %v", err)
 	}
-	// Expected-to-change in tasks 153/154: unvalidated overrides should require
-	// a non-empty reason and leave explicit audit evidence.
+	_, err = store.FinishRun(ctx, FinishRunInput{
+		ID:               overrideRun.ID,
+		Status:           "succeeded",
+		ResultSummary:    "Explicit override.",
+		AllowUnvalidated: true,
+	})
+	if !errors.Is(err, ErrOverrideReasonRequired) {
+		t.Fatalf("expected override reason error, got %v", err)
+	}
 	overridden, err := store.FinishRun(ctx, FinishRunInput{
 		ID:               overrideRun.ID,
 		Status:           "succeeded",
 		ResultSummary:    "Explicit override.",
 		AllowUnvalidated: true,
+		OverrideReason:   "Manual operator override for characterization.",
 	})
 	if err != nil {
 		t.Fatalf("FinishRun override returned error: %v", err)
 	}
 	if overridden.Status != "succeeded" {
 		t.Fatalf("unexpected override run: %+v", overridden)
+	}
+	artifacts, err := store.ListRunArtifacts(ctx, overrideRun.ID)
+	if err != nil {
+		t.Fatalf("ListRunArtifacts override returned error: %v", err)
+	}
+	if len(artifacts) != 1 || artifacts[0].Kind != "log" || !strings.Contains(artifacts[0].Metadata, "Manual operator override") {
+		t.Fatalf("expected override audit artifact, got %+v", artifacts)
 	}
 }
 
@@ -921,16 +949,13 @@ func TestCompleteTaskRejectsActiveRun(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("FinishRun failed returned error: %v", err)
 	}
-	completed, err := store.CompleteTask(ctx, task.ID, "Closed after terminal run.")
-	if err != nil {
-		t.Fatalf("CompleteTask after terminal run returned error: %v", err)
-	}
-	if completed.Status != "done" {
-		t.Fatalf("unexpected completed task: %+v", completed)
+	_, err = store.CompleteTask(ctx, task.ID, "Closed after terminal run.")
+	if !errors.Is(err, ErrTaskCompletionEvidenceRequired) {
+		t.Fatalf("expected evidence required after failed terminal run, got %v", err)
 	}
 }
 
-func TestCompleteTaskCurrentBehaviorAllowsMissingEvidenceExpectedToChange(t *testing.T) {
+func TestCompleteTaskRejectsMissingEvidence(t *testing.T) {
 	ctx := context.Background()
 	store := openInitializedTestStore(t)
 
@@ -939,26 +964,17 @@ func TestCompleteTaskCurrentBehaviorAllowsMissingEvidenceExpectedToChange(t *tes
 		t.Fatalf("UpdateTaskStatus returned error: %v", err)
 	}
 
-	completed, err := store.CompleteTask(ctx, task.ID, "Completed without run evidence.")
-	if err != nil {
-		t.Fatalf("current CompleteTask without evidence returned error: %v", err)
+	_, err := store.CompleteTask(ctx, task.ID, "Completed without run evidence.")
+	if !errors.Is(err, ErrTaskCompletionEvidenceRequired) {
+		t.Fatalf("expected missing evidence error, got %v", err)
 	}
-	if completed.Status != "done" {
-		t.Fatalf("unexpected completed task: %+v", completed)
-	}
-
-	// Expected-to-change in task 153: task completion should require a
-	// succeeded evidence run with passed validation or an audited override.
-	runs, err := store.ListRuns(ctx, ListRunsOptions{TaskID: task.ID})
-	if err != nil {
-		t.Fatalf("ListRuns returned error: %v", err)
-	}
-	if len(runs) != 0 {
-		t.Fatalf("expected no evidence runs in current characterization, got %+v", runs)
+	_, err = store.UpdateTaskStatus(ctx, task.ID, "done")
+	if !errors.Is(err, ErrTaskCompletionEvidenceRequired) {
+		t.Fatalf("expected direct status done missing evidence error, got %v", err)
 	}
 }
 
-func TestCompleteTaskCurrentBehaviorAllowsFailedRunExpectedToChange(t *testing.T) {
+func TestCompleteTaskRejectsFailedRunEvidence(t *testing.T) {
 	ctx := context.Background()
 	store := openInitializedTestStore(t)
 
@@ -982,16 +998,11 @@ func TestCompleteTaskCurrentBehaviorAllowsFailedRunExpectedToChange(t *testing.T
 		t.Fatalf("FinishRun failed returned error: %v", err)
 	}
 
-	completed, err := store.CompleteTask(ctx, task.ID, "Completed after failed run.")
-	if err != nil {
-		t.Fatalf("current CompleteTask after failed run returned error: %v", err)
-	}
-	if completed.Status != "done" {
-		t.Fatalf("unexpected completed task: %+v", completed)
+	_, err = store.CompleteTask(ctx, task.ID, "Completed after failed run.")
+	if !errors.Is(err, ErrTaskCompletionEvidenceRequired) {
+		t.Fatalf("expected failed run evidence rejection, got %v", err)
 	}
 
-	// Expected-to-change in task 153: failed/cancelled/blocked runs should not
-	// satisfy task completion evidence.
 	finished, err := store.GetRun(ctx, run.ID)
 	if err != nil {
 		t.Fatalf("GetRun returned error: %v", err)
@@ -1162,6 +1173,28 @@ func TestCompleteTaskRequiresInProgressAndRecordsCompletionEvent(t *testing.T) {
 	}
 	if claimed.Status != "in_progress" {
 		t.Fatalf("expected claimed task to be in_progress, got %+v", claimed)
+	}
+	run, err := store.CreateRun(ctx, CreateRunInput{
+		TaskID:                 task.ID,
+		Status:                 "in_progress",
+		HandoffContractVersion: "tok.handoff.v0",
+	})
+	if err != nil {
+		t.Fatalf("CreateRun returned error: %v", err)
+	}
+	if _, err := store.AddRunArtifact(ctx, AddRunArtifactInput{
+		RunID:    run.ID,
+		Kind:     "validation",
+		Metadata: `{"status":"passed","command":"go test ./..."}`,
+	}); err != nil {
+		t.Fatalf("AddRunArtifact returned error: %v", err)
+	}
+	if _, err := store.FinishRun(ctx, FinishRunInput{
+		ID:            run.ID,
+		Status:        "succeeded",
+		ResultSummary: "Validation passed.",
+	}); err != nil {
+		t.Fatalf("FinishRun returned error: %v", err)
 	}
 
 	done, err := store.CompleteTask(ctx, task.ID, "Implemented and tests pass.")

@@ -798,7 +798,14 @@ func (a *api) doneTask(ctx fuego.ContextWithBody[TaskDoneInput]) (TaskResponse, 
 	if err != nil {
 		return TaskResponse{}, err
 	}
-	task, err := a.store.CompleteTaskByActor(ctx.Context(), taskID, body.Note, actor)
+	task, err := a.store.CompleteTaskWithOptions(ctx.Context(), storage.CompleteTaskInput{
+		ID:               taskID,
+		Note:             body.Note,
+		EvidenceRunID:    body.EvidenceRunID,
+		AllowUnvalidated: body.AllowUnvalidated,
+		OverrideReason:   body.OverrideReason,
+		Actor:            actor,
+	})
 	if err != nil {
 		return TaskResponse{}, mapTaskError(err)
 	}
@@ -1270,8 +1277,14 @@ func mapTaskError(err error) error {
 		return fuego.ConflictError{Title: "Task is not ready"}
 	case errors.Is(err, storage.ErrInvalidTaskTransition):
 		return fuego.ConflictError{Title: "Invalid task status transition"}
+	case errors.Is(err, storage.ErrActiveRunExists):
+		return fuego.ConflictError{Title: "Task has an active run"}
 	case errors.Is(err, storage.ErrTaskCompletionNoteEmpty), errors.Is(err, storage.ErrTaskNoteEmpty):
 		return badRequest("task note is required")
+	case errors.Is(err, storage.ErrTaskCompletionEvidenceRequired):
+		return fuego.ConflictError{Title: "Task completion evidence is required"}
+	case errors.Is(err, storage.ErrOverrideReasonRequired):
+		return badRequest("override reason is required")
 	default:
 		return err
 	}
