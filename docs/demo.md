@@ -76,7 +76,7 @@ Create an agent token and configure your MCP client to launch the stdio server:
 
 ```bash
 tok agent add "Demo Agent"
-TOK_AGENT_TOKEN="tok_agent_..." tok mcp serve
+TOK_AGENT_TOKEN="tok_agent_..." tok mcp serve --profile worker
 ```
 
 Replace `tok_agent_...` with the token printed by `tok agent add`.

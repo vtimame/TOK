@@ -135,3 +135,9 @@ cd .. && make build
 
 If `tok mcp serve` exits immediately in a terminal, run it through an MCP
 client. The command uses stdio and exits when stdin closes.
+
+For worker agents, prefer the smaller tool profile:
+
+```bash
+TOK_AGENT_TOKEN="tok_agent_..." tok mcp serve --profile worker
+```

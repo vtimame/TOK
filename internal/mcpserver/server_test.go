@@ -3,6 +3,8 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"slices"
+	"sort"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -10,6 +12,227 @@ import (
 	contextpkg "s26.sh/tok/internal/context"
 	"s26.sh/tok/internal/storage"
 )
+
+func TestServerProfileToolLists(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	createdAgent, err := store.CreateAgent(ctx, "Codex MCP")
+	if err != nil {
+		t.Fatalf("CreateAgent returned error: %v", err)
+	}
+	actor := storage.ActorRefFromActor(createdAgent.Agent)
+
+	for _, test := range []struct {
+		name    string
+		profile Profile
+		want    []string
+	}{
+		{
+			name:    "worker",
+			profile: ProfileWorker,
+			want: []string{
+				"context_build",
+				"run_create",
+				"run_finish",
+				"run_validation_record",
+				"task_block",
+				"task_claim",
+				"task_done",
+				"task_progress",
+				"task_ready",
+				"task_show",
+			},
+		},
+		{
+			name:    "supervisor",
+			profile: ProfileSupervisor,
+			want: []string{
+				"context_build",
+				"run_artifact_list",
+				"run_create",
+				"run_finish",
+				"run_list",
+				"run_recover",
+				"run_show",
+				"run_validation_record",
+				"task_block",
+				"task_claim",
+				"task_comment",
+				"task_done",
+				"task_list",
+				"task_progress",
+				"task_ready",
+				"task_show",
+				"task_status",
+				"task_unblock",
+			},
+		},
+		{
+			name:    "admin",
+			profile: ProfileAdmin,
+			want: []string{
+				"agent_create",
+				"agent_list",
+				"agent_revoke",
+				"context_build",
+				"index_status",
+				"index_status_all",
+				"index_update",
+				"index_update_all",
+				"project_create",
+				"project_instruction_create",
+				"project_instruction_delete",
+				"project_instruction_disable",
+				"project_instruction_enable",
+				"project_instruction_list",
+				"project_instruction_show",
+				"project_list",
+				"project_show",
+				"run_artifact_add",
+				"run_artifact_list",
+				"run_create",
+				"run_finish",
+				"run_list",
+				"run_recover",
+				"run_show",
+				"run_validation_record",
+				"search",
+				"task_block",
+				"task_claim",
+				"task_comment",
+				"task_create",
+				"task_dependency_add",
+				"task_dependency_remove",
+				"task_done",
+				"task_list",
+				"task_progress",
+				"task_ready",
+				"task_show",
+				"task_source",
+				"task_status",
+				"task_unblock",
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server, err := New(Config{
+				Store:   store,
+				Actor:   actor,
+				Version: "test",
+				Profile: test.profile,
+			})
+			if err != nil {
+				t.Fatalf("New returned error: %v", err)
+			}
+
+			clientSession, serverSession := connectTestClient(t, ctx, server)
+			defer clientSession.Close()
+			defer serverSession.Close()
+
+			got := listToolNames(t, ctx, clientSession)
+			if !slices.Equal(got, test.want) {
+				t.Fatalf("unexpected %s tools:\ngot  %v\nwant %v", test.name, got, test.want)
+			}
+		})
+	}
+
+	defaultServer, err := New(Config{
+		Store:   store,
+		Actor:   actor,
+		Version: "test",
+	})
+	if err != nil {
+		t.Fatalf("New default returned error: %v", err)
+	}
+	adminServer, err := New(Config{
+		Store:   store,
+		Actor:   actor,
+		Version: "test",
+		Profile: ProfileAdmin,
+	})
+	if err != nil {
+		t.Fatalf("New admin returned error: %v", err)
+	}
+	defaultClient, defaultServerSession := connectTestClient(t, ctx, defaultServer)
+	defer defaultClient.Close()
+	defer defaultServerSession.Close()
+	adminClient, adminServerSession := connectTestClient(t, ctx, adminServer)
+	defer adminClient.Close()
+	defer adminServerSession.Close()
+	if got, want := listToolNames(t, ctx, defaultClient), listToolNames(t, ctx, adminClient); !slices.Equal(got, want) {
+		t.Fatalf("default profile should preserve full tool surface:\ngot  %v\nwant %v", got, want)
+	}
+}
+
+func TestServerRunRecoverToolRecoversStaleRuns(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+
+	project, err := store.CreateProject(ctx, storage.CreateProjectInput{
+		Name:        "tok",
+		DisplayName: "TOK",
+		Path:        t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("CreateProject returned error: %v", err)
+	}
+	task, err := store.CreateTask(ctx, storage.CreateTaskInput{
+		ProjectID: project.ID,
+		Title:     "Recover stale MCP run",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask returned error: %v", err)
+	}
+	createdAgent, err := store.CreateAgent(ctx, "Codex MCP")
+	if err != nil {
+		t.Fatalf("CreateAgent returned error: %v", err)
+	}
+	run, err := store.CreateRun(ctx, storage.CreateRunInput{
+		TaskID:                 task.ID,
+		Status:                 "in_progress",
+		HandoffContractVersion: "tok-v1",
+		LeaseOwner:             "agent/one",
+		HeartbeatAt:            "2026-07-27T18:00:00.000Z",
+		ExpiresAt:              "2026-07-27T18:05:00.000Z",
+		Actor:                  storage.ActorRefFromActor(createdAgent.Agent),
+	})
+	if err != nil {
+		t.Fatalf("CreateRun returned error: %v", err)
+	}
+
+	server, err := New(Config{
+		Store:   store,
+		Actor:   storage.ActorRefFromActor(createdAgent.Agent),
+		Version: "test",
+		Profile: ProfileSupervisor,
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	clientSession, serverSession := connectTestClient(t, ctx, server)
+	defer clientSession.Close()
+	defer serverSession.Close()
+
+	recoverResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "run_recover",
+		Arguments: map[string]any{
+			"summary": "Recovered via MCP.",
+			"now":     "2026-07-27T18:06:00.000Z",
+		},
+	})
+	if err != nil {
+		t.Fatalf("run_recover returned error: %v", err)
+	}
+	if recoverResult.IsError {
+		t.Fatalf("run_recover returned tool error: %+v", recoverResult)
+	}
+	var recovered runListOutput
+	decodeStructured(t, recoverResult.StructuredContent, &recovered)
+	if len(recovered.Runs) != 1 || recovered.Runs[0].ID != run.ID || recovered.Runs[0].Status != "cancelled" || recovered.Runs[0].ResultSummary != "Recovered via MCP." {
+		t.Fatalf("unexpected run_recover output: %+v", recovered)
+	}
+}
 
 func TestServerToolsClaimTaskWithAgentAttribution(t *testing.T) {
 	ctx := context.Background()
@@ -162,6 +385,58 @@ func TestServerProjectCreateSupportsAgentProjectRegistration(t *testing.T) {
 	clientSession, serverSession := connectTestClient(t, ctx, server)
 	defer clientSession.Close()
 	defer serverSession.Close()
+
+	agentCreateResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "agent_create",
+		Arguments: map[string]any{
+			"name": "Frontend MCP",
+		},
+	})
+	if err != nil {
+		t.Fatalf("agent_create returned error: %v", err)
+	}
+	if agentCreateResult.IsError {
+		t.Fatalf("agent_create returned tool error: %+v", agentCreateResult)
+	}
+	var createdMCPAgent agentCreateOutput
+	decodeStructured(t, agentCreateResult.StructuredContent, &createdMCPAgent)
+	if createdMCPAgent.Agent.ID <= 0 || createdMCPAgent.Agent.Name != "Frontend MCP" || createdMCPAgent.Token == "" {
+		t.Fatalf("unexpected agent_create output: %+v", createdMCPAgent)
+	}
+
+	agentListResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "agent_list",
+		Arguments: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("agent_list returned error: %v", err)
+	}
+	if agentListResult.IsError {
+		t.Fatalf("agent_list returned tool error: %+v", agentListResult)
+	}
+	var agents agentListOutput
+	decodeStructured(t, agentListResult.StructuredContent, &agents)
+	if len(agents.Agents) != 2 {
+		t.Fatalf("unexpected agent_list output: %+v", agents)
+	}
+
+	agentRevokeResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "agent_revoke",
+		Arguments: map[string]any{
+			"id": createdMCPAgent.Agent.ID,
+		},
+	})
+	if err != nil {
+		t.Fatalf("agent_revoke returned error: %v", err)
+	}
+	if agentRevokeResult.IsError {
+		t.Fatalf("agent_revoke returned tool error: %+v", agentRevokeResult)
+	}
+	var revokedAgent agentOutput
+	decodeStructured(t, agentRevokeResult.StructuredContent, &revokedAgent)
+	if revokedAgent.Agent.ID != createdMCPAgent.Agent.ID || revokedAgent.Agent.Status != "revoked" {
+		t.Fatalf("unexpected agent_revoke output: %+v", revokedAgent)
+	}
 
 	projectPath := t.TempDir()
 	createProjectResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
@@ -854,4 +1129,19 @@ func decodeStructured(t *testing.T, structured any, dst any) {
 	if err := json.Unmarshal(raw, dst); err != nil {
 		t.Fatalf("decode structured content: %v\n%s", err, raw)
 	}
+}
+
+func listToolNames(t *testing.T, ctx context.Context, session *mcp.ClientSession) []string {
+	t.Helper()
+
+	result, err := session.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListTools returned error: %v", err)
+	}
+	names := make([]string, 0, len(result.Tools))
+	for _, tool := range result.Tools {
+		names = append(names, tool.Name)
+	}
+	sort.Strings(names)
+	return names
 }

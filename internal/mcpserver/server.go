@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -20,10 +21,20 @@ import (
 
 const defaultVersion = "dev"
 
+type Profile string
+
+const (
+	ProfileAll        Profile = ""
+	ProfileWorker     Profile = "worker"
+	ProfileSupervisor Profile = "supervisor"
+	ProfileAdmin      Profile = "admin"
+)
+
 type Config struct {
 	Store   *storage.Store
 	Actor   storage.ActorRef
 	Version string
+	Profile Profile
 }
 
 type service struct {
@@ -54,156 +65,209 @@ func New(cfg Config) (*mcp.Server, error) {
 		actor:     actor,
 		retrieval: retrieval.NewService(cfg.Store),
 	}
+	profile, err := NormalizeProfile(cfg.Profile)
+	if err != nil {
+		return nil, err
+	}
 	server := mcp.NewServer(&mcp.Implementation{Name: "tok", Version: version}, nil)
-	svc.addTools(server)
+	svc.addTools(server, profile)
 	return server, nil
 }
 
-func (s *service) addTools(server *mcp.Server) {
-	mcp.AddTool(server, &mcp.Tool{
+func NormalizeProfile(profile Profile) (Profile, error) {
+	switch Profile(strings.TrimSpace(string(profile))) {
+	case ProfileAll, "all", "default":
+		return ProfileAll, nil
+	case ProfileWorker:
+		return ProfileWorker, nil
+	case ProfileSupervisor:
+		return ProfileSupervisor, nil
+	case ProfileAdmin:
+		return ProfileAdmin, nil
+	default:
+		return ProfileAll, fmt.Errorf("invalid MCP profile %q", profile)
+	}
+}
+
+func (s *service) addTools(server *mcp.Server, profile Profile) {
+	addTool(server, profile, []Profile{ProfileAdmin}, &mcp.Tool{
 		Name:        "project_create",
 		Description: "Register a local project path in TOK.",
 	}, s.projectCreate)
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileAdmin}, &mcp.Tool{
+		Name:        "agent_create",
+		Description: "Create a local agent identity and token.",
+	}, s.agentCreate)
+	addTool(server, profile, []Profile{ProfileAdmin}, &mcp.Tool{
+		Name:        "agent_list",
+		Description: "List local agent identities.",
+	}, s.agentList)
+	addTool(server, profile, []Profile{ProfileAdmin}, &mcp.Tool{
+		Name:        "agent_revoke",
+		Description: "Revoke a local agent token.",
+	}, s.agentRevoke)
+	addTool(server, profile, []Profile{ProfileAdmin}, &mcp.Tool{
 		Name:        "task_create",
 		Description: "Create a task in a project.",
 	}, s.taskCreate)
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileAdmin}, &mcp.Tool{
 		Name:        "project_list",
 		Description: "List registered TOK projects.",
 	}, s.projectList)
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileAdmin}, &mcp.Tool{
 		Name:        "project_show",
 		Description: "Show a registered TOK project by name.",
 	}, s.projectShow)
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileSupervisor, ProfileAdmin}, &mcp.Tool{
 		Name:        "task_list",
 		Description: "List tasks for a project, optionally filtered by status.",
 	}, s.taskList)
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileWorker, ProfileSupervisor, ProfileAdmin}, &mcp.Tool{
 		Name:        "task_show",
 		Description: "Show a task and its event history.",
 	}, s.taskShow)
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileWorker, ProfileSupervisor, ProfileAdmin}, &mcp.Tool{
 		Name:        "task_ready",
 		Description: "List ready tasks for a project.",
 	}, s.taskReady)
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileWorker, ProfileSupervisor, ProfileAdmin}, &mcp.Tool{
 		Name:        "task_claim",
 		Description: "Claim a specific ready task or the next ready task for a project.",
 	}, s.taskClaim)
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileSupervisor, ProfileAdmin}, &mcp.Tool{
 		Name:        "task_comment",
 		Description: "Add a comment event to a task.",
 	}, s.taskComment)
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileWorker, ProfileSupervisor, ProfileAdmin}, &mcp.Tool{
 		Name:        "task_progress",
 		Description: "Add a progress event to a task.",
 	}, s.taskProgress)
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileWorker, ProfileSupervisor, ProfileAdmin}, &mcp.Tool{
 		Name:        "task_block",
 		Description: "Block an open task with a reason.",
 	}, s.taskBlock)
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileSupervisor, ProfileAdmin}, &mcp.Tool{
 		Name:        "task_unblock",
 		Description: "Unblock a blocked task.",
 	}, s.taskUnblock)
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileWorker, ProfileSupervisor, ProfileAdmin}, &mcp.Tool{
 		Name:        "task_done",
 		Description: "Mark an in-progress task done.",
 	}, s.taskDone)
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileSupervisor, ProfileAdmin}, &mcp.Tool{
 		Name:        "task_status",
 		Description: "Set an arbitrary task status with actor attribution.",
 	}, s.taskStatus)
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileAdmin}, &mcp.Tool{
 		Name:        "task_source",
 		Description: "Update a task external source reference.",
 	}, s.taskSource)
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileAdmin}, &mcp.Tool{
 		Name:        "task_dependency_add",
 		Description: "Create a task dependency edge.",
 	}, s.taskDependencyAdd)
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileAdmin}, &mcp.Tool{
 		Name:        "task_dependency_remove",
 		Description: "Remove a task dependency edge.",
 	}, s.taskDependencyRemove)
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileAdmin}, &mcp.Tool{
 		Name:        "project_instruction_list",
 		Description: "List project instructions.",
 	}, s.projectInstructionList)
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileAdmin}, &mcp.Tool{
 		Name:        "project_instruction_create",
 		Description: "Create a project instruction.",
 	}, s.projectInstructionCreate)
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileAdmin}, &mcp.Tool{
 		Name:        "project_instruction_show",
 		Description: "Show a project instruction.",
 	}, s.projectInstructionShow)
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileAdmin}, &mcp.Tool{
 		Name:        "project_instruction_enable",
 		Description: "Enable a project instruction.",
 	}, s.projectInstructionEnable)
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileAdmin}, &mcp.Tool{
 		Name:        "project_instruction_disable",
 		Description: "Disable a project instruction.",
 	}, s.projectInstructionDisable)
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileAdmin}, &mcp.Tool{
 		Name:        "project_instruction_delete",
 		Description: "Delete a project instruction.",
 	}, s.projectInstructionDelete)
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileAdmin}, &mcp.Tool{
 		Name:        "index_update",
 		Description: "Update the lexical index for a project.",
 	}, s.indexUpdate)
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileAdmin}, &mcp.Tool{
 		Name:        "index_update_all",
 		Description: "Update lexical indexes for all projects.",
 	}, s.indexUpdateAll)
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileAdmin}, &mcp.Tool{
 		Name:        "index_status",
 		Description: "Show index status for a project.",
 	}, s.indexStatus)
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileAdmin}, &mcp.Tool{
 		Name:        "index_status_all",
 		Description: "Show index status for all projects.",
 	}, s.indexStatusAll)
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileAdmin}, &mcp.Tool{
 		Name:        "search",
 		Description: "Search indexed project files.",
 	}, s.search)
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileWorker, ProfileSupervisor, ProfileAdmin}, &mcp.Tool{
 		Name:        "context_build",
 		Description: "Build a structured TOK context package for a task.",
 	}, s.contextBuild)
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileSupervisor, ProfileAdmin}, &mcp.Tool{
 		Name:        "run_list",
 		Description: "List task runs optionally filtered by project/task/status.",
 	}, s.runList)
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileSupervisor, ProfileAdmin}, &mcp.Tool{
 		Name:        "run_show",
 		Description: "Show a run with artifacts.",
 	}, s.runShow)
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileWorker, ProfileSupervisor, ProfileAdmin}, &mcp.Tool{
 		Name:        "run_create",
 		Description: "Create a new task run.",
 	}, s.runCreate)
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileWorker, ProfileSupervisor, ProfileAdmin}, &mcp.Tool{
 		Name:        "run_finish",
 		Description: "Finish a task run.",
 	}, s.runFinish)
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileSupervisor, ProfileAdmin}, &mcp.Tool{
+		Name:        "run_recover",
+		Description: "Recover stale active runs.",
+	}, s.runRecover)
+	addTool(server, profile, []Profile{ProfileSupervisor, ProfileAdmin}, &mcp.Tool{
 		Name:        "run_artifact_list",
 		Description: "List artifacts for a run.",
 	}, s.runArtifactList)
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileAdmin}, &mcp.Tool{
 		Name:        "run_artifact_add",
 		Description: "Add a run artifact.",
 	}, s.runArtifactAdd)
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileWorker, ProfileSupervisor, ProfileAdmin}, &mcp.Tool{
 		Name:        "run_validation_record",
 		Description: "Record validation evidence for a run.",
 	}, s.runValidationRecord)
+}
+
+func addTool[In, Out any](server *mcp.Server, profile Profile, profiles []Profile, tool *mcp.Tool, handler mcp.ToolHandlerFor[In, Out]) {
+	if toolAllowed(profile, profiles) {
+		mcp.AddTool(server, tool, handler)
+	}
+}
+
+func toolAllowed(profile Profile, profiles []Profile) bool {
+	if profile == ProfileAll {
+		return true
+	}
+	for _, allowed := range profiles {
+		if allowed == profile {
+			return true
+		}
+	}
+	return false
 }
 
 type emptyInput struct{}
@@ -220,6 +284,14 @@ type projectCreateInput struct {
 	Name        string `json:"name" jsonschema:"project name"`
 	DisplayName string `json:"display_name,omitempty" jsonschema:"project display name; defaults to name"`
 	Path        string `json:"path" jsonschema:"local project path"`
+}
+
+type agentCreateInput struct {
+	Name string `json:"name" jsonschema:"agent display name"`
+}
+
+type agentIDInput struct {
+	ID int64 `json:"id" jsonschema:"agent id"`
 }
 
 type projectInstructionListInput struct {
@@ -352,6 +424,11 @@ type runFinishInput struct {
 	OverrideReason   string `json:"override_reason,omitempty" jsonschema:"required reason for allow_unvalidated"`
 }
 
+type runRecoverInput struct {
+	Summary string `json:"summary" jsonschema:"recovery summary"`
+	Now     string `json:"now,omitempty" jsonschema:"optional recovery timestamp; defaults to current UTC time"`
+}
+
 type runArtifactListInput struct {
 	RunID int64 `json:"run_id" jsonschema:"run id"`
 }
@@ -379,6 +456,19 @@ type projectListOutput struct {
 
 type projectOutput struct {
 	Project ProjectOutput `json:"project"`
+}
+
+type agentListOutput struct {
+	Agents []AgentOutput `json:"agents"`
+}
+
+type agentOutput struct {
+	Agent AgentOutput `json:"agent"`
+}
+
+type agentCreateOutput struct {
+	Agent AgentOutput `json:"agent"`
+	Token string      `json:"token"`
 }
 
 type projectInstructionListOutput struct {
@@ -510,6 +600,15 @@ type ProjectInstructionOutput struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
+type AgentOutput struct {
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	Status    string `json:"status"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+	RevokedAt string `json:"revoked_at,omitempty"`
+}
+
 type TaskOutput struct {
 	ID                 int64  `json:"id"`
 	ProjectID          int64  `json:"project_id"`
@@ -610,6 +709,47 @@ func (s *service) projectCreate(ctx context.Context, _ *mcp.CallToolRequest, inp
 		return nil, projectOutput{}, fmt.Errorf("create project %q: %w", input.Name, err)
 	}
 	return nil, projectOutput{Project: projectFromStorage(project)}, nil
+}
+
+func (s *service) agentCreate(ctx context.Context, _ *mcp.CallToolRequest, input agentCreateInput) (*mcp.CallToolResult, agentCreateOutput, error) {
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		return nil, agentCreateOutput{}, errors.New("agent_create requires name")
+	}
+	created, err := s.store.CreateAgent(ctx, name)
+	if err != nil {
+		return nil, agentCreateOutput{}, err
+	}
+	return nil, agentCreateOutput{
+		Agent: agentFromStorage(created.Agent),
+		Token: created.Token,
+	}, nil
+}
+
+func (s *service) agentList(ctx context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, agentListOutput, error) {
+	agents, err := s.store.ListAgents(ctx)
+	if err != nil {
+		return nil, agentListOutput{}, err
+	}
+	out := agentListOutput{Agents: make([]AgentOutput, 0, len(agents))}
+	for _, agent := range agents {
+		out.Agents = append(out.Agents, agentFromStorage(agent))
+	}
+	return nil, out, nil
+}
+
+func (s *service) agentRevoke(ctx context.Context, _ *mcp.CallToolRequest, input agentIDInput) (*mcp.CallToolResult, agentOutput, error) {
+	if input.ID <= 0 {
+		return nil, agentOutput{}, errors.New("agent_revoke requires id")
+	}
+	agent, err := s.store.RevokeAgent(ctx, input.ID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, agentOutput{}, fmt.Errorf("agent not found: %d", input.ID)
+		}
+		return nil, agentOutput{}, err
+	}
+	return nil, agentOutput{Agent: agentFromStorage(agent)}, nil
 }
 
 func (s *service) projectShow(ctx context.Context, _ *mcp.CallToolRequest, input projectShowInput) (*mcp.CallToolResult, projectOutput, error) {
@@ -1169,6 +1309,30 @@ func (s *service) runFinish(ctx context.Context, _ *mcp.CallToolRequest, input r
 	return nil, runOutputFromStorage(run, artifacts), nil
 }
 
+func (s *service) runRecover(ctx context.Context, _ *mcp.CallToolRequest, input runRecoverInput) (*mcp.CallToolResult, runListOutput, error) {
+	input.Summary = strings.TrimSpace(input.Summary)
+	if input.Summary == "" {
+		return nil, runListOutput{}, errors.New("run_recover requires summary")
+	}
+	now := strings.TrimSpace(input.Now)
+	if now == "" {
+		now = time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+	}
+	runs, err := s.store.RecoverStaleRuns(ctx, storage.RecoverStaleRunsInput{
+		Now:           now,
+		ResultSummary: input.Summary,
+		Actor:         s.actor,
+	})
+	if err != nil {
+		return nil, runListOutput{}, friendlyRunError(err)
+	}
+	out := runListOutput{Runs: make([]runOutput, 0, len(runs))}
+	for _, run := range runs {
+		out.Runs = append(out.Runs, runOutputFromStorage(run, nil))
+	}
+	return nil, out, nil
+}
+
 func (s *service) runArtifactList(ctx context.Context, _ *mcp.CallToolRequest, input runArtifactListInput) (*mcp.CallToolResult, runArtifactListOutput, error) {
 	if input.RunID <= 0 {
 		return nil, runArtifactListOutput{}, errors.New("run_artifact_list requires run_id")
@@ -1337,6 +1501,21 @@ func projectFromStorage(project storage.Project) ProjectOutput {
 		Path:        project.Path,
 		CreatedAt:   project.CreatedAt,
 		UpdatedAt:   project.UpdatedAt,
+	}
+}
+
+func agentFromStorage(agent storage.Actor) AgentOutput {
+	status := "active"
+	if agent.TokenRevokedAt != "" {
+		status = "revoked"
+	}
+	return AgentOutput{
+		ID:        agent.ID,
+		Name:      agent.Name,
+		Status:    status,
+		CreatedAt: agent.CreatedAt,
+		UpdatedAt: agent.UpdatedAt,
+		RevokedAt: agent.TokenRevokedAt,
 	}
 }
 

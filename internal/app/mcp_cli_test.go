@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"s26.sh/tok/internal/mcpserver"
 	"s26.sh/tok/internal/storage"
 )
 
@@ -24,8 +25,28 @@ func TestMCPServeOptionsResolveTokenFromFlagOrEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse flag mcp serve options returned error: %v", err)
 	}
-	if opts.token != "flag-token" {
+	if opts.token != "flag-token" || opts.profile != "" {
 		t.Fatalf("expected flag token to win, got %+v", opts)
+	}
+
+	opts, err = parseMCPServeOptions([]string{"--profile", "worker"})
+	if err != nil {
+		t.Fatalf("parse worker profile returned error: %v", err)
+	}
+	if opts.token != "env-token" || opts.profile != mcpserver.ProfileWorker {
+		t.Fatalf("unexpected worker profile options: %+v", opts)
+	}
+
+	opts, err = parseMCPServeOptions([]string{"--profile=supervisor"})
+	if err != nil {
+		t.Fatalf("parse supervisor profile returned error: %v", err)
+	}
+	if opts.profile != mcpserver.ProfileSupervisor {
+		t.Fatalf("unexpected supervisor profile options: %+v", opts)
+	}
+
+	if _, err := parseMCPServeOptions([]string{"--profile", "wide-open"}); err == nil {
+		t.Fatal("expected invalid profile error")
 	}
 }
 

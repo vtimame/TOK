@@ -17,7 +17,8 @@ import (
 const agentTokenEnv = "TOK_AGENT_TOKEN"
 
 type mcpServeOptions struct {
-	token string
+	token   string
+	profile mcpserver.Profile
 }
 
 func (c *CLI) runMCP(ctx context.Context, opts runtimeOptions) error {
@@ -63,6 +64,7 @@ func (c *CLI) runMCPServe(ctx context.Context, opts runtimeOptions) error {
 		Store:   store,
 		Actor:   actor,
 		Version: c.version.Version,
+		Profile: serveOpts.profile,
 	})
 	if err != nil {
 		return err
@@ -87,6 +89,26 @@ func parseMCPServeOptions(args []string) (mcpServeOptions, error) {
 			if opts.token == "" {
 				return mcpServeOptions{}, &UsageError{Message: "--token requires a value", Code: 2}
 			}
+		case arg == "--profile":
+			i++
+			if i >= len(args) {
+				return mcpServeOptions{}, &UsageError{Message: "--profile requires a value", Code: 2}
+			}
+			profile, err := mcpserver.NormalizeProfile(mcpserver.Profile(args[i]))
+			if err != nil {
+				return mcpServeOptions{}, &UsageError{Message: err.Error(), Code: 2}
+			}
+			opts.profile = profile
+		case strings.HasPrefix(arg, "--profile="):
+			raw := strings.TrimPrefix(arg, "--profile=")
+			if raw == "" {
+				return mcpServeOptions{}, &UsageError{Message: "--profile requires a value", Code: 2}
+			}
+			profile, err := mcpserver.NormalizeProfile(mcpserver.Profile(raw))
+			if err != nil {
+				return mcpServeOptions{}, &UsageError{Message: err.Error(), Code: 2}
+			}
+			opts.profile = profile
 		default:
 			return mcpServeOptions{}, &UsageError{Message: fmt.Sprintf("unknown mcp serve option %q", arg), Code: 2}
 		}

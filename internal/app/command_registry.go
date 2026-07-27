@@ -163,7 +163,10 @@ func tokCommandSpec() *commandSpec {
 				Summary: "Serve TOK tools over MCP",
 				Usage:   "tok mcp <command>",
 				Children: []*commandSpec{
-					{Name: "serve", Summary: "Run the MCP stdio server", Usage: "tok mcp serve [--token <token>]", Flags: []flagSpec{{Name: "--token", ValueName: "<token>", Summary: "Agent token; defaults to TOK_AGENT_TOKEN"}}},
+					{Name: "serve", Summary: "Run the MCP stdio server", Usage: "tok mcp serve [--token <token>] [--profile <profile>]", Flags: []flagSpec{
+						{Name: "--token", ValueName: "<token>", Summary: "Agent token; defaults to TOK_AGENT_TOKEN"},
+						{Name: "--profile", ValueName: "<profile>", Summary: "Limit exposed tools: worker, supervisor, or admin", ValueChoices: mcpProfileChoices()},
+					}},
 				},
 			},
 			{
@@ -315,6 +318,10 @@ func taskStatusChoices() []string {
 
 func taskSourceChoices() []string {
 	return []string{"local", "github", "linear", "jira"}
+}
+
+func mcpProfileChoices() []string {
+	return []string{"worker", "supervisor", "admin"}
 }
 
 func instructionPriorityChoices() []string {

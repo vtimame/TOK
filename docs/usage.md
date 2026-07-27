@@ -42,6 +42,36 @@ Start the MCP server:
 TOK_AGENT_TOKEN="tok_agent_..." tok mcp serve
 ```
 
+By default, TOK exposes the full MCP tool surface for backward compatibility.
+Use a profile to limit the tools visible to an agent:
+
+```bash
+TOK_AGENT_TOKEN="tok_agent_..." tok mcp serve --profile worker
+TOK_AGENT_TOKEN="tok_agent_..." tok mcp serve --profile supervisor
+TOK_AGENT_TOKEN="tok_agent_..." tok mcp serve --profile admin
+```
+
+`worker` exposes only the core execution-loop tools:
+
+```text
+task_ready
+task_claim
+task_show
+context_build
+task_progress
+task_block
+run_create
+run_validation_record
+run_finish
+task_done
+```
+
+`supervisor` includes the worker tools plus task/run inspection, task comments,
+unblock/status operations, run listing, run artifact review and stale run
+recovery. `admin` exposes the full surface, including project management,
+agent identity management, instructions, indexing, search, dependencies, task
+source references and manual artifact attachment.
+
 `tok mcp serve` is a stdio server. When it is started without an MCP client
 attached, it can exit cleanly as soon as stdin closes. In normal use, configure
 your agent or editor to launch the command and keep the stdio connection open.
