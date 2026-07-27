@@ -3,22 +3,43 @@
 TOK, the Task Operations Kernel, is a local execution control plane for coding
 agents.
 
-It makes agent work reproducible, recoverable and auditable by connecting:
+Coding agents are useful, but their work is easy to lose track of. A chat can
+say a task is done while the repository has no durable record of:
 
-- tasks and project instructions;
-- reproducible task context packages;
-- agent run history, leases and artifacts;
-- validation evidence before work is marked complete;
-- audited overrides when validation is intentionally skipped;
-- MCP tools for IDEs and AI coding agents.
+- what context the agent saw;
+- which attempt performed the work;
+- whether the attempt is still alive;
+- which artifacts were produced;
+- which validation actually passed;
+- why a task was completed or overridden.
+
+TOK keeps that execution trail local and explicit. It connects tasks,
+deterministic context, claimed work, runs, leases, artifacts, validation
+evidence and completion history so agent work is reproducible, recoverable and
+auditable.
+
+For example, if an agent crashes after a long run, TOK can still preserve:
+
+- the claimed task and project instructions;
+- the context package and repository base revision;
+- the run lease and last heartbeat;
+- produced artifacts and command output;
+- validation state;
+- enough handoff information for another agent or human to continue.
 
 TOK is not trying to replace Jira, Linear or GitHub Issues. It is designed to
 sit closer to the codebase as the execution layer for work that happens after a
 task is selected: claim, context, run, heartbeat, artifacts, validation and
 completion evidence.
 
-TOK is also not a sandbox or security boundary. It is intended for trusted local
-developer machines where humans and coding agents work on the same repositories.
+It also is not another `AGENTS.md` or shell-script convention. `AGENTS.md`
+explains how to work; TOK records what actually happened. Shell scripts can run
+checks; TOK attaches those checks to runs and task completion. GitHub Issues can
+track the backlog; TOK tracks local execution evidence.
+
+TOK is not a sandbox, cloud sync service, multi-tenant platform or team
+workflow product. It is intended for trusted local developer machines where
+humans and coding agents work on the same repositories.
 
 ## Status
 
