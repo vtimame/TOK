@@ -6,10 +6,7 @@ import type { ProjectInstructionListResponse } from "@/api/generated/models/Proj
 import type { ProjectInstructionOutput } from "@/api/generated/models/ProjectInstructionOutput.ts";
 import type { ProjectListResponse } from "@/api/generated/models/ProjectListResponse.ts";
 import type { TaskListResponse } from "@/api/generated/models/TaskListResponse.ts";
-import {
-  listProjectInstructionsQueryKey,
-  useListProjectInstructions,
-} from "@/api/generated/hooks/useListProjectInstructions.ts";
+import { useListProjectInstructions } from "@/api/generated/hooks/useListProjectInstructions.ts";
 import { useCreateProjectInstruction } from "@/api/generated/hooks/useCreateProjectInstruction.ts";
 import { useDeleteProjectInstruction } from "@/api/generated/hooks/useDeleteProjectInstruction.ts";
 import { useDisableProjectInstruction } from "@/api/generated/hooks/useDisableProjectInstruction.ts";

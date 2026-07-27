@@ -9,7 +9,19 @@
  */
 export type TaskDoneInput = {
   /**
+   * @type boolean | undefined
+   */
+  allow_unvalidated?: boolean;
+  /**
+   * @type integer | undefined, int64
+   */
+  evidence_run_id?: number;
+  /**
    * @type string
    */
   note: string;
+  /**
+   * @type string | undefined
+   */
+  override_reason?: string;
 };

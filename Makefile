@@ -9,7 +9,12 @@ EMBED_WEB_DIR := internal/httpserver/webdist
 
 DEVCTL := ./scripts/devctl.sh
 
-.PHONY: test build web-build web-embed install run fmt dev-start dev-stop dev-restart dev-status dev-logs dev-api-start dev-api-stop dev-app-start dev-app-stop
+.PHONY: test quality build web-build web-embed install run fmt dev-start dev-stop dev-restart dev-status dev-logs dev-api-start dev-api-stop dev-app-start dev-app-stop
+
+quality:
+	./scripts/check-file-budgets.sh
+	cd web && pnpm exec jscpd --config ../.jscpd.json
+	./scripts/check-jscpd-baseline.mjs .quality/jscpd-report.json .jscpd-baseline.json
 
 test:
 	go test ./...

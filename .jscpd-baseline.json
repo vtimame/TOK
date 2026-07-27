@@ -1,0 +1,18 @@
+{
+  "description": "Current accepted duplication baseline for `make quality`. Lower these numbers when duplicate code is removed; do not raise them without an explicit engineering decision.",
+  "maxClones": 11,
+  "maxDuplicatedLines": 198,
+  "maxDuplicatedTokens": 1635,
+  "formats": {
+    "css": {
+      "maxClones": 1,
+      "maxDuplicatedLines": 20,
+      "maxDuplicatedTokens": 425
+    },
+    "go": {
+      "maxClones": 10,
+      "maxDuplicatedLines": 178,
+      "maxDuplicatedTokens": 1210
+    }
+  }
+}

@@ -1,6 +1,11 @@
 {
   "description": "TaskDoneInput schema",
-  "properties": { "note": { "type": "string" } },
+  "properties": {
+    "allow_unvalidated": { "type": "boolean" },
+    "evidence_run_id": { "format": "int64", "type": "integer" },
+    "note": { "type": "string" },
+    "override_reason": { "type": "string" }
+  },
   "required": ["note"],
   "type": "object",
   "x-readme-ref-name": "TaskDoneInput"

@@ -1,3 +1,5 @@
+/// <reference types="vitest/config" />
+
 import path from "node:path";
 import { defineConfig } from "vite";
 import tailwindcss from "@tailwindcss/vite";
@@ -31,5 +33,10 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+  },
+  test: {
+    include: ["src/**/*.test.ts", "src/**/*.spec.ts"],
+    environment: "node",
+    globals: true,
   },
 });

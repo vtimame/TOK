@@ -2,9 +2,7 @@
   "path": [
     "cmd",
     "internal",
-    "web/src",
-    "web/kubb.config.ts",
-    "web/vite.config.ts"
+    "web/src"
   ],
   "format": [
     "go",
@@ -14,11 +12,13 @@
     "css"
   ],
   "reporters": [
-    "console"
+    "console",
+    "json"
   ],
   "minLines": 8,
   "minTokens": 100,
   "threshold": 5,
+  "output": "../.quality",
   "mode": "mild",
   "absolute": false,
   "gitignore": true,
@@ -28,9 +28,13 @@
     "**/.vscode/**",
     "**/.dev/**",
     "**/bin/**",
-    "**/dist/**",
-    "**/build/**",
-    "**/coverage/**",
+    "web/dist/**",
+    "web/.output/**",
+    "web/coverage/**",
+    "internal/httpserver/webdist/**",
+    "dist/**",
+    "build/**",
+    "coverage/**",
     "**/node_modules/**",
     "**/.cache/**",
     "**/tmp/**",
@@ -48,10 +52,17 @@
     "**/*_generated.go",
     "**/__generated__/**",
     "**/generated/**",
-    "web/openapi.json",
     "web/src/api/generated/**",
+    "web/openapi.json",
+    "web/typed-router.d.ts",
     "web/src/components/ui/**",
-    "web/typed-router.d.ts"
+    "**/*_test.go",
+    "**/*_test.ts",
+    "**/*_test.tsx",
+    "**/*_test.vue",
+    "**/*.spec.ts",
+    "**/*.spec.tsx",
+    "**/*.spec.vue"
   ],
   "ignorePattern": [
     "**/.git/**",
@@ -59,9 +70,13 @@
     "**/.vscode/**",
     "**/.dev/**",
     "**/bin/**",
-    "**/dist/**",
-    "**/build/**",
-    "**/coverage/**",
+    "web/dist/**",
+    "web/.output/**",
+    "web/coverage/**",
+    "internal/httpserver/webdist/**",
+    "dist/**",
+    "build/**",
+    "coverage/**",
     "**/node_modules/**",
     "**/.cache/**",
     "**/tmp/**",
@@ -79,9 +94,16 @@
     "**/*_generated.go",
     "**/__generated__/**",
     "**/generated/**",
-    "web/openapi.json",
     "web/src/api/generated/**",
+    "web/openapi.json",
+    "web/typed-router.d.ts",
     "web/src/components/ui/**",
-    "web/typed-router.d.ts"
+    "**/*_test.go",
+    "**/*_test.ts",
+    "**/*_test.tsx",
+    "**/*_test.vue",
+    "**/*.spec.ts",
+    "**/*.spec.tsx",
+    "**/*.spec.vue"
   ]
 }

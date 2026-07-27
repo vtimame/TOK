@@ -65,8 +65,23 @@ jobs:
         run: pnpm install --frozen-lockfile
         working-directory: web
 
-      - name: Validate OpenAPI schema
-        run: pnpm api:validate
+      - name: Run quality checks
+        run: make quality
+
+      - name: Run frontend lint
+        run: pnpm lint
+        working-directory: web
+
+      - name: Run frontend tests
+        run: pnpm test
+        working-directory: web
+
+      - name: Run frontend typecheck
+        run: pnpm typecheck
+        working-directory: web
+
+      - name: Check OpenAPI/client drift
+        run: pnpm api:check
         working-directory: web
 
       - name: Build
