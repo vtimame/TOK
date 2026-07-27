@@ -5,7 +5,7 @@ local agent workflows.
 
 ## Versioning
 
-The current public alpha release is `v0.2.0`.
+The current public alpha release is `v0.2.1`.
 
 TOK uses Semantic Versioning while it is in public alpha: `v0.MINOR.PATCH`.
 The git release tag is the source of truth for the product version shown by
