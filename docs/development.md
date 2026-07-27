@@ -6,6 +6,12 @@ Run the full test suite:
 go test ./...
 ```
 
+Check whitespace issues before committing:
+
+```bash
+git diff --check
+```
+
 Build the web UI:
 
 ```bash
@@ -19,6 +25,13 @@ Generate the OpenAPI-backed web client:
 ```bash
 cd web
 pnpm api:generate
+```
+
+Validate the committed OpenAPI schema:
+
+```bash
+cd web
+pnpm api:validate
 ```
 
 Build the release-style binary with embedded web UI:
