@@ -104,10 +104,12 @@ override.
 
 - [Install TOK](docs/install.md)
 - [First Demo Flow](docs/demo.md)
+- [Dogfooding Metrics](docs/dogfooding.md)
 - [Usage Guide](docs/usage.md)
 - [Task Sources and External Trackers](docs/task-sources.md)
 - [Alpha Notes and Safety](docs/alpha.md)
 - [Development](docs/development.md)
+- [Release Distribution Trust](docs/release-distribution.md)
 - [Release checklist and draft notes](docs/release-checklist.md)
 - [Security Policy](SECURITY.md)
 

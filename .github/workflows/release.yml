@@ -15,6 +15,7 @@ on:
 permissions:
   contents: write
   actions: read
+  id-token: write
 
 jobs:
   verify-ci:
@@ -158,11 +159,22 @@ jobs:
           cd dist/release
           sha256sum *.tar.gz > SHA256SUMS
 
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v4.0.0
+
+      - name: Sign SHA256SUMS
+        run: |
+          set -euo pipefail
+          cd dist/release
+          cosign sign-blob SHA256SUMS --bundle SHA256SUMS.sigstore.json --yes
+
       - name: Upload checksum artifact
         uses: actions/upload-artifact@v4
         with:
           name: sha256sums
-          path: dist/release/SHA256SUMS
+          path: |
+            dist/release/SHA256SUMS
+            dist/release/SHA256SUMS.sigstore.json
           if-no-files-found: error
 
       - name: Upload release assets
@@ -183,3 +195,4 @@ jobs:
             gh release upload "${GITHUB_REF_NAME}" "${asset}" --clobber
           done
           gh release upload "${GITHUB_REF_NAME}" "dist/release/SHA256SUMS" --clobber
+          gh release upload "${GITHUB_REF_NAME}" "dist/release/SHA256SUMS.sigstore.json" --clobber

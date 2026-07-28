@@ -226,6 +226,17 @@ tok run recover --summary "Recovered stale run." --json
 task requires a succeeded run with passed validation evidence, unless
 `--allow-unvalidated --override-reason <text>` is used explicitly.
 
+### Dogfooding Metrics
+
+```bash
+scripts/dogfooding-metrics.sh --project tok --task <task-id>
+```
+
+The report reads the local TOK SQLite database and prints task/run counts,
+validation records, overrides, stale leases, recovery count, handoff artifacts
+and context build latency for the supplied task. See
+[Dogfooding Metrics](dogfooding.md).
+
 ## Agent Adapter Runs
 
 `tok run agent` invokes a local adapter command and passes the task context via

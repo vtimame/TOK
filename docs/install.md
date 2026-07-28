@@ -25,11 +25,22 @@ The first release workflow builds assets for:
 - macOS Apple Silicon: `tok_darwin_arm64.tar.gz`
 - macOS Intel: `tok_darwin_amd64.tar.gz`
 - Checksums: `SHA256SUMS`
+- Checksum signature bundle: `SHA256SUMS.sigstore.json`
 
 Windows binaries are not part of the first alpha release.
 
 Download `SHA256SUMS` next to the asset you want to install and verify the
-archive before extracting it.
+archive before extracting it. For releases that include
+`SHA256SUMS.sigstore.json`, verify the checksum file before checking the
+archive:
+
+```bash
+TAG=v0.2.1
+cosign verify-blob SHA256SUMS \
+  --bundle SHA256SUMS.sigstore.json \
+  --certificate-identity "https://github.com/vtimame/TOK/.github/workflows/release.yml@refs/tags/${TAG}" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
 
 ## Linux x86_64
 
@@ -141,3 +152,7 @@ For worker agents, prefer the smaller tool profile:
 ```bash
 TOK_AGENT_TOKEN="tok_agent_..." tok mcp serve --profile worker
 ```
+
+Windows prebuilt binaries are deferred for the current alpha. On Windows, build
+from source until the project adds Windows CI coverage and a documented
+PowerShell install path.

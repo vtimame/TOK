@@ -3,6 +3,17 @@
 This demo uses an isolated TOK data directory and a tiny local git repository.
 It is safe to run without touching your normal TOK workspace.
 
+For the public crash/recovery scenario, use:
+
+```bash
+scripts/demo-agent-recovery.sh
+```
+
+The script creates a temporary repository, claims a task, records deterministic
+handoff files, simulates a stale agent lease, recovers the stale run, attaches a
+patch artifact, records validation evidence and completes the task with
+`--evidence-run`.
+
 ## Create A Demo Workspace
 
 ```bash
