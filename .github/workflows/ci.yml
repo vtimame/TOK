@@ -34,6 +34,9 @@ jobs:
       - name: Check diff whitespace
         run: git diff --check
 
+      - name: Vet
+        run: make vet
+
       - name: Test
         run: go test ./...
 

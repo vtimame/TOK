@@ -54,6 +54,10 @@ Use this file for each release candidate. Keep it in sync with executed validati
    - Record whether SBOM and GitHub artifact attestations are present.
    - If they are not present, release notes must say `not included in this alpha`.
 
+8. **Prerelease tag handling**
+   - `scripts/release-prerelease-flags.sh v0.2.2-rc.2` must print `--prerelease`.
+   - `scripts/release-prerelease-flags.sh v0.2.2` must print no flags.
+
 Do not move a release draft to a published artifact until every required check is
 captured as passed with evidence.
 

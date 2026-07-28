@@ -6,6 +6,21 @@ Run the full test suite:
 go test ./...
 ```
 
+Run Go static checks:
+
+```bash
+make vet
+```
+
+Run extended Go static analysis:
+
+```bash
+make staticcheck
+```
+
+`make staticcheck` installs the pinned Staticcheck version into the ignored
+`bin/` directory before running it.
+
 Check whitespace issues before committing:
 
 ```bash

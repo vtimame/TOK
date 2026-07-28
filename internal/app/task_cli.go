@@ -1096,36 +1096,6 @@ func parseTaskDoneOptions(args []string) (taskDoneOptions, error) {
 	}, nil
 }
 
-func parseRequiredProjectOption(args []string, command string) (string, error) {
-	var projectName string
-
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		switch {
-		case arg == "--project":
-			i++
-			if i >= len(args) {
-				return "", &UsageError{Message: "--project requires a value", Code: 2}
-			}
-			projectName = args[i]
-		case strings.HasPrefix(arg, "--project="):
-			projectName = strings.TrimPrefix(arg, "--project=")
-			if projectName == "" {
-				return "", &UsageError{Message: "--project requires a value", Code: 2}
-			}
-		default:
-			return "", &UsageError{Message: fmt.Sprintf("unknown %s option %q", command, arg), Code: 2}
-		}
-	}
-
-	projectName = strings.TrimSpace(projectName)
-	if projectName == "" {
-		return "", &UsageError{Message: command + " requires --project", Code: 2}
-	}
-
-	return projectName, nil
-}
-
 func parseTaskCommentOptions(args []string) (taskCommentOptions, error) {
 	return parseTaskNoteOptions(args, "task comment", "--body")
 }

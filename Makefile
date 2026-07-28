@@ -2,6 +2,8 @@ BINARY ?= bin/tok
 VERSION ?= dev
 INSTALL_BIN ?= $(HOME)/go/bin/tok
 TOK_SYSTEMD_UNITS ?= tok-ui.service tok-index-watch.service
+STATICCHECK_VERSION ?= v0.7.0
+STATICCHECK_BIN ?= $(CURDIR)/bin/staticcheck-$(STATICCHECK_VERSION)
 COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 DATE := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS := -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
@@ -9,7 +11,7 @@ EMBED_WEB_DIR := internal/httpserver/webdist
 
 DEVCTL := ./scripts/devctl.sh
 
-.PHONY: test quality build web-build web-embed install run fmt dev-start dev-stop dev-restart dev-status dev-logs dev-api-start dev-api-stop dev-app-start dev-app-stop
+.PHONY: test vet staticcheck quality build web-build web-embed install run fmt dev-start dev-stop dev-restart dev-status dev-logs dev-api-start dev-api-stop dev-app-start dev-app-stop
 
 quality:
 	./scripts/check-file-budgets.sh
@@ -18,6 +20,19 @@ quality:
 
 test:
 	go test ./...
+
+vet:
+	go vet ./...
+
+staticcheck:
+	@if [ ! -x "$(STATICCHECK_BIN)" ]; then \
+		mkdir -p "$(dir $(STATICCHECK_BIN))"; \
+		tmp="$$(mktemp -d)"; \
+		trap 'rm -rf "$$tmp"' EXIT; \
+		GOBIN="$$tmp" go install honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION); \
+		mv "$$tmp/staticcheck" "$(STATICCHECK_BIN)"; \
+	fi
+	"$(STATICCHECK_BIN)" ./...
 
 build: web-embed
 	mkdir -p $(dir $(BINARY))

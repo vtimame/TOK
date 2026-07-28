@@ -30,18 +30,6 @@ func positiveIntQuery(ctx fuego.ContextNoBody, name string, defaultValue, maxVal
 	return parsed, nil
 }
 
-func nonNegativeIntQuery(ctx fuego.ContextNoBody, name string, defaultValue int) (int, error) {
-	value := strings.TrimSpace(ctx.QueryParam(name))
-	if value == "" {
-		return defaultValue, nil
-	}
-	parsed, err := strconv.Atoi(value)
-	if err != nil || parsed < 0 {
-		return 0, badRequest(fmt.Sprintf("%s must be a non-negative integer", name))
-	}
-	return parsed, nil
-}
-
 func cursorQuery(ctx fuego.ContextNoBody, name string) (int64, error) {
 	value := strings.TrimSpace(ctx.QueryParam(name))
 	if value == "" {
