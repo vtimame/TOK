@@ -23,6 +23,36 @@ type runCommandSafetyMetadata struct {
 	DangerousOverride string   `json:"dangerous_override"`
 }
 
+type runCommandArtifactMetadata struct {
+	Source            string                   `json:"source"`
+	AdapterContract   string                   `json:"adapter_contract,omitempty"`
+	Command           string                   `json:"command"`
+	Args              []string                 `json:"args"`
+	Status            string                   `json:"status"`
+	RunStatus         string                   `json:"run_status"`
+	Summary           string                   `json:"summary"`
+	ExitCode          int                      `json:"exit_code"`
+	DurationMS        int64                    `json:"duration_ms"`
+	TimedOut          bool                     `json:"timed_out"`
+	TimeoutMS         int64                    `json:"timeout_ms"`
+	Signal            string                   `json:"signal,omitempty"`
+	PID               int                      `json:"pid"`
+	ProcessGroupID    int                      `json:"process_group_id"`
+	SessionID         int                      `json:"session_id"`
+	ProcessGroup      bool                     `json:"process_group"`
+	ForwardedSignals  []string                 `json:"forwarded_signals"`
+	ContextMode       string                   `json:"context_mode,omitempty"`
+	ContextFile       string                   `json:"context_file,omitempty"`
+	ResultFile        string                   `json:"result_file,omitempty"`
+	ResultRead        *bool                    `json:"result_read,omitempty"`
+	ResultError       string                   `json:"result_error,omitempty"`
+	ArtifactDir       string                   `json:"artifact_dir,omitempty"`
+	HandoffArtifactID int64                    `json:"handoff_artifact_id,omitempty"`
+	StdoutArtifactID  int64                    `json:"stdout_artifact_id"`
+	StderrArtifactID  int64                    `json:"stderr_artifact_id"`
+	Safety            runCommandSafetyMetadata `json:"safety"`
+}
+
 func formatRunTimestamp(t time.Time) string {
 	return t.UTC().Format("2006-01-02T15:04:05.000Z")
 }
@@ -41,29 +71,39 @@ func runLeaseOwner(actor storage.ActorRef) string {
 }
 
 func runExecArtifactMetadata(opts runExecOptions, redactor runMetadataRedactor, safety runCommandSafetyMetadata, execution runCommandExecutionResult, stdoutArtifactID, stderrArtifactID int64) (string, error) {
-	redactedArgs := redactor.redactArgs(opts.command)
-	raw, err := json.Marshal(struct {
-		Source           string                   `json:"source"`
-		Command          string                   `json:"command"`
-		Args             []string                 `json:"args"`
-		Status           string                   `json:"status"`
-		RunStatus        string                   `json:"run_status"`
-		Summary          string                   `json:"summary"`
-		ExitCode         int                      `json:"exit_code"`
-		DurationMS       int64                    `json:"duration_ms"`
-		TimedOut         bool                     `json:"timed_out"`
-		TimeoutMS        int64                    `json:"timeout_ms"`
-		Signal           string                   `json:"signal,omitempty"`
-		PID              int                      `json:"pid"`
-		ProcessGroupID   int                      `json:"process_group_id"`
-		SessionID        int                      `json:"session_id"`
-		ProcessGroup     bool                     `json:"process_group"`
-		ForwardedSignals []string                 `json:"forwarded_signals"`
-		StdoutArtifactID int64                    `json:"stdout_artifact_id"`
-		StderrArtifactID int64                    `json:"stderr_artifact_id"`
-		Safety           runCommandSafetyMetadata `json:"safety"`
-	}{
-		Source:           "run exec",
+	metadata := newRunCommandArtifactMetadata("run exec", opts.command, opts.timeout, redactor, safety, execution, stdoutArtifactID, stderrArtifactID)
+	raw, err := json.Marshal(metadata)
+	if err != nil {
+		return "", err
+	}
+	return string(raw), nil
+}
+
+func runAgentArtifactMetadata(opts runAgentOptions, redactor runMetadataRedactor, safety runCommandSafetyMetadata, execution runCommandExecutionResult, handoffArtifactID, stdoutArtifactID, stderrArtifactID int64, artifactDir, contextFile, resultFile string, resultRead bool, resultErr error) (string, error) {
+	resultError := ""
+	if resultErr != nil {
+		resultError = resultErr.Error()
+	}
+	metadata := newRunCommandArtifactMetadata("run agent", opts.command, opts.timeout, redactor, safety, execution, stdoutArtifactID, stderrArtifactID)
+	metadata.AdapterContract = agentAdapterContractV0
+	metadata.ContextMode = opts.contextMode
+	metadata.ContextFile = contextFile
+	metadata.ResultFile = resultFile
+	metadata.ResultRead = &resultRead
+	metadata.ResultError = redactor.redactString(resultError)
+	metadata.ArtifactDir = artifactDir
+	metadata.HandoffArtifactID = handoffArtifactID
+	raw, err := json.Marshal(metadata)
+	if err != nil {
+		return "", err
+	}
+	return string(raw), nil
+}
+
+func newRunCommandArtifactMetadata(source string, command []string, timeout time.Duration, redactor runMetadataRedactor, safety runCommandSafetyMetadata, execution runCommandExecutionResult, stdoutArtifactID, stderrArtifactID int64) runCommandArtifactMetadata {
+	redactedArgs := redactor.redactArgs(command)
+	return runCommandArtifactMetadata{
+		Source:           source,
 		Command:          strings.Join(redactedArgs, " "),
 		Args:             redactedArgs,
 		Status:           execution.Status,
@@ -72,7 +112,7 @@ func runExecArtifactMetadata(opts runExecOptions, redactor runMetadataRedactor, 
 		ExitCode:         execution.ExitCode,
 		DurationMS:       execution.Duration.Milliseconds(),
 		TimedOut:         execution.TimedOut,
-		TimeoutMS:        opts.timeout.Milliseconds(),
+		TimeoutMS:        timeout.Milliseconds(),
 		Signal:           execution.Signal,
 		PID:              execution.PID,
 		ProcessGroupID:   execution.ProcessGroupID,
@@ -82,80 +122,7 @@ func runExecArtifactMetadata(opts runExecOptions, redactor runMetadataRedactor, 
 		StdoutArtifactID: stdoutArtifactID,
 		StderrArtifactID: stderrArtifactID,
 		Safety:           safety,
-	})
-	if err != nil {
-		return "", err
 	}
-	return string(raw), nil
-}
-
-func runAgentArtifactMetadata(opts runAgentOptions, redactor runMetadataRedactor, safety runCommandSafetyMetadata, execution runCommandExecutionResult, handoffArtifactID, stdoutArtifactID, stderrArtifactID int64, artifactDir, contextFile, resultFile string, resultRead bool, resultErr error) (string, error) {
-	redactedArgs := redactor.redactArgs(opts.command)
-	resultError := ""
-	if resultErr != nil {
-		resultError = resultErr.Error()
-	}
-	raw, err := json.Marshal(struct {
-		Source            string                   `json:"source"`
-		AdapterContract   string                   `json:"adapter_contract"`
-		Command           string                   `json:"command"`
-		Args              []string                 `json:"args"`
-		Status            string                   `json:"status"`
-		RunStatus         string                   `json:"run_status"`
-		Summary           string                   `json:"summary"`
-		ExitCode          int                      `json:"exit_code"`
-		DurationMS        int64                    `json:"duration_ms"`
-		TimedOut          bool                     `json:"timed_out"`
-		TimeoutMS         int64                    `json:"timeout_ms"`
-		Signal            string                   `json:"signal,omitempty"`
-		PID               int                      `json:"pid"`
-		ProcessGroupID    int                      `json:"process_group_id"`
-		SessionID         int                      `json:"session_id"`
-		ProcessGroup      bool                     `json:"process_group"`
-		ForwardedSignals  []string                 `json:"forwarded_signals"`
-		ContextMode       string                   `json:"context_mode"`
-		ContextFile       string                   `json:"context_file,omitempty"`
-		ResultFile        string                   `json:"result_file"`
-		ResultRead        bool                     `json:"result_read"`
-		ResultError       string                   `json:"result_error,omitempty"`
-		ArtifactDir       string                   `json:"artifact_dir"`
-		HandoffArtifactID int64                    `json:"handoff_artifact_id"`
-		StdoutArtifactID  int64                    `json:"stdout_artifact_id"`
-		StderrArtifactID  int64                    `json:"stderr_artifact_id"`
-		Safety            runCommandSafetyMetadata `json:"safety"`
-	}{
-		Source:            "run agent",
-		AdapterContract:   agentAdapterContractV0,
-		Command:           strings.Join(redactedArgs, " "),
-		Args:              redactedArgs,
-		Status:            execution.Status,
-		RunStatus:         execution.RunStatus,
-		Summary:           redactor.redactString(execution.Summary),
-		ExitCode:          execution.ExitCode,
-		DurationMS:        execution.Duration.Milliseconds(),
-		TimedOut:          execution.TimedOut,
-		TimeoutMS:         opts.timeout.Milliseconds(),
-		Signal:            execution.Signal,
-		PID:               execution.PID,
-		ProcessGroupID:    execution.ProcessGroupID,
-		SessionID:         execution.SessionID,
-		ProcessGroup:      execution.ProcessGroupID != 0,
-		ForwardedSignals:  []string{"SIGINT", "SIGTERM"},
-		ContextMode:       opts.contextMode,
-		ContextFile:       contextFile,
-		ResultFile:        resultFile,
-		ResultRead:        resultRead,
-		ResultError:       redactor.redactString(resultError),
-		ArtifactDir:       artifactDir,
-		HandoffArtifactID: handoffArtifactID,
-		StdoutArtifactID:  stdoutArtifactID,
-		StderrArtifactID:  stderrArtifactID,
-		Safety:            safety,
-	})
-	if err != nil {
-		return "", err
-	}
-	return string(raw), nil
 }
 
 func validationArtifactMetadata(opts runRecordValidationOptions, redactor runMetadataRedactor) (string, error) {

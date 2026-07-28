@@ -7,10 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"strings"
 
+	projectpkg "s26.sh/tok/internal/project"
 	"s26.sh/tok/internal/storage"
 )
 
@@ -443,24 +442,7 @@ func validateProjectPath(path string) (string, error) {
 	if strings.TrimSpace(path) == "" {
 		return "", &UsageError{Message: "project path is required", Code: 2}
 	}
-
-	absPath, err := filepath.Abs(path)
-	if err != nil {
-		return "", fmt.Errorf("resolve project path %q: %w", path, err)
-	}
-
-	info, err := os.Stat(absPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", fmt.Errorf("project path does not exist: %s", absPath)
-		}
-		return "", fmt.Errorf("inspect project path %q: %w", absPath, err)
-	}
-	if !info.IsDir() {
-		return "", fmt.Errorf("project path must be a directory: %s", absPath)
-	}
-
-	return absPath, nil
+	return projectpkg.ValidateLocalPath(path)
 }
 
 func printProject(out io.Writer, project storage.Project) {

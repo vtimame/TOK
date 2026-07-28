@@ -159,22 +159,8 @@ func (s *Store) listTasksWithOptions(ctx context.Context, projectID int64, opts 
 		FROM tasks
 	`
 	args := []any{}
-	where := []string{}
-	if projectID > 0 {
-		where = append(where, "project_id = ?")
-		args = append(args, projectID)
-	}
-	switch len(statuses) {
-	case 0:
-	case 1:
-		where = append(where, "status = ?")
-		args = append(args, statuses[0])
-	default:
-		where = append(where, "status IN ("+queryPlaceholders(len(statuses))+")")
-		for _, status := range statuses {
-			args = append(args, status)
-		}
-	}
+	where, baseArgs := taskWhereClauses(projectID, statuses)
+	args = append(args, baseArgs...)
 	if direction != "DESC" {
 		direction = "ASC"
 	}
@@ -201,19 +187,7 @@ func (s *Store) listTasksWithOptions(ctx context.Context, projectID int64, opts 
 	}
 	defer rows.Close()
 
-	var tasks []Task
-	for rows.Next() {
-		var task Task
-		if err := rows.Scan(&task.ID, &task.ProjectID, &task.Status, &task.Title, &task.Description, &task.AcceptanceCriteria, &task.Notes, &task.Source, &task.ExternalID, &task.ExternalURL, &task.ExternalRevision, &task.CreatedAt, &task.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("scan task: %w", err)
-		}
-		tasks = append(tasks, task)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate tasks: %w", err)
-	}
-
-	return tasks, nil
+	return scanTaskRows(rows, "scan task", "iterate tasks")
 }
 
 func (s *Store) CountTasks(ctx context.Context) (int, error) {
@@ -227,8 +201,23 @@ func (s *Store) CountTasksWithOptions(ctx context.Context, projectID int64, opts
 	}
 
 	query := "SELECT COUNT(*) FROM tasks"
-	args := []any{}
+	where, args := taskWhereClauses(projectID, statuses)
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
+	}
+
+	var count int
+	if err := s.db.QueryRowContext(ctx, query, args...).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count tasks: %w", err)
+	}
+
+	return count, nil
+}
+
+func taskWhereClauses(projectID int64, statuses []string) ([]string, []any) {
 	where := []string{}
+	args := []any{}
+
 	if projectID > 0 {
 		where = append(where, "project_id = ?")
 		args = append(args, projectID)
@@ -244,15 +233,8 @@ func (s *Store) CountTasksWithOptions(ctx context.Context, projectID int64, opts
 			args = append(args, status)
 		}
 	}
-	if len(where) > 0 {
-		query += " WHERE " + strings.Join(where, " AND ")
-	}
 
-	var count int
-	if err := s.db.QueryRowContext(ctx, query, args...).Scan(&count); err != nil {
-		return 0, fmt.Errorf("count tasks: %w", err)
-	}
-	return count, nil
+	return where, args
 }
 
 func (s *Store) UpdateTaskStatus(ctx context.Context, id int64, status string) (Task, error) {
@@ -518,16 +500,20 @@ func (s *Store) ListReadyTasks(ctx context.Context, projectID int64) ([]Task, er
 	}
 	defer rows.Close()
 
+	return scanTaskRows(rows, "scan ready task", "iterate ready tasks")
+}
+
+func scanTaskRows(rows *sql.Rows, scanLabel, iterateLabel string) ([]Task, error) {
 	var tasks []Task
 	for rows.Next() {
-		var task Task
-		if err := rows.Scan(&task.ID, &task.ProjectID, &task.Status, &task.Title, &task.Description, &task.AcceptanceCriteria, &task.Notes, &task.Source, &task.ExternalID, &task.ExternalURL, &task.ExternalRevision, &task.CreatedAt, &task.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("scan ready task: %w", err)
+		task, err := scanTask(rows)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", scanLabel, err)
 		}
 		tasks = append(tasks, task)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate ready tasks: %w", err)
+		return nil, fmt.Errorf("%s: %w", iterateLabel, err)
 	}
 
 	return tasks, nil

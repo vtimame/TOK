@@ -45,35 +45,19 @@ func executeRunValidation(ctx context.Context, store *storage.Store, dataDir str
 		return storage.RunArtifact{}, err
 	}
 
-	stdoutPath, nextOrdinal, err := nextRunArtifactPath(dataDir, run.ID, "stdout", len(artifacts)+1)
+	streams, err := newRunStreamArtifactWriters(dataDir, run.ID, len(artifacts)+1, opts.limitBytes)
 	if err != nil {
 		return storage.RunArtifact{}, err
 	}
-	stderrPath, _, err := nextRunArtifactPath(dataDir, run.ID, "stderr", nextOrdinal)
-	if err != nil {
-		return storage.RunArtifact{}, err
-	}
-
-	stdoutWriter, err := newBoundedRunArtifactWriter(stdoutPath, opts.limitBytes)
-	if err != nil {
-		return storage.RunArtifact{}, err
-	}
-	defer func() { _, _ = stdoutWriter.Close() }()
-	stderrWriter, err := newBoundedRunArtifactWriter(stderrPath, opts.limitBytes)
-	if err != nil {
-		_, _ = stdoutWriter.Close()
-		_ = os.Remove(stdoutPath)
-		return storage.RunArtifact{}, err
-	}
-	defer func() { _, _ = stderrWriter.Close() }()
+	defer streams.closeQuietly()
 
 	commandCtx, cancel := context.WithTimeout(ctx, opts.timeout)
 	defer cancel()
 	cmd := exec.CommandContext(commandCtx, opts.command[0], opts.command[1:]...)
 	cmd.Dir = project.Path
 	cmd.Env = commandEnv
-	cmd.Stdout = stdoutWriter
-	cmd.Stderr = stderrWriter
+	cmd.Stdout = streams.StdoutWriter
+	cmd.Stderr = streams.StderrWriter
 
 	start := time.Now()
 	runErr := cmd.Run()
@@ -89,59 +73,8 @@ func executeRunValidation(ctx context.Context, store *storage.Store, dataDir str
 		}
 	}
 
-	stdoutResult, err := stdoutWriter.Close()
+	stdoutArtifact, stderrArtifact, err := recordRunStreamArtifacts(ctx, store, run.ID, "run validate", opts.limitBytes, streams, actor)
 	if err != nil {
-		_, _ = stderrWriter.Close()
-		_ = os.Remove(stdoutPath)
-		_ = os.Remove(stderrPath)
-		return storage.RunArtifact{}, err
-	}
-	stderrResult, err := stderrWriter.Close()
-	if err != nil {
-		_ = os.Remove(stdoutPath)
-		_ = os.Remove(stderrPath)
-		return storage.RunArtifact{}, err
-	}
-
-	stdoutMetadata, err := validationStreamArtifactMetadata("stdout", opts.limitBytes, stdoutResult)
-	if err != nil {
-		_ = os.Remove(stdoutPath)
-		_ = os.Remove(stderrPath)
-		return storage.RunArtifact{}, err
-	}
-	stdoutArtifact, err := store.AddRunArtifact(ctx, storage.AddRunArtifactInput{
-		RunID:       run.ID,
-		Kind:        "stdout",
-		Path:        stdoutPath,
-		ContentHash: stdoutResult.ContentHash,
-		SizeBytes:   stdoutResult.SizeBytes,
-		Truncated:   stdoutResult.Truncated,
-		Metadata:    stdoutMetadata,
-		Actor:       actor,
-	})
-	if err != nil {
-		_ = os.Remove(stdoutPath)
-		_ = os.Remove(stderrPath)
-		return storage.RunArtifact{}, err
-	}
-
-	stderrMetadata, err := validationStreamArtifactMetadata("stderr", opts.limitBytes, stderrResult)
-	if err != nil {
-		_ = os.Remove(stderrPath)
-		return storage.RunArtifact{}, err
-	}
-	stderrArtifact, err := store.AddRunArtifact(ctx, storage.AddRunArtifactInput{
-		RunID:       run.ID,
-		Kind:        "stderr",
-		Path:        stderrPath,
-		ContentHash: stderrResult.ContentHash,
-		SizeBytes:   stderrResult.SizeBytes,
-		Truncated:   stderrResult.Truncated,
-		Metadata:    stderrMetadata,
-		Actor:       actor,
-	})
-	if err != nil {
-		_ = os.Remove(stderrPath)
 		return storage.RunArtifact{}, err
 	}
 

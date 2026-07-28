@@ -20,30 +20,17 @@ func queryPlaceholders(count int) string {
 }
 
 func normalizeTaskStatuses(opts ListTasksOptions) ([]string, error) {
-	raw := opts.Statuses
-	if len(raw) == 0 && strings.TrimSpace(opts.Status) != "" {
-		raw = []string{opts.Status}
-	}
-	statuses := make([]string, 0, len(raw))
-	seen := map[string]bool{}
-	for _, item := range raw {
-		status := strings.TrimSpace(item)
-		if status == "" || seen[status] {
-			continue
-		}
-		if !validTaskStatus(status) {
-			return nil, fmt.Errorf("invalid task status %q", status)
-		}
-		seen[status] = true
-		statuses = append(statuses, status)
-	}
-	return statuses, nil
+	return normalizeStatuses(opts.Statuses, opts.Status, validTaskStatus, "task")
 }
 
 func normalizeRunStatuses(opts ListRunsOptions) ([]string, error) {
-	raw := opts.Statuses
-	if len(raw) == 0 && strings.TrimSpace(opts.Status) != "" {
-		raw = []string{opts.Status}
+	return normalizeStatuses(opts.Statuses, opts.Status, validRunStatus, "run")
+}
+
+func normalizeStatuses(rawStatuses []string, singleStatus string, valid func(string) bool, label string) ([]string, error) {
+	raw := rawStatuses
+	if len(raw) == 0 && strings.TrimSpace(singleStatus) != "" {
+		raw = []string{singleStatus}
 	}
 	statuses := make([]string, 0, len(raw))
 	seen := map[string]bool{}
@@ -52,8 +39,8 @@ func normalizeRunStatuses(opts ListRunsOptions) ([]string, error) {
 		if status == "" || seen[status] {
 			continue
 		}
-		if !validRunStatus(status) {
-			return nil, fmt.Errorf("invalid run status %q", status)
+		if !valid(status) {
+			return nil, fmt.Errorf("invalid %s status %q", label, status)
 		}
 		seen[status] = true
 		statuses = append(statuses, status)

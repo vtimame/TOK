@@ -20,6 +20,13 @@ type runFileArtifactWriteResult struct {
 	Truncated         bool
 }
 
+type runStreamArtifactWriters struct {
+	StdoutPath   string
+	StderrPath   string
+	StdoutWriter *boundedRunArtifactWriter
+	StderrWriter *boundedRunArtifactWriter
+}
+
 type boundedRunArtifactWriter struct {
 	file       *os.File
 	hasher     hashWriter
@@ -112,6 +119,119 @@ func nextRunArtifactPathWithExt(dataDir string, runID int64, kind, ext string, s
 			return "", 0, fmt.Errorf("stat artifact path %q: %w", outputPath, err)
 		}
 	}
+}
+
+func newRunStreamArtifactWriters(dataDir string, runID int64, startOrdinal int, limitBytes int64) (*runStreamArtifactWriters, error) {
+	stdoutPath, nextOrdinal, err := nextRunArtifactPath(dataDir, runID, "stdout", startOrdinal)
+	if err != nil {
+		return nil, err
+	}
+	stderrPath, _, err := nextRunArtifactPath(dataDir, runID, "stderr", nextOrdinal)
+	if err != nil {
+		return nil, err
+	}
+
+	stdoutWriter, err := newBoundedRunArtifactWriter(stdoutPath, limitBytes)
+	if err != nil {
+		return nil, err
+	}
+	stderrWriter, err := newBoundedRunArtifactWriter(stderrPath, limitBytes)
+	if err != nil {
+		_, _ = stdoutWriter.Close()
+		_ = os.Remove(stdoutPath)
+		return nil, err
+	}
+
+	return &runStreamArtifactWriters{
+		StdoutPath:   stdoutPath,
+		StderrPath:   stderrPath,
+		StdoutWriter: stdoutWriter,
+		StderrWriter: stderrWriter,
+	}, nil
+}
+
+func (w *runStreamArtifactWriters) closeQuietly() {
+	if w == nil {
+		return
+	}
+	if w.StdoutWriter != nil {
+		_, _ = w.StdoutWriter.Close()
+	}
+	if w.StderrWriter != nil {
+		_, _ = w.StderrWriter.Close()
+	}
+}
+
+func (w *runStreamArtifactWriters) removeFiles() {
+	if w == nil {
+		return
+	}
+	_ = os.Remove(w.StdoutPath)
+	_ = os.Remove(w.StderrPath)
+}
+
+func (w *runStreamArtifactWriters) close() (runFileArtifactWriteResult, runFileArtifactWriteResult, error) {
+	stdoutResult, err := w.StdoutWriter.Close()
+	if err != nil {
+		_, _ = w.StderrWriter.Close()
+		w.removeFiles()
+		return runFileArtifactWriteResult{}, runFileArtifactWriteResult{}, err
+	}
+	stderrResult, err := w.StderrWriter.Close()
+	if err != nil {
+		w.removeFiles()
+		return runFileArtifactWriteResult{}, runFileArtifactWriteResult{}, err
+	}
+	return stdoutResult, stderrResult, nil
+}
+
+func recordRunStreamArtifacts(ctx context.Context, store *storage.Store, runID int64, source string, limitBytes int64, streams *runStreamArtifactWriters, actor storage.ActorRef) (storage.RunArtifact, storage.RunArtifact, error) {
+	stdoutResult, stderrResult, err := streams.close()
+	if err != nil {
+		return storage.RunArtifact{}, storage.RunArtifact{}, err
+	}
+
+	stdoutMetadata, err := streamArtifactMetadata(source, "stdout", limitBytes, stdoutResult)
+	if err != nil {
+		streams.removeFiles()
+		return storage.RunArtifact{}, storage.RunArtifact{}, err
+	}
+	stdoutArtifact, err := store.AddRunArtifact(ctx, storage.AddRunArtifactInput{
+		RunID:       runID,
+		Kind:        "stdout",
+		Path:        streams.StdoutPath,
+		ContentHash: stdoutResult.ContentHash,
+		SizeBytes:   stdoutResult.SizeBytes,
+		Truncated:   stdoutResult.Truncated,
+		Metadata:    stdoutMetadata,
+		Actor:       actor,
+	})
+	if err != nil {
+		streams.removeFiles()
+		return storage.RunArtifact{}, storage.RunArtifact{}, err
+	}
+
+	stderrMetadata, err := streamArtifactMetadata(source, "stderr", limitBytes, stderrResult)
+	if err != nil {
+		_ = os.Remove(streams.StderrPath)
+		return storage.RunArtifact{}, storage.RunArtifact{}, err
+	}
+	stderrArtifact, err := store.AddRunArtifact(ctx, storage.AddRunArtifactInput{
+		RunID:       runID,
+		Kind:        "stderr",
+		Path:        streams.StderrPath,
+		ContentHash: stderrResult.ContentHash,
+		SizeBytes:   stderrResult.SizeBytes,
+		Truncated:   stderrResult.Truncated,
+		Metadata:    stderrMetadata,
+		Actor:       actor,
+	})
+	if err != nil {
+		_ = os.Remove(streams.StderrPath)
+		return storage.RunArtifact{}, storage.RunArtifact{}, err
+	}
+
+	return stdoutArtifact, stderrArtifact, nil
 }
 
 func newBoundedRunArtifactWriter(path string, limitBytes int64) (*boundedRunArtifactWriter, error) {
@@ -259,10 +379,6 @@ func fileRunArtifactMetadata(opts runRecordArtifactOptions, sourcePath string, r
 		return "", err
 	}
 	return string(raw), nil
-}
-
-func validationStreamArtifactMetadata(stream string, limitBytes int64, result runFileArtifactWriteResult) (string, error) {
-	return streamArtifactMetadata("run validate", stream, limitBytes, result)
 }
 
 func streamArtifactMetadata(source, stream string, limitBytes int64, result runFileArtifactWriteResult) (string, error) {

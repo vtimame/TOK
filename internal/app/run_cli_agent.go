@@ -52,27 +52,11 @@ func executeAgentCommand(ctx context.Context, store *storage.Store, dataDir stri
 		DangerousOverride: dangerousOverride,
 	}
 
-	stdoutPath, nextOrdinal, err := nextRunArtifactPath(dataDir, run.ID, "stdout", len(artifacts)+1)
+	streams, err := newRunStreamArtifactWriters(dataDir, run.ID, len(artifacts)+1, opts.limitBytes)
 	if err != nil {
 		return runExecResult{}, err
 	}
-	stderrPath, _, err := nextRunArtifactPath(dataDir, run.ID, "stderr", nextOrdinal)
-	if err != nil {
-		return runExecResult{}, err
-	}
-
-	stdoutWriter, err := newBoundedRunArtifactWriter(stdoutPath, opts.limitBytes)
-	if err != nil {
-		return runExecResult{}, err
-	}
-	defer func() { _, _ = stdoutWriter.Close() }()
-	stderrWriter, err := newBoundedRunArtifactWriter(stderrPath, opts.limitBytes)
-	if err != nil {
-		_, _ = stdoutWriter.Close()
-		_ = os.Remove(stdoutPath)
-		return runExecResult{}, err
-	}
-	defer func() { _, _ = stderrWriter.Close() }()
+	defer streams.closeQuietly()
 
 	cmd := exec.Command(opts.command[0], opts.command[1:]...)
 	cmd.Dir = project.Path
@@ -80,8 +64,8 @@ func executeAgentCommand(ctx context.Context, store *storage.Store, dataDir stri
 	if opts.contextMode == "stdin" {
 		cmd.Stdin = strings.NewReader(handoffText)
 	}
-	cmd.Stdout = stdoutWriter
-	cmd.Stderr = stderrWriter
+	cmd.Stdout = streams.StdoutWriter
+	cmd.Stderr = streams.StderrWriter
 	configureRunProcessGroup(cmd)
 
 	start := time.Now()
@@ -132,59 +116,8 @@ func executeAgentCommand(ctx context.Context, store *storage.Store, dataDir stri
 	}
 	duration := time.Since(start)
 
-	stdoutResult, err := stdoutWriter.Close()
+	stdoutArtifact, stderrArtifact, err := recordRunStreamArtifacts(ctx, store, run.ID, "run agent", opts.limitBytes, streams, actor)
 	if err != nil {
-		_, _ = stderrWriter.Close()
-		_ = os.Remove(stdoutPath)
-		_ = os.Remove(stderrPath)
-		return runExecResult{}, err
-	}
-	stderrResult, err := stderrWriter.Close()
-	if err != nil {
-		_ = os.Remove(stdoutPath)
-		_ = os.Remove(stderrPath)
-		return runExecResult{}, err
-	}
-
-	stdoutMetadata, err := streamArtifactMetadata("run agent", "stdout", opts.limitBytes, stdoutResult)
-	if err != nil {
-		_ = os.Remove(stdoutPath)
-		_ = os.Remove(stderrPath)
-		return runExecResult{}, err
-	}
-	stdoutArtifact, err := store.AddRunArtifact(ctx, storage.AddRunArtifactInput{
-		RunID:       run.ID,
-		Kind:        "stdout",
-		Path:        stdoutPath,
-		ContentHash: stdoutResult.ContentHash,
-		SizeBytes:   stdoutResult.SizeBytes,
-		Truncated:   stdoutResult.Truncated,
-		Metadata:    stdoutMetadata,
-		Actor:       actor,
-	})
-	if err != nil {
-		_ = os.Remove(stdoutPath)
-		_ = os.Remove(stderrPath)
-		return runExecResult{}, err
-	}
-
-	stderrMetadata, err := streamArtifactMetadata("run agent", "stderr", opts.limitBytes, stderrResult)
-	if err != nil {
-		_ = os.Remove(stderrPath)
-		return runExecResult{}, err
-	}
-	stderrArtifact, err := store.AddRunArtifact(ctx, storage.AddRunArtifactInput{
-		RunID:       run.ID,
-		Kind:        "stderr",
-		Path:        stderrPath,
-		ContentHash: stderrResult.ContentHash,
-		SizeBytes:   stderrResult.SizeBytes,
-		Truncated:   stderrResult.Truncated,
-		Metadata:    stderrMetadata,
-		Actor:       actor,
-	})
-	if err != nil {
-		_ = os.Remove(stderrPath)
 		return runExecResult{}, err
 	}
 
