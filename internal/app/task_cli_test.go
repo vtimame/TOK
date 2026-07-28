@@ -478,6 +478,12 @@ func TestCLITaskMutationJSONOutputs(t *testing.T) {
 		t.Fatalf("unexpected task status JSON: %+v", statusTask)
 	}
 
+	statusDoneCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	err := statusDoneCLI.Run(ctx, []string{"task", "status", strconv.FormatInt(created.ID, 10), "done"})
+	if err == nil || !strings.Contains(err.Error(), "use task done to complete a task with evidence") {
+		t.Fatalf("expected task status done rejection, got %v", err)
+	}
+
 	var commentOut bytes.Buffer
 	commentCLI := newProjectTestCLI(dataDir, &commentOut)
 	if err := commentCLI.Run(ctx, []string{"task", "comment", strconv.FormatInt(created.ID, 10), "--body", "JSON comment.", "--json"}); err != nil {

@@ -61,13 +61,20 @@ type TaskEvent struct {
 }
 
 type CompleteTaskInput struct {
-	ID               int64
-	Note             string
-	EvidenceRunID    int64
-	ValidateEvidence bool
-	OverrideReason   string
-	Actor            ActorRef
+	ID             int64
+	Mode           CompletionMode
+	Note           string
+	EvidenceRunID  int64
+	OverrideReason string
+	Actor          ActorRef
 }
+
+type CompletionMode string
+
+const (
+	CompletionValidated CompletionMode = "validated"
+	CompletionOverride  CompletionMode = "override"
+)
 
 type UpdateTaskExternalReferenceInput struct {
 	ID               int64
@@ -242,16 +249,15 @@ func (s *Store) UpdateTaskStatus(ctx context.Context, id int64, status string) (
 }
 
 func (s *Store) UpdateTaskStatusByActor(ctx context.Context, id int64, status string, actor ActorRef) (Task, error) {
-	return s.updateTaskStatusByActor(ctx, id, status, actor, false, 0)
+	return s.updateTaskStatusByActor(ctx, id, status, actor)
 }
 
-func (s *Store) UpdateTaskStatusByActorWithEvidence(ctx context.Context, id int64, status string, actor ActorRef, evidenceRunID int64) (Task, error) {
-	return s.updateTaskStatusByActor(ctx, id, status, actor, true, evidenceRunID)
-}
-
-func (s *Store) updateTaskStatusByActor(ctx context.Context, id int64, status string, actor ActorRef, validateEvidence bool, evidenceRunID int64) (Task, error) {
+func (s *Store) updateTaskStatusByActor(ctx context.Context, id int64, status string, actor ActorRef) (Task, error) {
 	if !validTaskStatus(status) {
 		return Task{}, fmt.Errorf("invalid task status %q", status)
+	}
+	if status == "done" {
+		return Task{}, ErrTaskStatusDoneUnsupported
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -266,30 +272,6 @@ func (s *Store) updateTaskStatusByActor(ctx context.Context, id int64, status st
 	}
 	if current.Status == status {
 		return current, nil
-	}
-
-	var validationEvidenceRunID int64
-	var validationEvidenceArtifactID int64
-	if status == "done" {
-		if current.Status != "in_progress" {
-			return Task{}, ErrInvalidTaskTransition
-		}
-		activeRun, err := s.hasActiveRunForTaskInTx(ctx, tx, id)
-		if err != nil {
-			return Task{}, err
-		}
-		if activeRun {
-			return Task{}, ErrActiveRunExists
-		}
-	}
-	if status == "done" && validateEvidence {
-		validationEvidenceRunID, validationEvidenceArtifactID, err = s.validateTaskCompletionEvidenceInTx(ctx, tx, id, evidenceRunID)
-		if err != nil {
-			return Task{}, err
-		}
-		if validationEvidenceRunID == 0 {
-			return Task{}, ErrTaskCompletionEvidenceRequired
-		}
 	}
 
 	res, err := tx.ExecContext(ctx, `
@@ -309,20 +291,11 @@ func (s *Store) updateTaskStatusByActor(ctx context.Context, id int64, status st
 	}
 
 	actor = sanitizeActorRef(actor)
-	if status == "done" && validateEvidence {
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO task_events (task_id, type, from_status, to_status, actor_id, actor_kind, actor_name, evidence_run_id, evidence_artifact_id)
-			VALUES (?, 'status_changed', ?, ?, ?, ?, ?, ?, ?)
-		`, id, current.Status, status, actor.ID, actor.Kind, actor.Name, validationEvidenceRunID, validationEvidenceArtifactID); err != nil {
-			return Task{}, fmt.Errorf("record task status event: %w", err)
-		}
-	} else {
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO task_events (task_id, type, from_status, to_status, actor_id, actor_kind, actor_name)
-			VALUES (?, 'status_changed', ?, ?, ?, ?, ?)
-		`, id, current.Status, status, actor.ID, actor.Kind, actor.Name); err != nil {
-			return Task{}, fmt.Errorf("record task status event: %w", err)
-		}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO task_events (task_id, type, from_status, to_status, actor_id, actor_kind, actor_name)
+		VALUES (?, 'status_changed', ?, ?, ?, ?, ?)
+	`, id, current.Status, status, actor.ID, actor.Kind, actor.Name); err != nil {
+		return Task{}, fmt.Errorf("record task status event: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -330,17 +303,6 @@ func (s *Store) updateTaskStatusByActor(ctx context.Context, id int64, status st
 	}
 
 	return s.GetTask(ctx, id)
-}
-func (s *Store) CompleteTask(ctx context.Context, id int64, note string) (Task, error) {
-	return s.CompleteTaskByActor(ctx, id, note, ActorRef{})
-}
-
-func (s *Store) CompleteTaskByActor(ctx context.Context, id int64, note string, actor ActorRef) (Task, error) {
-	return s.CompleteTaskWithOptions(ctx, CompleteTaskInput{
-		ID:    id,
-		Note:  note,
-		Actor: actor,
-	})
 }
 
 func (s *Store) CompleteTaskWithOptions(ctx context.Context, input CompleteTaskInput) (Task, error) {
@@ -351,6 +313,15 @@ func (s *Store) CompleteTaskWithOptions(ctx context.Context, input CompleteTaskI
 	}
 	if input.Note == "" {
 		return Task{}, ErrTaskCompletionNoteEmpty
+	}
+	switch input.Mode {
+	case CompletionValidated:
+	case CompletionOverride:
+		if input.OverrideReason == "" {
+			return Task{}, ErrTaskCompletionOverrideRequired
+		}
+	default:
+		return Task{}, ErrInvalidTaskCompletionMode
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -375,7 +346,7 @@ func (s *Store) CompleteTaskWithOptions(ctx context.Context, input CompleteTaskI
 	}
 	evidenceRunID := int64(0)
 	evidenceArtifactID := int64(0)
-	if input.ValidateEvidence {
+	if input.Mode == CompletionValidated {
 		evidenceRunID, evidenceArtifactID, err = s.validateTaskCompletionEvidenceInTx(ctx, tx, input.ID, input.EvidenceRunID)
 		if err != nil {
 			return Task{}, err

@@ -102,9 +102,19 @@ export type CompletionEvidence =
   | {
       status: "validated";
       event: TaskEvent;
-      run?: Run;
-      artifact?: RunArtifact;
+      run: Run;
+      artifact: RunArtifact;
       validation: ValidationMetadata;
+      actor?: Actor;
+      note: string;
+      completedAt: string;
+    }
+  | {
+      status: "missing_evidence";
+      event: TaskEvent;
+      run?: Run;
+      missingRunId: number;
+      missingArtifactId: number;
       actor?: Actor;
       note: string;
       completedAt: string;
@@ -313,9 +323,19 @@ export function completionEvidenceForTask(
 
   if (completedEvent?.evidenceRunId) {
     const run = runs.find((item) => item.id === completedEvent.evidenceRunId);
-    const artifact =
-      run?.artifacts.find((item) => item.id === completedEvent.evidenceArtifactId) ??
-      run?.artifacts.find((item) => item.kind === "validation");
+    const artifact = run?.artifacts.find((item) => item.id === completedEvent.evidenceArtifactId);
+    if (!run || !artifact) {
+      return {
+        status: "missing_evidence",
+        event: completedEvent,
+        run,
+        missingRunId: completedEvent.evidenceRunId,
+        missingArtifactId: completedEvent.evidenceArtifactId,
+        actor: completedEvent.actor,
+        note: completedEvent.body,
+        completedAt: completedEvent.createdAt,
+      };
+    }
 
     return {
       status: "validated",

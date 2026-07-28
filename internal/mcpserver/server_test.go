@@ -602,6 +602,20 @@ func TestServerWorkflowToolsSupportTaskInstructionDependencyAndRunLifecycle(t *t
 		t.Fatalf("unexpected task_status output id: %+v", updatedTask)
 	}
 
+	statusDoneResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "task_status",
+		Arguments: map[string]any{
+			"id":     createdTask.Task.ID,
+			"status": "done",
+		},
+	})
+	if err != nil {
+		t.Fatalf("task_status done returned error: %v", err)
+	}
+	if !statusDoneResult.IsError {
+		t.Fatalf("expected task_status done tool error, got %+v", statusDoneResult)
+	}
+
 	commentResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
 		Name: "task_comment",
 		Arguments: map[string]any{

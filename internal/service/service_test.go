@@ -104,8 +104,8 @@ func TestTaskServiceCompleteTaskRequiresValidatedEvidenceOrOverride(t *testing.T
 		t.Fatalf("expected missing evidence error, got %v", err)
 	}
 	_, err = taskSvc.UpdateStatus(ctx, task.ID, "done", storage.ActorRef{})
-	if !errors.Is(err, ErrTaskCompletionEvidenceRequired) {
-		t.Fatalf("expected direct status done missing evidence error, got %v", err)
+	if !errors.Is(err, ErrTaskStatusDoneUnsupported) {
+		t.Fatalf("expected direct status done rejection, got %v", err)
 	}
 
 	_, failedTask := createProjectTask(t, ctx, store, "Failed run completion")

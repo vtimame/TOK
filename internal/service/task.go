@@ -27,14 +27,10 @@ type CompleteTaskInput struct {
 
 func (s *TaskService) UpdateStatus(ctx context.Context, id int64, status string, actor storage.ActorRef) (storage.Task, error) {
 	status = strings.TrimSpace(status)
-	if status != "done" {
-		return s.store.UpdateTaskStatusByActor(ctx, id, status, actor)
+	if status == "done" {
+		return storage.Task{}, ErrTaskStatusDoneUnsupported
 	}
-	task, err := s.store.UpdateTaskStatusByActorWithEvidence(ctx, id, status, actor, 0)
-	if errors.Is(err, storage.ErrTaskCompletionEvidenceRequired) {
-		return storage.Task{}, ErrTaskCompletionEvidenceRequired
-	}
-	return task, err
+	return s.store.UpdateTaskStatusByActor(ctx, id, status, actor)
 }
 
 func (s *TaskService) CompleteTask(ctx context.Context, input CompleteTaskInput) (storage.Task, error) {
@@ -52,23 +48,26 @@ func (s *TaskService) CompleteTask(ctx context.Context, input CompleteTaskInput)
 			return storage.Task{}, ErrOverrideReasonRequired
 		}
 		task, err := s.store.CompleteTaskWithOptions(ctx, storage.CompleteTaskInput{
-			ID:               input.ID,
-			Note:             input.Note,
-			OverrideReason:   input.OverrideReason,
-			ValidateEvidence: false,
-			Actor:            input.Actor,
+			ID:             input.ID,
+			Mode:           storage.CompletionOverride,
+			Note:           input.Note,
+			OverrideReason: input.OverrideReason,
+			Actor:          input.Actor,
 		})
 		if errors.Is(err, storage.ErrTaskCompletionEvidenceRequired) {
 			return storage.Task{}, ErrTaskCompletionEvidenceRequired
 		}
+		if errors.Is(err, storage.ErrTaskCompletionOverrideRequired) {
+			return storage.Task{}, ErrOverrideReasonRequired
+		}
 		return task, err
 	}
 	task, err := s.store.CompleteTaskWithOptions(ctx, storage.CompleteTaskInput{
-		ID:               input.ID,
-		Note:             input.Note,
-		EvidenceRunID:    input.EvidenceRunID,
-		ValidateEvidence: true,
-		Actor:            input.Actor,
+		ID:            input.ID,
+		Mode:          storage.CompletionValidated,
+		Note:          input.Note,
+		EvidenceRunID: input.EvidenceRunID,
+		Actor:         input.Actor,
 	})
 	if errors.Is(err, storage.ErrTaskCompletionEvidenceRequired) {
 		return storage.Task{}, ErrTaskCompletionEvidenceRequired

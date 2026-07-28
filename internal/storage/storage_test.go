@@ -436,6 +436,7 @@ func TestListReadyTasksExcludesActiveBlockedAndNonOpenTasks(t *testing.T) {
 	}
 	if _, err := store.CompleteTaskWithOptions(ctx, CompleteTaskInput{
 		ID:             blocker.ID,
+		Mode:           CompletionOverride,
 		Note:           "Dependency blocker resolved.",
 		OverrideReason: "Ready task fixture override.",
 	}); err != nil {
@@ -511,6 +512,7 @@ func TestClaimTasksAtomicallyMarksReadyTaskInProgress(t *testing.T) {
 
 	if _, err := store.CompleteTaskWithOptions(ctx, CompleteTaskInput{
 		ID:             blocker.ID,
+		Mode:           CompletionOverride,
 		Note:           "Dependency blocker resolved.",
 		OverrideReason: "Claim task fixture override.",
 	}); err != nil {
@@ -976,13 +978,18 @@ func TestCompleteTaskRejectsActiveRun(t *testing.T) {
 		t.Fatalf("CreateRun returned error: %v", err)
 	}
 
-	_, err = store.CompleteTask(ctx, task.ID, "Done too early.")
+	_, err = store.CompleteTaskWithOptions(ctx, CompleteTaskInput{
+		ID:             task.ID,
+		Mode:           CompletionOverride,
+		Note:           "Done too early.",
+		OverrideReason: "Active run guard test.",
+	})
 	if !errors.Is(err, ErrActiveRunExists) {
 		t.Fatalf("expected active run completion guard, got %v", err)
 	}
 	_, err = store.UpdateTaskStatus(ctx, task.ID, "done")
-	if !errors.Is(err, ErrActiveRunExists) {
-		t.Fatalf("expected active run status guard, got %v", err)
+	if !errors.Is(err, ErrTaskStatusDoneUnsupported) {
+		t.Fatalf("expected direct done status rejection, got %v", err)
 	}
 
 	if _, err := store.FinishRun(ctx, FinishRunInput{
@@ -992,13 +999,18 @@ func TestCompleteTaskRejectsActiveRun(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("FinishRun failed returned error: %v", err)
 	}
-	_, err = store.CompleteTask(ctx, task.ID, "Closed after terminal run.")
+	_, err = store.CompleteTaskWithOptions(ctx, CompleteTaskInput{
+		ID:             task.ID,
+		Mode:           CompletionOverride,
+		Note:           "Closed after terminal run.",
+		OverrideReason: "Terminal run guard test override.",
+	})
 	if err != nil {
-		t.Fatalf("CompleteTask after terminal run returned error: %v", err)
+		t.Fatalf("CompleteTaskWithOptions after terminal run returned error: %v", err)
 	}
 }
 
-func TestCompleteTaskPersistsCompletionWithoutEvidencePolicy(t *testing.T) {
+func TestCompleteTaskRequiresExplicitModeAndEvidenceOrOverride(t *testing.T) {
 	ctx := context.Background()
 	store := openInitializedTestStore(t)
 
@@ -1008,9 +1020,26 @@ func TestCompleteTaskPersistsCompletionWithoutEvidencePolicy(t *testing.T) {
 	}
 
 	_, err := store.CompleteTaskWithOptions(ctx, CompleteTaskInput{
-		ID:               task.ID,
-		Note:             "Completed without run evidence.",
-		ValidateEvidence: true,
+		ID:   task.ID,
+		Note: "Completed without explicit mode.",
+	})
+	if !errors.Is(err, ErrInvalidTaskCompletionMode) {
+		t.Fatalf("expected invalid completion mode error, got %v", err)
+	}
+
+	_, err = store.CompleteTaskWithOptions(ctx, CompleteTaskInput{
+		ID:   task.ID,
+		Mode: CompletionOverride,
+		Note: "Completed without override reason.",
+	})
+	if !errors.Is(err, ErrTaskCompletionOverrideRequired) {
+		t.Fatalf("expected override reason required error, got %v", err)
+	}
+
+	_, err = store.CompleteTaskWithOptions(ctx, CompleteTaskInput{
+		ID:   task.ID,
+		Mode: CompletionValidated,
+		Note: "Completed without run evidence.",
 	})
 	if !errors.Is(err, ErrTaskCompletionEvidenceRequired) {
 		t.Fatalf("expected evidence-required completion error, got %v", err)
@@ -1042,9 +1071,9 @@ func TestCompleteTaskAllowsTerminalRunWithoutEvidencePolicy(t *testing.T) {
 	}
 
 	_, err = store.CompleteTaskWithOptions(ctx, CompleteTaskInput{
-		ID:               task.ID,
-		Note:             "Completed after failed run.",
-		ValidateEvidence: true,
+		ID:   task.ID,
+		Mode: CompletionValidated,
+		Note: "Completed after failed run.",
 	})
 	if !errors.Is(err, ErrTaskCompletionEvidenceRequired) {
 		t.Fatalf("expected evidence-required completion error, got %v", err)
@@ -1092,9 +1121,9 @@ func TestCompleteTaskWithOptionsStoresCompletionEvidenceRunAndArtifact(t *testin
 	}
 
 	done, err := store.CompleteTaskWithOptions(ctx, CompleteTaskInput{
-		ID:               task.ID,
-		Note:             "Implemented and tests pass.",
-		ValidateEvidence: true,
+		ID:   task.ID,
+		Mode: CompletionValidated,
+		Note: "Implemented and tests pass.",
 	})
 	if err != nil {
 		t.Fatalf("CompleteTaskWithOptions returned error: %v", err)
@@ -1144,9 +1173,9 @@ func TestCompleteTaskWithOptionsValidationCheckIsAtomic(t *testing.T) {
 	}
 
 	_, err = store.CompleteTaskWithOptions(ctx, CompleteTaskInput{
-		ID:               task.ID,
-		Note:             "Should stay in progress",
-		ValidateEvidence: true,
+		ID:   task.ID,
+		Mode: CompletionValidated,
+		Note: "Should stay in progress",
 	})
 	if !errors.Is(err, ErrTaskCompletionEvidenceRequired) {
 		t.Fatalf("expected evidence-required completion error, got %v", err)
@@ -1321,7 +1350,11 @@ func TestCompleteTaskRequiresInProgressAndRecordsCompletionEvent(t *testing.T) {
 		t.Fatalf("CreateTask returned error: %v", err)
 	}
 
-	if _, err := store.CompleteTask(ctx, task.ID, "too early"); !errors.Is(err, ErrInvalidTaskTransition) {
+	if _, err := store.CompleteTaskWithOptions(ctx, CompleteTaskInput{
+		ID:   task.ID,
+		Mode: CompletionValidated,
+		Note: "too early",
+	}); !errors.Is(err, ErrInvalidTaskTransition) {
 		t.Fatalf("expected invalid transition for open task, got %v", err)
 	}
 
@@ -1357,9 +1390,9 @@ func TestCompleteTaskRequiresInProgressAndRecordsCompletionEvent(t *testing.T) {
 	}
 
 	done, err := store.CompleteTaskWithOptions(ctx, CompleteTaskInput{
-		ID:               task.ID,
-		Note:             "Implemented and tests pass.",
-		ValidateEvidence: true,
+		ID:   task.ID,
+		Mode: CompletionValidated,
+		Note: "Implemented and tests pass.",
 	})
 	if err != nil {
 		t.Fatalf("CompleteTask returned error: %v", err)
@@ -1383,10 +1416,18 @@ func TestCompleteTaskRequiresInProgressAndRecordsCompletionEvent(t *testing.T) {
 		t.Fatalf("expected completion evidence artifact id %d, got %d", validationArtifact.ID, last.EvidenceArtifactID)
 	}
 
-	if _, err := store.CompleteTask(ctx, task.ID, "again"); !errors.Is(err, ErrInvalidTaskTransition) {
+	if _, err := store.CompleteTaskWithOptions(ctx, CompleteTaskInput{
+		ID:   task.ID,
+		Mode: CompletionValidated,
+		Note: "again",
+	}); !errors.Is(err, ErrInvalidTaskTransition) {
 		t.Fatalf("expected invalid transition for done task, got %v", err)
 	}
-	if _, err := store.CompleteTask(ctx, task.ID, " "); !errors.Is(err, ErrTaskCompletionNoteEmpty) {
+	if _, err := store.CompleteTaskWithOptions(ctx, CompleteTaskInput{
+		ID:   task.ID,
+		Mode: CompletionValidated,
+		Note: " ",
+	}); !errors.Is(err, ErrTaskCompletionNoteEmpty) {
 		t.Fatalf("expected empty completion note error, got %v", err)
 	}
 }

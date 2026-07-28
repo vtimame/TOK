@@ -13,6 +13,52 @@ import {
   taskFromApi,
 } from "@/api/mappers";
 
+function completionEvent(evidenceArtifactId: number, withActor = false) {
+  return taskEventFromApi({
+    id: 12,
+    task_id: 7,
+    type: "completed",
+    body: "Done with tests.",
+    from_status: "in_progress",
+    to_status: "done",
+    evidence_run_id: 3,
+    evidence_artifact_id: evidenceArtifactId,
+    created_at: "2026-03-02T00:00:00Z",
+    actor: withActor ? { id: 4, kind: "agent", name: "Codex MCP" } : undefined,
+  } as Parameters<typeof taskEventFromApi>[0]);
+}
+
+function validationRun(metadata: string) {
+  return {
+    id: 3,
+    taskId: 7,
+    status: "succeeded",
+    handoffContractVersion: "tok.handoff.v0",
+    retrievalLimit: 8,
+    startedAt: "",
+    finishedAt: "",
+    baseBranch: "",
+    baseHead: "",
+    resultSummary: "",
+    leaseOwner: "",
+    heartbeatAt: "",
+    expiresAt: "",
+    artifacts: [
+      {
+        id: 9,
+        runId: 3,
+        kind: "validation",
+        path: "",
+        contentHash: "",
+        sizeBytes: 0,
+        truncated: false,
+        metadata,
+        createdAt: "",
+      },
+    ],
+  };
+}
+
 describe("mappers", () => {
   test("projectFromApi maps fields and agent icons", () => {
     const project = {
@@ -146,46 +192,8 @@ describe("mappers", () => {
   });
 
   test("completionEvidenceForTask returns validated evidence", () => {
-    const event = taskEventFromApi({
-      id: 12,
-      task_id: 7,
-      type: "completed",
-      body: "Done with tests.",
-      from_status: "in_progress",
-      to_status: "done",
-      evidence_run_id: 3,
-      evidence_artifact_id: 9,
-      created_at: "2026-03-02T00:00:00Z",
-      actor: { id: 4, kind: "agent", name: "Codex MCP" },
-    } as Parameters<typeof taskEventFromApi>[0]);
-    const run = {
-      id: 3,
-      taskId: 7,
-      status: "succeeded",
-      handoffContractVersion: "tok.handoff.v0",
-      retrievalLimit: 8,
-      startedAt: "",
-      finishedAt: "",
-      baseBranch: "",
-      baseHead: "",
-      resultSummary: "",
-      leaseOwner: "",
-      heartbeatAt: "",
-      expiresAt: "",
-      artifacts: [
-        {
-          id: 9,
-          runId: 3,
-          kind: "validation",
-          path: "",
-          contentHash: "",
-          sizeBytes: 0,
-          truncated: false,
-          metadata: `{"status":"passed","command":"go test ./...","summary":"ok"}`,
-          createdAt: "",
-        },
-      ],
-    };
+    const event = completionEvent(9, true);
+    const run = validationRun(`{"status":"passed","command":"go test ./...","summary":"ok"}`);
 
     const evidence = completionEvidenceForTask({ status: "done" }, [event], [run]);
 
@@ -198,6 +206,18 @@ describe("mappers", () => {
       command: "go test ./...",
       summary: "ok",
     });
+  });
+
+  test("completionEvidenceForTask does not substitute another validation artifact", () => {
+    const event = completionEvent(10);
+    const run = validationRun(`{"status":"passed","command":"go test ./..."}`);
+
+    const evidence = completionEvidenceForTask({ status: "done" }, [event], [run]);
+
+    expect(evidence.status).toBe("missing_evidence");
+    if (evidence.status !== "missing_evidence") throw new Error("expected missing evidence");
+    expect(evidence.run?.id).toBe(3);
+    expect(evidence.missingArtifactId).toBe(10);
   });
 
   test("completionEvidenceForTask returns override and legacy states", () => {

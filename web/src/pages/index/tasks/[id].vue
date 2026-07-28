@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import AgentIcon from "@/components/common/agent/AgentIcon.vue";
 import { toastApiError } from "@/api/axios.ts";
+import TaskCompletionEvidence from "@/components/pages/tasks/TaskCompletionEvidence.vue";
 import {
   useBlockTaskMutation,
   useClaimTaskMutation,
@@ -135,32 +136,6 @@ function eventLabel(type: string, fromStatus: string, toStatus: string) {
     }${toStatus ? statusLabel(toStatus) : ""}`.trim();
   }
   return statusLabel(type);
-}
-
-function completionLabel(status: string) {
-  switch (status) {
-    case "validated":
-      return "Validation evidence";
-    case "override":
-      return "Override";
-    case "legacy_unknown":
-      return "Legacy / unknown";
-    default:
-      return "Not completed";
-  }
-}
-
-function completionTone(status: string) {
-  switch (status) {
-    case "validated":
-      return "border-emerald-500/30 bg-emerald-500/5";
-    case "override":
-      return "border-amber-500/40 bg-amber-500/10";
-    case "legacy_unknown":
-      return "border-border bg-muted/40";
-    default:
-      return "border-border bg-background";
-  }
 }
 
 function artifactLine(artifact: RunArtifact) {
@@ -308,113 +283,7 @@ useTitle(computed(() => task.value?.title || "Task"));
           </div>
 
           <div class="grid gap-4">
-            <div
-              class="rounded-md border p-3 text-sm"
-              :class="completionTone(completionEvidence.status)"
-            >
-              <div class="flex items-center justify-between gap-3">
-                <div class="font-medium">Completion evidence</div>
-                <div class="shrink-0 text-xs text-muted-foreground">
-                  {{ completionLabel(completionEvidence.status) }}
-                </div>
-              </div>
-
-              <dl v-if="completionEvidence.status === 'validated'" class="mt-3 grid gap-1 text-sm">
-                <div class="flex justify-between gap-3">
-                  <dt class="text-muted-foreground">Run</dt>
-                  <dd class="text-right">
-                    #{{ completionEvidence.run?.id || completionEvidence.event.evidenceRunId }}
-                    <span v-if="completionEvidence.run" class="text-muted-foreground">
-                      {{ statusLabel(completionEvidence.run.status) }}
-                    </span>
-                  </dd>
-                </div>
-                <div class="flex justify-between gap-3">
-                  <dt class="text-muted-foreground">Validation</dt>
-                  <dd class="text-right">
-                    #{{
-                      completionEvidence.artifact?.id || completionEvidence.event.evidenceArtifactId
-                    }}
-                    <span v-if="completionEvidence.validation.status" class="text-muted-foreground">
-                      {{ completionEvidence.validation.status }}
-                    </span>
-                  </dd>
-                </div>
-                <div
-                  v-if="completionEvidence.validation.command"
-                  class="flex justify-between gap-3"
-                >
-                  <dt class="text-muted-foreground">Command</dt>
-                  <dd class="truncate text-right">{{ completionEvidence.validation.command }}</dd>
-                </div>
-                <div class="flex justify-between gap-3">
-                  <dt class="text-muted-foreground">Actor</dt>
-                  <dd class="text-right">{{ completionEvidence.actor?.name || "Unknown" }}</dd>
-                </div>
-                <div class="flex justify-between gap-3">
-                  <dt class="text-muted-foreground">Completed</dt>
-                  <dd class="text-right">
-                    {{ formatDate(completionEvidence.completedAt) || "Unknown" }}
-                  </dd>
-                </div>
-                <div class="grid gap-1">
-                  <dt class="text-muted-foreground">Note</dt>
-                  <dd class="whitespace-pre-wrap">{{ completionEvidence.note || "No note" }}</dd>
-                </div>
-              </dl>
-
-              <dl
-                v-else-if="completionEvidence.status === 'override'"
-                class="mt-3 grid gap-1 text-sm"
-              >
-                <div class="flex justify-between gap-3">
-                  <dt class="text-muted-foreground">Actor</dt>
-                  <dd class="text-right">{{ completionEvidence.actor?.name || "Unknown" }}</dd>
-                </div>
-                <div class="flex justify-between gap-3">
-                  <dt class="text-muted-foreground">Completed</dt>
-                  <dd class="text-right">
-                    {{ formatDate(completionEvidence.completedAt) || "Unknown" }}
-                  </dd>
-                </div>
-                <div class="grid gap-1">
-                  <dt class="text-muted-foreground">Note</dt>
-                  <dd class="whitespace-pre-wrap">{{ completionEvidence.note || "No note" }}</dd>
-                </div>
-                <div class="grid gap-1">
-                  <dt class="text-muted-foreground">Override reason</dt>
-                  <dd class="whitespace-pre-wrap">
-                    {{ completionEvidence.overrideReason || "No reason recorded" }}
-                  </dd>
-                </div>
-              </dl>
-
-              <dl
-                v-else-if="completionEvidence.status === 'legacy_unknown'"
-                class="mt-3 grid gap-1 text-sm"
-              >
-                <div class="flex justify-between gap-3">
-                  <dt class="text-muted-foreground">Actor</dt>
-                  <dd class="text-right">{{ completionEvidence.actor?.name || "Unknown" }}</dd>
-                </div>
-                <div class="flex justify-between gap-3">
-                  <dt class="text-muted-foreground">Completed</dt>
-                  <dd class="text-right">
-                    {{ formatDate(completionEvidence.completedAt) || "Unknown" }}
-                  </dd>
-                </div>
-                <div class="grid gap-1">
-                  <dt class="text-muted-foreground">State</dt>
-                  <dd class="text-muted-foreground">
-                    Completion was recorded before evidence metadata was available.
-                  </dd>
-                </div>
-              </dl>
-
-              <div v-else class="mt-2 text-sm text-muted-foreground">
-                Completion evidence will appear after the task is done.
-              </div>
-            </div>
+            <TaskCompletionEvidence :evidence="completionEvidence" />
 
             <div v-if="runs.length === 0" class="text-sm text-muted-foreground">
               No runs recorded.

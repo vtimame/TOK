@@ -855,6 +855,7 @@ func TestServerAggregatesAgentsFromTaskHistory(t *testing.T) {
 	}
 	if _, err := store.CompleteTaskWithOptions(ctx, storage.CompleteTaskInput{
 		ID:             doneTask.ID,
+		Mode:           storage.CompletionOverride,
 		Note:           "Done.",
 		OverrideReason: "HTTP aggregate fixture override.",
 		Actor:          storage.ActorRefFromActor(agent.Agent),
