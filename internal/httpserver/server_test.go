@@ -786,6 +786,57 @@ func TestServerTaskActionsWriteHumanActorHistory(t *testing.T) {
 	}
 }
 
+func TestServerRejectsUnsafeTaskExternalURLs(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+
+	if _, err := store.CreateProject(ctx, storage.CreateProjectInput{
+		Name:        "tok",
+		DisplayName: "TOK",
+		Path:        t.TempDir(),
+	}); err != nil {
+		t.Fatalf("CreateProject returned error: %v", err)
+	}
+
+	handler := newTestHandler(t, store)
+
+	for _, externalURL := range []string{"javascript:alert(1)", "data:text/html,<p>x</p>", "://not-a-url"} {
+		createRes := doJSON(t, handler, http.MethodPost, "/api/projects/tok/tasks", map[string]string{
+			"title":        "Unsafe linked issue",
+			"source":       "github",
+			"external_id":  "42",
+			"external_url": externalURL,
+		})
+		createRes.Body.Close()
+		if createRes.StatusCode != http.StatusBadRequest {
+			t.Fatalf("create task with %q status = %d, want %d", externalURL, createRes.StatusCode, http.StatusBadRequest)
+		}
+	}
+
+	validRes := doJSON(t, handler, http.MethodPost, "/api/projects/tok/tasks", map[string]string{
+		"title":        "Linked issue",
+		"source":       "github",
+		"external_id":  "42",
+		"external_url": "https://github.com/vtimame/TOK/issues/42",
+	})
+	defer validRes.Body.Close()
+	if validRes.StatusCode != http.StatusOK {
+		t.Fatalf("create task status = %d", validRes.StatusCode)
+	}
+	var created TaskResponse
+	decodeJSON(t, validRes, &created)
+
+	sourceRes := doJSON(t, handler, http.MethodPatch, "/api/tasks/"+jsonNumber(created.Task.ID)+"/source", map[string]string{
+		"source":       "linear",
+		"external_id":  "TOK-42",
+		"external_url": "javascript:alert(1)",
+	})
+	defer sourceRes.Body.Close()
+	if sourceRes.StatusCode != http.StatusBadRequest {
+		t.Fatalf("update source status = %d, want %d", sourceRes.StatusCode, http.StatusBadRequest)
+	}
+}
+
 func TestServerAggregatesAgentsFromTaskHistory(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)

@@ -12,6 +12,7 @@ import {
   useUnblockTaskMutation,
 } from "@/api/queries/tasks.ts";
 import {
+  completionCandidateForTask,
   completionEvidenceForTask,
   parseValidationMetadata,
   statusLabel,
@@ -49,6 +50,11 @@ const completionEvidence = computed(() =>
     ? completionEvidenceForTask(task.value, events.value, runs.value)
     : { status: "not_done" as const },
 );
+const completionCandidate = computed(() =>
+  task.value
+    ? completionCandidateForTask(task.value, runs.value)
+    : { status: "not_in_progress" as const },
+);
 const blockedBy = computed(() =>
   dependencies.value.filter((dependency) => dependency.role === "blocked_by"),
 );
@@ -63,7 +69,9 @@ const externalIssueLabel = computed(() => {
   return task.value.externalId || task.value.externalUrl || sourceLabel.value;
 });
 const canClaim = computed(() => task.value?.status === "open");
-const canComplete = computed(() => task.value?.status === "in_progress");
+const canComplete = computed(
+  () => task.value?.status === "in_progress" && completionCandidate.value.status === "ready",
+);
 const notePlaceholder = computed(() => {
   if (task.value?.status === "blocked") return "Write an unblock note or add context";
   if (task.value?.status === "in_progress")
@@ -93,11 +101,14 @@ async function claimTask() {
 }
 
 async function completeTask() {
-  if (!task.value) return;
+  if (!task.value || completionCandidate.value.status !== "ready") return;
   try {
     await completeTaskMutation.mutateAsync({
       id: String(task.value.id),
-      data: { note: noteBody.value.trim() || "Completed from UI." },
+      data: {
+        note: noteBody.value.trim() || "Completed from UI.",
+        evidence_run_id: completionCandidate.value.run.id,
+      },
     });
     noteBody.value = "";
   } catch (error) {
@@ -427,6 +438,34 @@ useTitle(computed(() => task.value?.title || "Task"));
               <Button size="sm" :disabled="actionPending || !canComplete" @click="completeTask">
                 Done
               </Button>
+            </div>
+            <div
+              v-if="task.status === 'in_progress'"
+              class="mt-3 rounded-md border bg-muted/30 p-2 text-xs"
+            >
+              <div class="mb-1 font-medium text-muted-foreground">Completion evidence</div>
+              <dl v-if="completionCandidate.status === 'ready'" class="grid gap-1">
+                <div class="flex justify-between gap-2">
+                  <dt class="text-muted-foreground">Run</dt>
+                  <dd>#{{ completionCandidate.run.id }}</dd>
+                </div>
+                <div class="flex justify-between gap-2">
+                  <dt class="text-muted-foreground">Validation</dt>
+                  <dd>#{{ completionCandidate.artifact.id }}</dd>
+                </div>
+                <div v-if="completionCandidate.validation.command" class="grid gap-0.5">
+                  <dt class="text-muted-foreground">Command</dt>
+                  <dd class="truncate">{{ completionCandidate.validation.command }}</dd>
+                </div>
+              </dl>
+              <div
+                v-else-if="completionCandidate.status === 'active_run'"
+                class="text-muted-foreground"
+              >
+                Run #{{ completionCandidate.run.id }} is
+                {{ statusLabel(completionCandidate.run.status) }}.
+              </div>
+              <div v-else class="text-muted-foreground">No passed validation evidence.</div>
             </div>
           </div>
 

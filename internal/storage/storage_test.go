@@ -236,9 +236,38 @@ func TestStoreTaskExternalReferenceValidation(t *testing.T) {
 		{ProjectID: project.ID, Title: "Missing id", Source: "github", ExternalURL: "https://github.com/vtimame/TOK/issues/1"},
 		{ProjectID: project.ID, Title: "Missing url", Source: "github", ExternalID: "1"},
 		{ProjectID: project.ID, Title: "Local with external", Source: "local", ExternalID: "1"},
+		{ProjectID: project.ID, Title: "JavaScript url", Source: "github", ExternalID: "1", ExternalURL: "javascript:alert(1)"},
+		{ProjectID: project.ID, Title: "Data url", Source: "github", ExternalID: "1", ExternalURL: "data:text/html,<p>x</p>"},
+		{ProjectID: project.ID, Title: "Invalid url", Source: "github", ExternalID: "1", ExternalURL: "://not-a-url"},
 	} {
 		if _, err := store.CreateTask(ctx, input); err == nil {
 			t.Fatalf("CreateTask(%+v) succeeded, want validation error", input)
+		}
+	}
+
+	created, err := store.CreateTask(ctx, CreateTaskInput{
+		ProjectID:   project.ID,
+		Title:       "HTTP external url",
+		Source:      "github",
+		ExternalID:  "2",
+		ExternalURL: "http://example.com/2",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask with http external url returned error: %v", err)
+	}
+	if created.ExternalURL != "http://example.com/2" {
+		t.Fatalf("unexpected http external url: %+v", created)
+	}
+
+	for _, externalURL := range []string{"javascript:alert(1)", "data:text/html,<p>x</p>", "://not-a-url"} {
+		_, err := store.UpdateTaskExternalReference(ctx, UpdateTaskExternalReferenceInput{
+			ID:          created.ID,
+			Source:      "github",
+			ExternalID:  "2",
+			ExternalURL: externalURL,
+		})
+		if !errors.Is(err, ErrInvalidTaskExternalReference) {
+			t.Fatalf("UpdateTaskExternalReference(%q) error = %v, want ErrInvalidTaskExternalReference", externalURL, err)
 		}
 	}
 }

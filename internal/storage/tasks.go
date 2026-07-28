@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 )
 
@@ -665,7 +666,23 @@ func normalizeTaskExternalReference(source, externalID, externalURL, externalRev
 	if externalURL == "" {
 		return "", "", "", "", fmt.Errorf("%w: external source requires external url", ErrInvalidTaskExternalReference)
 	}
+	if !validTaskExternalURL(externalURL) {
+		return "", "", "", "", fmt.Errorf("%w: external url must use http or https", ErrInvalidTaskExternalReference)
+	}
 	return source, externalID, externalURL, externalRevision, nil
+}
+
+func validTaskExternalURL(externalURL string) bool {
+	parsed, err := url.ParseRequestURI(externalURL)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return false
+	}
+	switch strings.ToLower(parsed.Scheme) {
+	case "http", "https":
+		return true
+	default:
+		return false
+	}
 }
 
 func validTaskSource(source string) bool {

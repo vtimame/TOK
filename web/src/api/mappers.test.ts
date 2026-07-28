@@ -3,14 +3,17 @@ import { describe, expect, test } from "vitest";
 import {
   actorDisplayName,
   agentIconValue,
+  completionCandidateForTask,
   completionEvidenceForTask,
   parseValidationMetadata,
   projectFromApi,
   runFromApi,
+  safeExternalUrl,
   statusLabel,
   statusTone,
   taskEventFromApi,
   taskFromApi,
+  type Run,
 } from "@/api/mappers";
 
 function completionEvent(evidenceArtifactId: number, withActor = false) {
@@ -28,11 +31,11 @@ function completionEvent(evidenceArtifactId: number, withActor = false) {
   } as Parameters<typeof taskEventFromApi>[0]);
 }
 
-function validationRun(metadata: string) {
+function validationRun(metadata: string, overrides: Partial<Run> = {}) {
   return {
-    id: 3,
+    id: overrides.id ?? 3,
     taskId: 7,
-    status: "succeeded",
+    status: overrides.status ?? "succeeded",
     handoffContractVersion: "tok.handoff.v0",
     retrievalLimit: 8,
     startedAt: "",
@@ -43,10 +46,10 @@ function validationRun(metadata: string) {
     leaseOwner: "",
     heartbeatAt: "",
     expiresAt: "",
-    artifacts: [
+    artifacts: overrides.artifacts ?? [
       {
         id: 9,
-        runId: 3,
+        runId: overrides.id ?? 3,
         kind: "validation",
         path: "",
         contentHash: "",
@@ -129,6 +132,42 @@ describe("mappers", () => {
       updatedAt: "2026-03-02T00:00:00Z",
       agents: [],
     });
+  });
+
+  test("taskFromApi keeps only safe external URLs clickable", () => {
+    const baseTask = {
+      id: 7,
+      project_id: 2,
+      project: {
+        id: 2,
+        name: "frontend",
+        display_name: "Frontend",
+      },
+      title: "Build UI",
+      description: "",
+      acceptance_criteria: "",
+      notes: "",
+      source: "github",
+      external_id: "42",
+      external_revision: "",
+      status: "open",
+      created_at: "2026-03-01T00:00:00Z",
+      updated_at: "2026-03-02T00:00:00Z",
+    } as unknown as Parameters<typeof taskFromApi>[0];
+
+    expect(safeExternalUrl(" https://github.com/vtimame/TOK/issues/42 ")).toBe(
+      "https://github.com/vtimame/TOK/issues/42",
+    );
+    expect(safeExternalUrl("http://example.com/42")).toBe("http://example.com/42");
+    expect(safeExternalUrl("javascript:alert(1)")).toBe("");
+    expect(safeExternalUrl("data:text/html,<p>x</p>")).toBe("");
+    expect(safeExternalUrl("://not-a-url")).toBe("");
+    expect(
+      taskFromApi({
+        ...baseTask,
+        external_url: "javascript:alert(1)",
+      }).externalUrl,
+    ).toBe("");
   });
 
   test("taskEventFromApi maps completion evidence ids", () => {
@@ -254,6 +293,74 @@ describe("mappers", () => {
 
     const legacyEvidence = completionEvidenceForTask({ status: "done" }, [completed], []);
     expect(legacyEvidence.status).toBe("legacy_unknown");
+  });
+
+  test("completionCandidateForTask selects the backend completion evidence candidate", () => {
+    const older = validationRun(`{"status":"passed","command":"old"}`, { id: 2 });
+    const latestWithoutPassedArtifact = validationRun(`{"status":"failed","command":"new"}`, {
+      id: 4,
+    });
+    const selected = validationRun(`{"status":"failed"}`, {
+      id: 3,
+      artifacts: [
+        {
+          id: 10,
+          runId: 3,
+          kind: "validation",
+          path: "",
+          contentHash: "",
+          sizeBytes: 0,
+          truncated: false,
+          metadata: `{"status":"failed"}`,
+          createdAt: "",
+        },
+        {
+          id: 11,
+          runId: 3,
+          kind: "validation",
+          path: "",
+          contentHash: "",
+          sizeBytes: 0,
+          truncated: false,
+          metadata: `{"status":"passed","command":"go test ./..."}`,
+          createdAt: "",
+        },
+      ],
+    });
+
+    const candidate = completionCandidateForTask({ status: "in_progress" }, [
+      older,
+      latestWithoutPassedArtifact,
+      selected,
+    ]);
+
+    expect(candidate.status).toBe("ready");
+    if (candidate.status !== "ready") throw new Error("expected completion candidate");
+    expect(candidate.run.id).toBe(3);
+    expect(candidate.artifact.id).toBe(11);
+    expect(candidate.validation.command).toBe("go test ./...");
+  });
+
+  test("completionCandidateForTask blocks active runs before selecting evidence", () => {
+    const active = validationRun(`{"status":"passed"}`, { id: 4, status: "in_progress" });
+    const finished = validationRun(`{"status":"passed"}`, { id: 3 });
+
+    const candidate = completionCandidateForTask({ status: "in_progress" }, [finished, active]);
+
+    expect(candidate.status).toBe("active_run");
+    if (candidate.status !== "active_run") throw new Error("expected active run");
+    expect(candidate.run.id).toBe(4);
+  });
+
+  test("completionCandidateForTask reports missing evidence", () => {
+    const failedValidation = validationRun(`{"status":"failed"}`, { id: 3 });
+
+    expect(completionCandidateForTask({ status: "open" }, [failedValidation])).toEqual({
+      status: "not_in_progress",
+    });
+    expect(completionCandidateForTask({ status: "in_progress" }, [failedValidation])).toEqual({
+      status: "missing_evidence",
+    });
   });
 
   test("parseValidationMetadata tolerates empty or invalid metadata", () => {

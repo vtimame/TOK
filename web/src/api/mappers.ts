@@ -136,6 +136,17 @@ export type CompletionEvidence =
       completedAt: string;
     };
 
+export type CompletionCandidate =
+  | { status: "not_in_progress" }
+  | { status: "active_run"; run: Run }
+  | {
+      status: "ready";
+      run: Run;
+      artifact: RunArtifact;
+      validation: ValidationMetadata;
+    }
+  | { status: "missing_evidence" };
+
 export type AgentProject = {
   id: number;
   name: string;
@@ -213,13 +224,25 @@ export function taskFromApi(task: TaskOutput): Task {
     notes: task.notes,
     source: task.source || "local",
     externalId: task.external_id || "",
-    externalUrl: task.external_url || "",
+    externalUrl: safeExternalUrl(task.external_url || ""),
     externalRevision: task.external_revision || "",
     status: task.status,
     createdAt: task.created_at,
     updatedAt: task.updated_at,
     agents: (task.agents ?? []).map((actor) => agentIconValue(actor.name)),
   };
+}
+
+export function safeExternalUrl(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+
+  try {
+    const url = new URL(trimmed);
+    return url.protocol === "http:" || url.protocol === "https:" ? trimmed : "";
+  } catch {
+    return "";
+  }
 }
 
 export function taskEventFromApi(event: TaskEventOutput): TaskEvent {
@@ -358,6 +381,39 @@ export function completionEvidenceForTask(
   };
 }
 
+export function completionCandidateForTask(
+  task: Pick<Task, "status">,
+  runs: Run[],
+): CompletionCandidate {
+  if (task.status !== "in_progress") {
+    return { status: "not_in_progress" };
+  }
+
+  const activeRun = latestRun(
+    runs,
+    (run) => run.status === "created" || run.status === "in_progress",
+  );
+  if (activeRun) {
+    return { status: "active_run", run: activeRun };
+  }
+
+  const succeededRuns = runs
+    .filter((run) => run.status === "succeeded")
+    .sort((left, right) => right.id - left.id);
+  for (const run of succeededRuns) {
+    const artifact = latestPassedValidationArtifact(run);
+    if (!artifact) continue;
+    return {
+      status: "ready",
+      run,
+      artifact,
+      validation: parseValidationMetadata(artifact.metadata),
+    };
+  }
+
+  return { status: "missing_evidence" };
+}
+
 export function parseValidationMetadata(metadata?: string): ValidationMetadata {
   if (!metadata) return {};
   try {
@@ -370,6 +426,20 @@ export function parseValidationMetadata(metadata?: string): ValidationMetadata {
   } catch {
     return {};
   }
+}
+
+function latestRun(runs: Run[], predicate: (run: Run) => boolean): Run | undefined {
+  return runs.filter(predicate).sort((left, right) => right.id - left.id)[0];
+}
+
+function latestPassedValidationArtifact(run: Run): RunArtifact | undefined {
+  return [...run.artifacts]
+    .filter(
+      (artifact) =>
+        artifact.kind === "validation" &&
+        parseValidationMetadata(artifact.metadata).status === "passed",
+    )
+    .sort((left, right) => right.id - left.id)[0];
 }
 
 function actorFromApi(actor: ActorOutput): Actor {
