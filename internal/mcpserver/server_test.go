@@ -32,8 +32,11 @@ func TestServerProfileToolLists(t *testing.T) {
 			profile: ProfileWorker,
 			want: []string{
 				"context_build",
+				"run_artifact_list",
 				"run_create",
 				"run_finish",
+				"run_list",
+				"run_show",
 				"run_validation_record",
 				"task_block",
 				"task_claim",
@@ -161,6 +164,141 @@ func TestServerProfileToolLists(t *testing.T) {
 	defer adminServerSession.Close()
 	if got, want := listToolNames(t, ctx, defaultClient), listToolNames(t, ctx, adminClient); !slices.Equal(got, want) {
 		t.Fatalf("default profile should preserve full tool surface:\ngot  %v\nwant %v", got, want)
+	}
+}
+
+func TestServerWorkerProfileCanReadRunHandoffContext(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+
+	project, err := store.CreateProject(ctx, storage.CreateProjectInput{
+		Name:        "tok",
+		DisplayName: "TOK",
+		Path:        t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("CreateProject returned error: %v", err)
+	}
+	task, err := store.CreateTask(ctx, storage.CreateTaskInput{
+		ProjectID: project.ID,
+		Title:     "Continue interrupted work",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask returned error: %v", err)
+	}
+	createdAgent, err := store.CreateAgent(ctx, "Codex MCP")
+	if err != nil {
+		t.Fatalf("CreateAgent returned error: %v", err)
+	}
+	actor := storage.ActorRefFromActor(createdAgent.Agent)
+	run, err := store.CreateRun(ctx, storage.CreateRunInput{
+		TaskID:                 task.ID,
+		Status:                 "in_progress",
+		HandoffContractVersion: contextpkg.HandoffContractV0,
+		RetrievalLimit:         8,
+		BaseBranch:             "main",
+		BaseHead:               "abc123456789",
+		LeaseOwner:             "previous-worker",
+		HeartbeatAt:            "2026-07-28T07:00:00.000Z",
+		ExpiresAt:              "2026-07-28T07:30:00.000Z",
+		Actor:                  actor,
+	})
+	if err != nil {
+		t.Fatalf("CreateRun returned error: %v", err)
+	}
+	artifact, err := store.AddRunArtifact(ctx, storage.AddRunArtifactInput{
+		RunID:    run.ID,
+		Kind:     "handoff",
+		Path:     "handoff.md",
+		Metadata: `{"summary":"resume here"}`,
+		Actor:    actor,
+	})
+	if err != nil {
+		t.Fatalf("AddRunArtifact returned error: %v", err)
+	}
+	finished, err := store.FinishRun(ctx, storage.FinishRunInput{
+		ID:            run.ID,
+		Status:        "failed",
+		ResultSummary: "Worker crashed after handoff.",
+		Actor:         actor,
+	})
+	if err != nil {
+		t.Fatalf("FinishRun returned error: %v", err)
+	}
+
+	server, err := New(Config{
+		Store:   store,
+		Actor:   actor,
+		Version: "test",
+		Profile: ProfileWorker,
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	clientSession, serverSession := connectTestClient(t, ctx, server)
+	defer clientSession.Close()
+	defer serverSession.Close()
+
+	listResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "run_list",
+		Arguments: map[string]any{
+			"task_id": task.ID,
+			"status":  "failed",
+		},
+	})
+	if err != nil {
+		t.Fatalf("run_list returned error: %v", err)
+	}
+	if listResult.IsError {
+		t.Fatalf("run_list returned tool error: %+v", listResult)
+	}
+	var runs runListOutput
+	decodeStructured(t, listResult.StructuredContent, &runs)
+	if len(runs.Runs) != 1 {
+		t.Fatalf("unexpected run_list output: %+v", runs)
+	}
+	gotRun := runs.Runs[0]
+	if gotRun.ID != finished.ID || gotRun.Status != "failed" || gotRun.ResultSummary != "Worker crashed after handoff." {
+		t.Fatalf("run_list omitted recovery fields: %+v", gotRun)
+	}
+	if gotRun.LeaseOwner != "previous-worker" || gotRun.HeartbeatAt == "" || gotRun.ExpiresAt == "" {
+		t.Fatalf("run_list omitted lease fields: %+v", gotRun)
+	}
+
+	showResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "run_show",
+		Arguments: map[string]any{
+			"id": finished.ID,
+		},
+	})
+	if err != nil {
+		t.Fatalf("run_show returned error: %v", err)
+	}
+	if showResult.IsError {
+		t.Fatalf("run_show returned tool error: %+v", showResult)
+	}
+	var shown runOutput
+	decodeStructured(t, showResult.StructuredContent, &shown)
+	if shown.ID != finished.ID || len(shown.Artifacts) != 1 || shown.Artifacts[0].ID != artifact.ID {
+		t.Fatalf("run_show omitted handoff artifact: %+v", shown)
+	}
+
+	artifactListResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "run_artifact_list",
+		Arguments: map[string]any{
+			"run_id": finished.ID,
+		},
+	})
+	if err != nil {
+		t.Fatalf("run_artifact_list returned error: %v", err)
+	}
+	if artifactListResult.IsError {
+		t.Fatalf("run_artifact_list returned tool error: %+v", artifactListResult)
+	}
+	var artifacts runArtifactListOutput
+	decodeStructured(t, artifactListResult.StructuredContent, &artifacts)
+	if len(artifacts.Artifacts) != 1 || artifacts.Artifacts[0].Kind != "handoff" {
+		t.Fatalf("unexpected run_artifact_list output: %+v", artifacts)
 	}
 }
 

@@ -211,11 +211,11 @@ func (s *service) addTools(server *mcp.Server, profile Profile) {
 		Name:        "context_build",
 		Description: "Build a structured TOK context package for a task.",
 	}, s.contextBuild)
-	addTool(server, profile, []Profile{ProfileSupervisor, ProfileAdmin}, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileWorker, ProfileSupervisor, ProfileAdmin}, &mcp.Tool{
 		Name:        "run_list",
 		Description: "List task runs optionally filtered by project/task/status.",
 	}, s.runList)
-	addTool(server, profile, []Profile{ProfileSupervisor, ProfileAdmin}, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileWorker, ProfileSupervisor, ProfileAdmin}, &mcp.Tool{
 		Name:        "run_show",
 		Description: "Show a run with artifacts.",
 	}, s.runShow)
@@ -231,7 +231,7 @@ func (s *service) addTools(server *mcp.Server, profile Profile) {
 		Name:        "run_recover",
 		Description: "Recover stale active runs.",
 	}, s.runRecover)
-	addTool(server, profile, []Profile{ProfileSupervisor, ProfileAdmin}, &mcp.Tool{
+	addTool(server, profile, []Profile{ProfileWorker, ProfileSupervisor, ProfileAdmin}, &mcp.Tool{
 		Name:        "run_artifact_list",
 		Description: "List artifacts for a run.",
 	}, s.runArtifactList)
