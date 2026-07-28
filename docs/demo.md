@@ -53,7 +53,9 @@ tok run finish <run-id> \
   --status succeeded \
   --summary "README usage note validated."
 
-tok task done <task-id> --note "Demo completed and validated."
+tok task done <task-id> \
+  --note "Demo completed and validated." \
+  --evidence-run <run-id>
 ```
 
 ## Inspect In The UI

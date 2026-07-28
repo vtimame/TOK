@@ -93,7 +93,7 @@ tok index update --project my-project
 tok context build --project my-project --task <task-id> --output handoff.md
 tok task claim --project my-project <task-id>
 tok run exec --task <task-id> --timeout 10m --json -- go test ./...
-tok task done <task-id> --note "Implemented and validated."
+tok task done <task-id> --note "Implemented and validated." --evidence-run <run-id>
 ```
 
 `tok run exec` records validation evidence from the command result. For agent

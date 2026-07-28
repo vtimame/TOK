@@ -122,6 +122,39 @@ Completing a task records which succeeded run and validation artifact provided
 the evidence. An explicit override can be used when validation is intentionally
 skipped, but the override remains visible in the task history.
 
+## Canonical Execution Workflow
+
+The main TOK workflow is:
+
+```text
+claim
+  -> context
+  -> run
+  -> progress / heartbeat
+  -> artifacts
+  -> validation
+  -> finish
+  -> task completion with evidence
+```
+
+| Step              | CLI                                                                                 | MCP tool                                    | Web API / UI                             | Audit trail                                                                                              |
+| ----------------- | ----------------------------------------------------------------------------------- | ------------------------------------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Find ready work   | `tok task ready --project <name>`                                                   | `task_ready`                                | `GET /api/tasks/ready` / ready task list | no mutation                                                                                              |
+| Claim task        | `tok task claim --project <name> <task-id>`                                         | `task_claim`                                | task claim action                        | task `claimed` event                                                                                     |
+| Build context     | `tok context build --project <name> --task <task-id>`                               | `context_build`                             | task/context view                        | context package includes task state, project instructions, dependencies, retrieval results and git state |
+| Start run         | `tok run start --task <task-id>`                                                    | `run_create`                                | run create action                        | run row with base branch/head, handoff contract, lease fields and actor                                  |
+| Record progress   | `tok task progress <task-id> --body <text>`                                         | `task_progress`                             | progress/comment action                  | task `progress` event                                                                                    |
+| Refresh lease     | `tok run heartbeat <run-id> --ttl 15m`                                              | supervisor recovery surface observes leases | run heartbeat action                     | run `lease_owner`, `heartbeat_at` and `expires_at` fields                                                |
+| Attach artifacts  | `tok run record-artifact <run-id> --kind <kind> --input <path>`                     | admin `run_artifact_add`                    | artifact upload/action                   | run artifact row with kind, path/hash/size and actor                                                     |
+| Record validation | `tok run validate <run-id> -- <command...>` or `tok run record-validation <run-id>` | `run_validation_record`                     | validation action                        | validation artifact with command, status and summary                                                     |
+| Finish run        | `tok run finish <run-id> --status succeeded --summary <text>`                       | `run_finish`                                | run finish action                        | run terminal status and finished actor                                                                   |
+| Complete task     | `tok task done <task-id> --note <text> --evidence-run <run-id>`                     | `task_done`                                 | task done action                         | task `completed` event with `evidence_run_id` and `evidence_artifact_id`                                 |
+
+Completion without validation must use
+`--allow-unvalidated --override-reason <text>`. TOK records that as a separate
+`completion_override` event so later reviewers can distinguish a normal
+validation-based completion from an intentional exception.
+
 ## Common Commands
 
 ### Projects

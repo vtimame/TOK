@@ -227,6 +227,25 @@ func TestCLICoreWorkflowEndToEnd(t *testing.T) {
 	if err := doneCLI.Run(ctx, []string{"task", "done", strconv.FormatInt(blockerID, 10), "--note", "Prepared context package."}); err != nil {
 		t.Fatalf("task done blocker returned error: %v", err)
 	}
+	var completedOut bytes.Buffer
+	completedCLI := newProjectTestCLI(dataDir, &completedOut)
+	if err := completedCLI.Run(ctx, []string{"task", "show", strconv.FormatInt(blockerID, 10), "--json"}); err != nil {
+		t.Fatalf("task show completed blocker --json returned error: %v", err)
+	}
+	var completed taskShowOutput
+	if err := json.Unmarshal(completedOut.Bytes(), &completed); err != nil {
+		t.Fatalf("parse completed blocker JSON: %v\n%s", err, completedOut.String())
+	}
+	if len(completed.Events) == 0 || completed.Events[len(completed.Events)-1].Type != "completed" {
+		t.Fatalf("expected completed blocker history to end with completion event: %+v", completed.Events)
+	}
+	completionEvent := completed.Events[len(completed.Events)-1]
+	if completionEvent.EvidenceRunID != startedRun.ID {
+		t.Fatalf("expected completion evidence run id %d, got %d", startedRun.ID, completionEvent.EvidenceRunID)
+	}
+	if completionEvent.EvidenceArtifactID != validationArtifact.ID {
+		t.Fatalf("expected completion evidence artifact id %d, got %d", validationArtifact.ID, completionEvent.EvidenceArtifactID)
+	}
 
 	readyOut.Reset()
 	readyCLI = newProjectTestCLI(dataDir, &readyOut)

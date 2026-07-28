@@ -1239,6 +1239,12 @@ func printTaskEvents(out io.Writer, events []storage.TaskEvent) {
 		if event.ActorName != "" {
 			fmt.Fprintf(out, " actor: %s/%s", event.ActorKind, event.ActorName)
 		}
+		if event.EvidenceRunID != 0 {
+			fmt.Fprintf(out, " evidence_run_id: %d", event.EvidenceRunID)
+		}
+		if event.EvidenceArtifactID != 0 {
+			fmt.Fprintf(out, " evidence_artifact_id: %d", event.EvidenceArtifactID)
+		}
 		fmt.Fprintf(out, " created_at: %s\n", event.CreatedAt)
 	}
 }
@@ -1252,6 +1258,12 @@ func printTaskEvent(out io.Writer, event storage.TaskEvent) {
 		fmt.Fprintf(out, "actor_kind: %s\n", event.ActorKind)
 		fmt.Fprintf(out, "actor_name: %s\n", event.ActorName)
 		fmt.Fprintf(out, "actor_id: %d\n", event.ActorID)
+	}
+	if event.EvidenceRunID != 0 {
+		fmt.Fprintf(out, "evidence_run_id: %d\n", event.EvidenceRunID)
+	}
+	if event.EvidenceArtifactID != 0 {
+		fmt.Fprintf(out, "evidence_artifact_id: %d\n", event.EvidenceArtifactID)
 	}
 	fmt.Fprintf(out, "created_at: %s\n", event.CreatedAt)
 }
@@ -1281,14 +1293,16 @@ type readyTaskOutput struct {
 }
 
 type taskEventOutput struct {
-	ID         int64        `json:"id"`
-	TaskID     int64        `json:"task_id"`
-	Type       string       `json:"type"`
-	Body       string       `json:"body"`
-	FromStatus string       `json:"from_status"`
-	ToStatus   string       `json:"to_status"`
-	Actor      *actorOutput `json:"actor,omitempty"`
-	CreatedAt  string       `json:"created_at"`
+	ID                 int64        `json:"id"`
+	TaskID             int64        `json:"task_id"`
+	Type               string       `json:"type"`
+	Body               string       `json:"body"`
+	FromStatus         string       `json:"from_status"`
+	ToStatus           string       `json:"to_status"`
+	Actor              *actorOutput `json:"actor,omitempty"`
+	EvidenceRunID      int64        `json:"evidence_run_id,omitempty"`
+	EvidenceArtifactID int64        `json:"evidence_artifact_id,omitempty"`
+	CreatedAt          string       `json:"created_at"`
 }
 
 type actorOutput struct {
@@ -1400,14 +1414,16 @@ func taskOutputFromStorage(task storage.Task) readyTaskOutput {
 
 func taskEventOutputFromStorage(event storage.TaskEvent) taskEventOutput {
 	return taskEventOutput{
-		ID:         event.ID,
-		TaskID:     event.TaskID,
-		Type:       event.Type,
-		Body:       event.Body,
-		FromStatus: event.FromStatus,
-		ToStatus:   event.ToStatus,
-		Actor:      actorOutputFromSnapshot(event.ActorID, event.ActorKind, event.ActorName),
-		CreatedAt:  event.CreatedAt,
+		ID:                 event.ID,
+		TaskID:             event.TaskID,
+		Type:               event.Type,
+		Body:               event.Body,
+		FromStatus:         event.FromStatus,
+		ToStatus:           event.ToStatus,
+		Actor:              actorOutputFromSnapshot(event.ActorID, event.ActorKind, event.ActorName),
+		EvidenceRunID:      event.EvidenceRunID,
+		EvidenceArtifactID: event.EvidenceArtifactID,
+		CreatedAt:          event.CreatedAt,
 	}
 }
 
