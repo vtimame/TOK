@@ -283,6 +283,8 @@ export type {
   RemoveProjectIndexIgnorePatternMutationResponse,
   RemoveProjectIndexIgnorePatternPathParams,
 } from "./models/RemoveProjectIndexIgnorePattern.ts";
+export type { RunArtifactOutput } from "./models/RunArtifactOutput.ts";
+export type { RunOutput } from "./models/RunOutput.ts";
 export type {
   ShowAgent200,
   ShowAgent400,

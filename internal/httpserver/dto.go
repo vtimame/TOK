@@ -118,6 +118,7 @@ type TaskShowResponse struct {
 	Task         TaskOutput             `json:"task"`
 	Events       []TaskEventOutput      `json:"events"`
 	Dependencies []TaskDependencyOutput `json:"dependencies"`
+	Runs         []RunOutput            `json:"runs"`
 }
 
 type ClaimTaskInput struct {
@@ -204,6 +205,38 @@ type ActorOutput struct {
 	ID   int64  `json:"id"`
 	Kind string `json:"kind"`
 	Name string `json:"name"`
+}
+
+type RunOutput struct {
+	ID                     int64               `json:"id"`
+	TaskID                 int64               `json:"task_id"`
+	Status                 string              `json:"status"`
+	HandoffContractVersion string              `json:"handoff_contract_version"`
+	RetrievalLimit         int                 `json:"retrieval_limit"`
+	StartedAt              string              `json:"started_at"`
+	FinishedAt             string              `json:"finished_at"`
+	BaseBranch             string              `json:"base_branch"`
+	BaseHead               string              `json:"base_head"`
+	ResultSummary          string              `json:"result_summary"`
+	LeaseOwner             string              `json:"lease_owner"`
+	HeartbeatAt            string              `json:"heartbeat_at"`
+	ExpiresAt              string              `json:"expires_at"`
+	StartedBy              *ActorOutput        `json:"started_by,omitempty"`
+	FinishedBy             *ActorOutput        `json:"finished_by,omitempty"`
+	Artifacts              []RunArtifactOutput `json:"artifacts"`
+}
+
+type RunArtifactOutput struct {
+	ID          int64        `json:"id"`
+	RunID       int64        `json:"run_id"`
+	Kind        string       `json:"kind"`
+	Path        string       `json:"path"`
+	ContentHash string       `json:"content_hash"`
+	SizeBytes   int64        `json:"size_bytes"`
+	Truncated   bool         `json:"truncated"`
+	Metadata    string       `json:"metadata"`
+	Actor       *ActorOutput `json:"actor,omitempty"`
+	CreatedAt   string       `json:"created_at"`
 }
 
 type AgentListResponse struct {
@@ -316,11 +349,12 @@ func tasksFromStorage(tasks []storage.Task, agents map[int64][]ActorOutput, proj
 	return out
 }
 
-func taskShowFromStorage(task storage.Task, project storage.Project, events []storage.TaskEvent, dependencies []storage.TaskDependency) TaskShowResponse {
+func taskShowFromStorage(task storage.Task, project storage.Project, events []storage.TaskEvent, dependencies []storage.TaskDependency, runs []RunOutput) TaskShowResponse {
 	out := TaskShowResponse{
 		Task:         taskFromStorage(task, project, agentsFromEvents(events)),
 		Events:       make([]TaskEventOutput, 0, len(events)),
 		Dependencies: make([]TaskDependencyOutput, 0, len(dependencies)),
+		Runs:         runs,
 	}
 	for _, event := range events {
 		out.Events = append(out.Events, taskEventFromStorage(event))
@@ -329,6 +363,47 @@ func taskShowFromStorage(task storage.Task, project storage.Project, events []st
 		out.Dependencies = append(out.Dependencies, taskDependencyFromStorage(task.ID, dependency))
 	}
 	return out
+}
+
+func runFromStorage(run storage.Run, artifacts []storage.RunArtifact) RunOutput {
+	artifactOutputs := make([]RunArtifactOutput, 0, len(artifacts))
+	for _, artifact := range artifacts {
+		artifactOutputs = append(artifactOutputs, runArtifactFromStorage(artifact))
+	}
+
+	return RunOutput{
+		ID:                     run.ID,
+		TaskID:                 run.TaskID,
+		Status:                 run.Status,
+		HandoffContractVersion: run.HandoffContractVersion,
+		RetrievalLimit:         run.RetrievalLimit,
+		StartedAt:              run.StartedAt,
+		FinishedAt:             run.FinishedAt,
+		BaseBranch:             run.BaseBranch,
+		BaseHead:               run.BaseHead,
+		ResultSummary:          run.ResultSummary,
+		LeaseOwner:             run.LeaseOwner,
+		HeartbeatAt:            run.HeartbeatAt,
+		ExpiresAt:              run.ExpiresAt,
+		StartedBy:              actorFromSnapshot(run.ActorID, run.ActorKind, run.ActorName),
+		FinishedBy:             actorFromSnapshot(run.FinishedActorID, run.FinishedActorKind, run.FinishedActorName),
+		Artifacts:              artifactOutputs,
+	}
+}
+
+func runArtifactFromStorage(artifact storage.RunArtifact) RunArtifactOutput {
+	return RunArtifactOutput{
+		ID:          artifact.ID,
+		RunID:       artifact.RunID,
+		Kind:        artifact.Kind,
+		Path:        artifact.Path,
+		ContentHash: artifact.ContentHash,
+		SizeBytes:   artifact.SizeBytes,
+		Truncated:   artifact.Truncated,
+		Metadata:    artifact.Metadata,
+		Actor:       actorFromSnapshot(artifact.ActorID, artifact.ActorKind, artifact.ActorName),
+		CreatedAt:   artifact.CreatedAt,
+	}
 }
 
 func taskFromStorage(task storage.Task, project storage.Project, agents []ActorOutput) TaskOutput {

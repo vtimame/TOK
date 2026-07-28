@@ -3,9 +3,13 @@ import { describe, expect, test } from "vitest";
 import {
   actorDisplayName,
   agentIconValue,
+  completionEvidenceForTask,
+  parseValidationMetadata,
   projectFromApi,
+  runFromApi,
   statusLabel,
   statusTone,
+  taskEventFromApi,
   taskFromApi,
 } from "@/api/mappers";
 
@@ -79,6 +83,162 @@ describe("mappers", () => {
       updatedAt: "2026-03-02T00:00:00Z",
       agents: [],
     });
+  });
+
+  test("taskEventFromApi maps completion evidence ids", () => {
+    const event = taskEventFromApi({
+      id: 12,
+      task_id: 7,
+      type: "completed",
+      body: "Done.",
+      from_status: "in_progress",
+      to_status: "done",
+      evidence_run_id: 3,
+      evidence_artifact_id: 9,
+      created_at: "2026-03-02T00:00:00Z",
+      actor: { id: 4, kind: "agent", name: "Codex MCP" },
+    } as Parameters<typeof taskEventFromApi>[0]);
+
+    expect(event.evidenceRunId).toBe(3);
+    expect(event.evidenceArtifactId).toBe(9);
+    expect(event.actor?.name).toBe("Codex MCP");
+  });
+
+  test("runFromApi maps artifacts and actors", () => {
+    const run = runFromApi({
+      id: 3,
+      task_id: 7,
+      status: "succeeded",
+      handoff_contract_version: "tok.handoff.v0",
+      retrieval_limit: 8,
+      started_at: "2026-03-01T00:00:00Z",
+      finished_at: "2026-03-02T00:00:00Z",
+      base_branch: "main",
+      base_head: "abc123456",
+      result_summary: "Validation passed.",
+      lease_owner: "worker",
+      heartbeat_at: "2026-03-01T00:01:00Z",
+      expires_at: "2026-03-01T00:30:00Z",
+      started_by: { id: 4, kind: "agent", name: "Codex MCP" },
+      finished_by: { id: 5, kind: "agent", name: "OpenAI Reviewer" },
+      artifacts: [
+        {
+          id: 9,
+          run_id: 3,
+          kind: "validation",
+          path: "",
+          content_hash: "",
+          size_bytes: 0,
+          truncated: false,
+          metadata: `{"status":"passed","command":"go test ./..."}`,
+          created_at: "2026-03-02T00:00:00Z",
+        },
+      ],
+    } as Parameters<typeof runFromApi>[0]);
+
+    expect(run.startedBy?.icon).toBe("codex");
+    expect(run.finishedBy?.icon).toBe("openai");
+    expect(run.artifacts[0]).toMatchObject({
+      id: 9,
+      runId: 3,
+      kind: "validation",
+    });
+  });
+
+  test("completionEvidenceForTask returns validated evidence", () => {
+    const event = taskEventFromApi({
+      id: 12,
+      task_id: 7,
+      type: "completed",
+      body: "Done with tests.",
+      from_status: "in_progress",
+      to_status: "done",
+      evidence_run_id: 3,
+      evidence_artifact_id: 9,
+      created_at: "2026-03-02T00:00:00Z",
+      actor: { id: 4, kind: "agent", name: "Codex MCP" },
+    } as Parameters<typeof taskEventFromApi>[0]);
+    const run = {
+      id: 3,
+      taskId: 7,
+      status: "succeeded",
+      handoffContractVersion: "tok.handoff.v0",
+      retrievalLimit: 8,
+      startedAt: "",
+      finishedAt: "",
+      baseBranch: "",
+      baseHead: "",
+      resultSummary: "",
+      leaseOwner: "",
+      heartbeatAt: "",
+      expiresAt: "",
+      artifacts: [
+        {
+          id: 9,
+          runId: 3,
+          kind: "validation",
+          path: "",
+          contentHash: "",
+          sizeBytes: 0,
+          truncated: false,
+          metadata: `{"status":"passed","command":"go test ./...","summary":"ok"}`,
+          createdAt: "",
+        },
+      ],
+    };
+
+    const evidence = completionEvidenceForTask({ status: "done" }, [event], [run]);
+
+    expect(evidence.status).toBe("validated");
+    if (evidence.status !== "validated") throw new Error("expected validated evidence");
+    expect(evidence.run?.id).toBe(3);
+    expect(evidence.artifact?.id).toBe(9);
+    expect(evidence.validation).toEqual({
+      status: "passed",
+      command: "go test ./...",
+      summary: "ok",
+    });
+  });
+
+  test("completionEvidenceForTask returns override and legacy states", () => {
+    const completed = taskEventFromApi({
+      id: 12,
+      task_id: 7,
+      type: "completed",
+      body: "Closed manually.",
+      from_status: "in_progress",
+      to_status: "done",
+      created_at: "2026-03-02T00:00:00Z",
+      actor: { id: 4, kind: "agent", name: "Codex MCP" },
+    } as Parameters<typeof taskEventFromApi>[0]);
+    const override = taskEventFromApi({
+      id: 13,
+      task_id: 7,
+      type: "completion_override",
+      body: "Validation cannot run locally.",
+      from_status: "in_progress",
+      to_status: "done",
+      created_at: "2026-03-02T00:01:00Z",
+      actor: { id: 5, kind: "agent", name: "OpenAI Reviewer" },
+    } as Parameters<typeof taskEventFromApi>[0]);
+
+    const overrideEvidence = completionEvidenceForTask(
+      { status: "done" },
+      [completed, override],
+      [],
+    );
+    expect(overrideEvidence.status).toBe("override");
+    if (overrideEvidence.status !== "override") throw new Error("expected override evidence");
+    expect(overrideEvidence.actor?.name).toBe("OpenAI Reviewer");
+    expect(overrideEvidence.overrideReason).toBe("Validation cannot run locally.");
+
+    const legacyEvidence = completionEvidenceForTask({ status: "done" }, [completed], []);
+    expect(legacyEvidence.status).toBe("legacy_unknown");
+  });
+
+  test("parseValidationMetadata tolerates empty or invalid metadata", () => {
+    expect(parseValidationMetadata("")).toEqual({});
+    expect(parseValidationMetadata("{")).toEqual({});
   });
 
   test("agentIconValue and actorDisplayName are stable", () => {

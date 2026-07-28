@@ -46,6 +46,103 @@
       },
       "type": ["array", "null"]
     },
+    "runs": {
+      "items": {
+        "properties": {
+          "artifacts": {
+            "items": {
+              "properties": {
+                "actor": {
+                  "properties": {
+                    "id": { "format": "int64", "type": "integer" },
+                    "kind": { "type": "string" },
+                    "name": { "type": "string" }
+                  },
+                  "required": ["id", "kind", "name"],
+                  "type": "object",
+                  "x-readme-ref-name": "ActorOutput"
+                },
+                "content_hash": { "type": "string" },
+                "created_at": { "type": "string" },
+                "id": { "format": "int64", "type": "integer" },
+                "kind": { "type": "string" },
+                "metadata": { "type": "string" },
+                "path": { "type": "string" },
+                "run_id": { "format": "int64", "type": "integer" },
+                "size_bytes": { "format": "int64", "type": "integer" },
+                "truncated": { "type": "boolean" }
+              },
+              "required": [
+                "content_hash",
+                "created_at",
+                "id",
+                "kind",
+                "metadata",
+                "path",
+                "run_id",
+                "size_bytes",
+                "truncated"
+              ],
+              "type": "object",
+              "x-readme-ref-name": "RunArtifactOutput"
+            },
+            "type": ["array", "null"]
+          },
+          "base_branch": { "type": "string" },
+          "base_head": { "type": "string" },
+          "expires_at": { "type": "string" },
+          "finished_at": { "type": "string" },
+          "finished_by": {
+            "properties": {
+              "id": { "format": "int64", "type": "integer" },
+              "kind": { "type": "string" },
+              "name": { "type": "string" }
+            },
+            "required": ["id", "kind", "name"],
+            "type": "object",
+            "x-readme-ref-name": "ActorOutput"
+          },
+          "handoff_contract_version": { "type": "string" },
+          "heartbeat_at": { "type": "string" },
+          "id": { "format": "int64", "type": "integer" },
+          "lease_owner": { "type": "string" },
+          "result_summary": { "type": "string" },
+          "retrieval_limit": { "type": "integer" },
+          "started_at": { "type": "string" },
+          "started_by": {
+            "properties": {
+              "id": { "format": "int64", "type": "integer" },
+              "kind": { "type": "string" },
+              "name": { "type": "string" }
+            },
+            "required": ["id", "kind", "name"],
+            "type": "object",
+            "x-readme-ref-name": "ActorOutput"
+          },
+          "status": { "type": "string" },
+          "task_id": { "format": "int64", "type": "integer" }
+        },
+        "required": [
+          "artifacts",
+          "base_branch",
+          "base_head",
+          "expires_at",
+          "finished_at",
+          "handoff_contract_version",
+          "heartbeat_at",
+          "id",
+          "lease_owner",
+          "result_summary",
+          "retrieval_limit",
+          "started_at",
+          "status",
+          "task_id"
+        ],
+        "type": "object",
+        "x-readme-ref-name": "RunOutput"
+      },
+      "type": ["array", "null"]
+    },
     "task": {
       "properties": {
         "acceptance_criteria": { "type": "string" },
@@ -106,7 +203,7 @@
       "x-readme-ref-name": "TaskOutput"
     }
   },
-  "required": ["dependencies", "events", "task"],
+  "required": ["dependencies", "events", "runs", "task"],
   "type": "object",
   "x-readme-ref-name": "TaskShowResponse"
 }

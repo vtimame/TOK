@@ -2,10 +2,18 @@ import type { ActorOutput } from "@/api/generated/models/ActorOutput.ts";
 import type { AgentOutput as ApiAgentOutput } from "@/api/generated/models/AgentOutput.ts";
 import type { AgentProjectOutput as ApiAgentProjectOutput } from "@/api/generated/models/AgentProjectOutput.ts";
 import type { ProjectOutput } from "@/api/generated/models/ProjectOutput.ts";
+import type { RunArtifactOutput } from "@/api/generated/models/RunArtifactOutput.ts";
+import type { RunOutput } from "@/api/generated/models/RunOutput.ts";
 import type { TaskDependencyOutput } from "@/api/generated/models/TaskDependencyOutput.ts";
 import type { TaskEventOutput } from "@/api/generated/models/TaskEventOutput.ts";
 import type { TaskOutput } from "@/api/generated/models/TaskOutput.ts";
 import type { Project } from "@/components/pages/projects";
+
+export type Actor = {
+  id: number;
+  name: string;
+  icon: string;
+};
 
 export type Task = {
   id: number;
@@ -36,12 +44,10 @@ export type TaskEvent = {
   body: string;
   fromStatus: string;
   toStatus: string;
+  evidenceRunId: number;
+  evidenceArtifactId: number;
   createdAt: string;
-  actor?: {
-    id: number;
-    name: string;
-    icon: string;
-  };
+  actor?: Actor;
 };
 
 export type TaskDependency = {
@@ -52,6 +58,73 @@ export type TaskDependency = {
   role: string;
   createdAt: string;
 };
+
+export type RunArtifact = {
+  id: number;
+  runId: number;
+  kind: string;
+  path: string;
+  contentHash: string;
+  sizeBytes: number;
+  truncated: boolean;
+  metadata: string;
+  actor?: Actor;
+  createdAt: string;
+};
+
+export type Run = {
+  id: number;
+  taskId: number;
+  status: string;
+  handoffContractVersion: string;
+  retrievalLimit: number;
+  startedAt: string;
+  finishedAt: string;
+  baseBranch: string;
+  baseHead: string;
+  resultSummary: string;
+  leaseOwner: string;
+  heartbeatAt: string;
+  expiresAt: string;
+  startedBy?: Actor;
+  finishedBy?: Actor;
+  artifacts: RunArtifact[];
+};
+
+export type ValidationMetadata = {
+  status?: string;
+  command?: string;
+  summary?: string;
+};
+
+export type CompletionEvidence =
+  | { status: "not_done" }
+  | {
+      status: "validated";
+      event: TaskEvent;
+      run?: Run;
+      artifact?: RunArtifact;
+      validation: ValidationMetadata;
+      actor?: Actor;
+      note: string;
+      completedAt: string;
+    }
+  | {
+      status: "override";
+      event: TaskEvent;
+      overrideEvent: TaskEvent;
+      actor?: Actor;
+      note: string;
+      overrideReason: string;
+      completedAt: string;
+    }
+  | {
+      status: "legacy_unknown";
+      event?: TaskEvent;
+      actor?: Actor;
+      note: string;
+      completedAt: string;
+    };
 
 export type AgentProject = {
   id: number;
@@ -147,14 +220,46 @@ export function taskEventFromApi(event: TaskEventOutput): TaskEvent {
     body: event.body,
     fromStatus: event.from_status,
     toStatus: event.to_status,
+    evidenceRunId: event.evidence_run_id || 0,
+    evidenceArtifactId: event.evidence_artifact_id || 0,
     createdAt: event.created_at,
-    actor: event.actor
-      ? {
-          id: event.actor.id,
-          name: event.actor.name,
-          icon: agentIconValue(event.actor.name),
-        }
-      : undefined,
+    actor: event.actor ? actorFromApi(event.actor) : undefined,
+  };
+}
+
+export function runFromApi(run: RunOutput): Run {
+  return {
+    id: run.id,
+    taskId: run.task_id,
+    status: run.status,
+    handoffContractVersion: run.handoff_contract_version,
+    retrievalLimit: run.retrieval_limit,
+    startedAt: run.started_at,
+    finishedAt: run.finished_at,
+    baseBranch: run.base_branch,
+    baseHead: run.base_head,
+    resultSummary: run.result_summary,
+    leaseOwner: run.lease_owner,
+    heartbeatAt: run.heartbeat_at,
+    expiresAt: run.expires_at,
+    startedBy: run.started_by ? actorFromApi(run.started_by) : undefined,
+    finishedBy: run.finished_by ? actorFromApi(run.finished_by) : undefined,
+    artifacts: (run.artifacts ?? []).map(runArtifactFromApi),
+  };
+}
+
+function runArtifactFromApi(artifact: RunArtifactOutput): RunArtifact {
+  return {
+    id: artifact.id,
+    runId: artifact.run_id,
+    kind: artifact.kind,
+    path: artifact.path,
+    contentHash: artifact.content_hash,
+    sizeBytes: artifact.size_bytes,
+    truncated: artifact.truncated,
+    metadata: artifact.metadata,
+    actor: artifact.actor ? actorFromApi(artifact.actor) : undefined,
+    createdAt: artifact.created_at,
   };
 }
 
@@ -181,6 +286,78 @@ export function agentIconValue(name: string): string {
 
 export function actorDisplayName(actor: ActorOutput): string {
   return actor.name.trim() || `Agent ${actor.id}`;
+}
+
+export function completionEvidenceForTask(
+  task: Pick<Task, "status">,
+  events: TaskEvent[],
+  runs: Run[],
+): CompletionEvidence {
+  if (task.status !== "done") {
+    return { status: "not_done" };
+  }
+
+  const completedEvent = [...events].reverse().find((event) => event.type === "completed");
+  const overrideEvent = [...events].reverse().find((event) => event.type === "completion_override");
+  if (completedEvent && overrideEvent) {
+    return {
+      status: "override",
+      event: completedEvent,
+      overrideEvent,
+      actor: overrideEvent.actor ?? completedEvent.actor,
+      note: completedEvent.body,
+      overrideReason: overrideEvent.body,
+      completedAt: completedEvent.createdAt,
+    };
+  }
+
+  if (completedEvent?.evidenceRunId) {
+    const run = runs.find((item) => item.id === completedEvent.evidenceRunId);
+    const artifact =
+      run?.artifacts.find((item) => item.id === completedEvent.evidenceArtifactId) ??
+      run?.artifacts.find((item) => item.kind === "validation");
+
+    return {
+      status: "validated",
+      event: completedEvent,
+      run,
+      artifact,
+      validation: parseValidationMetadata(artifact?.metadata),
+      actor: completedEvent.actor,
+      note: completedEvent.body,
+      completedAt: completedEvent.createdAt,
+    };
+  }
+
+  return {
+    status: "legacy_unknown",
+    event: completedEvent,
+    actor: completedEvent?.actor,
+    note: completedEvent?.body || "",
+    completedAt: completedEvent?.createdAt || "",
+  };
+}
+
+export function parseValidationMetadata(metadata?: string): ValidationMetadata {
+  if (!metadata) return {};
+  try {
+    const parsed = JSON.parse(metadata) as Record<string, unknown>;
+    return {
+      status: typeof parsed.status === "string" ? parsed.status : undefined,
+      command: typeof parsed.command === "string" ? parsed.command : undefined,
+      summary: typeof parsed.summary === "string" ? parsed.summary : undefined,
+    };
+  } catch {
+    return {};
+  }
+}
+
+function actorFromApi(actor: ActorOutput): Actor {
+  return {
+    id: actor.id,
+    name: actorDisplayName(actor),
+    icon: agentIconValue(actor.name),
+  };
 }
 
 export function statusLabel(status: string): string {

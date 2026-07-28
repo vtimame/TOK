@@ -12,8 +12,8 @@ import { useProgressTask } from "@/api/generated/hooks/useProgressTask.ts";
 import { useUnblockTask } from "@/api/generated/hooks/useUnblockTask.ts";
 import { useCreateTask } from "@/api/generated/hooks/useCreateTask.ts";
 import type { CreateTaskInput } from "@/api/generated/models/CreateTaskInput.ts";
-import type { Task, TaskDependency, TaskEvent } from "@/api/mappers.ts";
-import { taskDependencyFromApi, taskEventFromApi, taskFromApi } from "@/api/mappers.ts";
+import type { Run, Task, TaskDependency, TaskEvent } from "@/api/mappers.ts";
+import { runFromApi, taskDependencyFromApi, taskEventFromApi, taskFromApi } from "@/api/mappers.ts";
 import { listProjectsQueryKey } from "@/api/generated/hooks/useListProjects.ts";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/vue-query";
 import type { QueryClient } from "@tanstack/vue-query";
@@ -36,6 +36,7 @@ export type TaskDetails = {
   task: Task;
   events: TaskEvent[];
   dependencies: TaskDependency[];
+  runs: Run[];
 };
 
 export const taskQueryKeys = {
@@ -49,10 +50,7 @@ export function useTasksQuery(params?: MaybeRefOrGetter<ListTasksQueryParams>) {
   return useQuery({
     queryKey,
     queryFn: async ({ signal }) => {
-      const response = await listTasks(
-        { params: toValue(params) },
-        { signal },
-      );
+      const response = await listTasks({ params: toValue(params) }, { signal });
       return tasksPageFromApi(response);
     },
   });
@@ -98,6 +96,7 @@ export function useTaskQuery(id: MaybeRefOrGetter<string | undefined>) {
           task: taskFromApi(response.task),
           events: (response.events ?? []).map(taskEventFromApi),
           dependencies: (response.dependencies ?? []).map(taskDependencyFromApi),
+          runs: (response.runs ?? []).map(runFromApi),
         }),
       },
     },

@@ -678,6 +678,15 @@ func TestServerTaskDoneStoresCompletionEvidenceMetadata(t *testing.T) {
 	if last.EvidenceArtifactID != validationArtifact.ID {
 		t.Fatalf("expected completion evidence artifact id %d, got %d", validationArtifact.ID, last.EvidenceArtifactID)
 	}
+	if len(shown.Runs) != 1 {
+		t.Fatalf("expected task show runs, got %+v", shown.Runs)
+	}
+	if shown.Runs[0].ID != run.ID || shown.Runs[0].Status != "succeeded" || shown.Runs[0].ResultSummary != "Validation passed." {
+		t.Fatalf("unexpected shown run: %+v", shown.Runs[0])
+	}
+	if len(shown.Runs[0].Artifacts) != 1 || shown.Runs[0].Artifacts[0].ID != validationArtifact.ID {
+		t.Fatalf("expected validation artifact in shown run, got %+v", shown.Runs[0].Artifacts)
+	}
 }
 
 func TestServerTaskActionsWriteHumanActorHistory(t *testing.T) {

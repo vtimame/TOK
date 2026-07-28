@@ -1,0 +1,36 @@
+{
+  "properties": {
+    "actor": {
+      "properties": {
+        "id": { "format": "int64", "type": "integer" },
+        "kind": { "type": "string" },
+        "name": { "type": "string" }
+      },
+      "required": ["id", "kind", "name"],
+      "type": "object",
+      "x-readme-ref-name": "ActorOutput"
+    },
+    "content_hash": { "type": "string" },
+    "created_at": { "type": "string" },
+    "id": { "format": "int64", "type": "integer" },
+    "kind": { "type": "string" },
+    "metadata": { "type": "string" },
+    "path": { "type": "string" },
+    "run_id": { "format": "int64", "type": "integer" },
+    "size_bytes": { "format": "int64", "type": "integer" },
+    "truncated": { "type": "boolean" }
+  },
+  "required": [
+    "content_hash",
+    "created_at",
+    "id",
+    "kind",
+    "metadata",
+    "path",
+    "run_id",
+    "size_bytes",
+    "truncated"
+  ],
+  "type": "object",
+  "x-readme-ref-name": "RunArtifactOutput"
+}

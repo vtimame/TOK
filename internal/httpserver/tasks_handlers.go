@@ -180,7 +180,19 @@ func (a *api) showTask(ctx fuego.ContextNoBody) (TaskShowResponse, error) {
 	if err != nil {
 		return TaskShowResponse{}, err
 	}
-	return taskShowFromStorage(task, project, events, dependencies), nil
+	runs, err := a.store.ListRuns(ctx.Context(), storage.ListRunsOptions{TaskID: task.ID})
+	if err != nil {
+		return TaskShowResponse{}, err
+	}
+	runOutputs := make([]RunOutput, 0, len(runs))
+	for _, run := range runs {
+		artifacts, err := a.store.ListRunArtifacts(ctx.Context(), run.ID)
+		if err != nil {
+			return TaskShowResponse{}, err
+		}
+		runOutputs = append(runOutputs, runFromStorage(run, artifacts))
+	}
+	return taskShowFromStorage(task, project, events, dependencies, runOutputs), nil
 }
 
 func (a *api) claimTask(ctx fuego.ContextWithBody[ClaimTaskInput]) (TaskResponse, error) {

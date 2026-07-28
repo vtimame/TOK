@@ -4,6 +4,7 @@
  * Do not edit manually.
  */
 
+import type { RunOutput } from "./RunOutput.ts";
 import type { TaskDependencyOutput } from "./TaskDependencyOutput.ts";
 import type { TaskEventOutput } from "./TaskEventOutput.ts";
 import type { TaskOutput } from "./TaskOutput.ts";
@@ -20,6 +21,10 @@ export type TaskShowResponse = {
    * @type array,null
    */
   events: TaskEventOutput[] | null;
+  /**
+   * @type array,null
+   */
+  runs: RunOutput[] | null;
   /**
    * @type object
    */
