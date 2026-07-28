@@ -213,6 +213,9 @@ func (c *CLI) runRunStart(ctx context.Context, store *storage.Store, args []stri
 		if errors.Is(err, storage.ErrActiveRunExists) {
 			return fmt.Errorf("active run already exists for task %d; use --allow-active to override", startOpts.taskID)
 		}
+		if errors.Is(err, storage.ErrTaskRunRequiresInProgress) {
+			return fmt.Errorf("run start requires task %d to be in_progress", startOpts.taskID)
+		}
 		return err
 	}
 
@@ -275,6 +278,9 @@ func (c *CLI) runRunExec(ctx context.Context, store *storage.Store, dataDir stri
 		}
 		if errors.Is(err, storage.ErrActiveRunExists) {
 			return fmt.Errorf("active run already exists for task %d; use --allow-active to override", execOpts.taskID)
+		}
+		if errors.Is(err, storage.ErrTaskRunRequiresInProgress) {
+			return fmt.Errorf("run exec requires task %d to be in_progress", execOpts.taskID)
 		}
 		return err
 	}
@@ -350,6 +356,9 @@ func (c *CLI) runRunAgent(ctx context.Context, store *storage.Store, dataDir str
 		}
 		if errors.Is(err, storage.ErrActiveRunExists) {
 			return fmt.Errorf("active run already exists for task %d; use --allow-active to override", agentOpts.taskID)
+		}
+		if errors.Is(err, storage.ErrTaskRunRequiresInProgress) {
+			return fmt.Errorf("run agent requires task %d to be in_progress", agentOpts.taskID)
 		}
 		return err
 	}

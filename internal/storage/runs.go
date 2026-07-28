@@ -80,9 +80,6 @@ func (s *Store) CreateRun(ctx context.Context, input CreateRunInput) (Run, error
 	if input.TaskID <= 0 {
 		return Run{}, errors.New("run task id is required")
 	}
-	if _, err := s.GetTask(ctx, input.TaskID); err != nil {
-		return Run{}, err
-	}
 	status := strings.TrimSpace(input.Status)
 	if status == "" {
 		status = "created"
@@ -100,8 +97,21 @@ func (s *Store) CreateRun(ctx context.Context, input CreateRunInput) (Run, error
 	if input.RetrievalLimit <= 0 {
 		input.RetrievalLimit = 5
 	}
+	input.LeaseOwner = strings.TrimSpace(input.LeaseOwner)
+	input.HeartbeatAt = strings.TrimSpace(input.HeartbeatAt)
+	input.ExpiresAt = strings.TrimSpace(input.ExpiresAt)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Run{}, fmt.Errorf("begin create run transaction: %w", err)
+	}
+	defer rollback(tx)
+
+	if err := lockInProgressTaskForRun(ctx, tx, input.TaskID); err != nil {
+		return Run{}, err
+	}
 	if !input.AllowActive {
-		active, err := s.hasActiveRunForTask(ctx, input.TaskID)
+		active, err := s.hasActiveRunForTaskInTx(ctx, tx, input.TaskID)
 		if err != nil {
 			return Run{}, err
 		}
@@ -109,12 +119,9 @@ func (s *Store) CreateRun(ctx context.Context, input CreateRunInput) (Run, error
 			return Run{}, ErrActiveRunExists
 		}
 	}
-	input.LeaseOwner = strings.TrimSpace(input.LeaseOwner)
-	input.HeartbeatAt = strings.TrimSpace(input.HeartbeatAt)
-	input.ExpiresAt = strings.TrimSpace(input.ExpiresAt)
 
 	actor := sanitizeActorRef(input.Actor)
-	res, err := s.db.ExecContext(ctx, `
+	res, err := tx.ExecContext(ctx, `
 		INSERT INTO runs (task_id, status, handoff_contract_version, retrieval_limit, base_branch, base_head, lease_owner, heartbeat_at, expires_at, actor_id, actor_kind, actor_name)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, input.TaskID, status, input.HandoffContractVersion, input.RetrievalLimit, input.BaseBranch, input.BaseHead, input.LeaseOwner, input.HeartbeatAt, input.ExpiresAt, actor.ID, actor.Kind, actor.Name)
@@ -126,12 +133,33 @@ func (s *Store) CreateRun(ctx context.Context, input CreateRunInput) (Run, error
 	if err != nil {
 		return Run{}, fmt.Errorf("read created run id: %w", err)
 	}
+	if err := tx.Commit(); err != nil {
+		return Run{}, fmt.Errorf("commit create run transaction: %w", err)
+	}
 
 	return s.GetRun(ctx, id)
 }
 
-func (s *Store) hasActiveRunForTask(ctx context.Context, taskID int64) (bool, error) {
-	return s.HasActiveRunForTask(ctx, taskID)
+func lockInProgressTaskForRun(ctx context.Context, tx *sql.Tx, taskID int64) error {
+	res, err := tx.ExecContext(ctx, `
+		UPDATE tasks
+		SET updated_at = updated_at
+		WHERE id = ? AND status = 'in_progress'
+	`, taskID)
+	if err != nil {
+		return fmt.Errorf("lock task for run: %w", err)
+	}
+	updated, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read locked task count: %w", err)
+	}
+	if updated == 1 {
+		return nil
+	}
+	if _, err := getTaskInTx(ctx, tx, taskID); err != nil {
+		return err
+	}
+	return ErrTaskRunRequiresInProgress
 }
 
 func (s *Store) HasActiveRunForTask(ctx context.Context, taskID int64) (bool, error) {

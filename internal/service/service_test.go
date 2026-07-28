@@ -57,6 +57,7 @@ func TestRunServiceFinishSucceededRequiresPassedValidationOrOverride(t *testing.
 	if err != nil {
 		t.Fatalf("CreateTask override returned error: %v", err)
 	}
+	claimTask(t, ctx, store, task.ProjectID, overrideTask.ID)
 	overrideRun := createRun(t, ctx, store, overrideTask.ID)
 	_, err = runSvc.FinishRun(ctx, FinishRunInput{
 		ID:               overrideRun.ID,
@@ -277,6 +278,13 @@ func claimTask(t *testing.T, ctx context.Context, store *storage.Store, projectI
 func createRun(t *testing.T, ctx context.Context, store *storage.Store, taskID int64) storage.Run {
 	t.Helper()
 
+	task, err := store.GetTask(ctx, taskID)
+	if err != nil {
+		t.Fatalf("GetTask returned error: %v", err)
+	}
+	if task.Status == "open" {
+		claimTask(t, ctx, store, task.ProjectID, task.ID)
+	}
 	run, err := store.CreateRun(ctx, storage.CreateRunInput{
 		TaskID:                 taskID,
 		Status:                 "in_progress",

@@ -426,7 +426,7 @@ func TestCLIRunnerProductionSmokeEndToEnd(t *testing.T) {
 		if err := projectCLI.Run(ctx, []string{"project", "add", projectDir, "--name", "tok"}); err != nil {
 			t.Fatalf("project add returned error: %v", err)
 		}
-		taskID := createTaskForTest(t, ctx, dataDir, "tok", "Cancellable runner task")
+		taskID := createClaimedTaskForTest(t, ctx, dataDir, "tok", "Cancellable runner task")
 
 		var execOut bytes.Buffer
 		execCLI := newProjectTestCLI(dataDir, &execOut)
@@ -467,7 +467,7 @@ func TestCLIRunnerProductionSmokeEndToEnd(t *testing.T) {
 		if err := projectCLI.Run(ctx, []string{"project", "add", projectDir, "--name", "tok"}); err != nil {
 			t.Fatalf("project add returned error: %v", err)
 		}
-		taskID := createTaskForTest(t, ctx, dataDir, "tok", "Recoverable runner task")
+		taskID := createClaimedTaskForTest(t, ctx, dataDir, "tok", "Recoverable runner task")
 		started := startRunForTest(t, ctx, dataDir, taskID)
 
 		heartbeatCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
@@ -507,7 +507,7 @@ func TestCLIRunnerProductionSmokeEndToEnd(t *testing.T) {
 		if err := projectCLI.Run(ctx, []string{"project", "add", projectDir, "--name", "tok"}); err != nil {
 			t.Fatalf("project add returned error: %v", err)
 		}
-		taskID := createTaskForTest(t, ctx, dataDir, "tok", "Failed validation runner task")
+		taskID := createClaimedTaskForTest(t, ctx, dataDir, "tok", "Failed validation runner task")
 		started := startRunForTest(t, ctx, dataDir, taskID)
 
 		var validationOut bytes.Buffer

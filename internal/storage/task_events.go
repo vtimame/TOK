@@ -28,7 +28,7 @@ func (s *Store) BlockTask(ctx context.Context, id int64, reason string) (Task, e
 }
 
 func (s *Store) BlockTaskByActor(ctx context.Context, id int64, reason string, actor ActorRef) (Task, error) {
-	return s.transitionTaskWithNote(ctx, id, "blocked", "blocked", reason, actor)
+	return s.transitionTaskWithNote(ctx, id, "blocked", "blocked", reason, actor, "open", "in_progress")
 }
 
 func (s *Store) UnblockTask(ctx context.Context, id int64, note string) (Task, error) {
@@ -36,23 +36,7 @@ func (s *Store) UnblockTask(ctx context.Context, id int64, note string) (Task, e
 }
 
 func (s *Store) UnblockTaskByActor(ctx context.Context, id int64, note string, actor ActorRef) (Task, error) {
-	note = strings.TrimSpace(note)
-	if id <= 0 {
-		return Task{}, errors.New("task id is required")
-	}
-	if note == "" {
-		return Task{}, ErrTaskNoteEmpty
-	}
-
-	current, err := s.GetTask(ctx, id)
-	if err != nil {
-		return Task{}, err
-	}
-	if current.Status != "blocked" {
-		return Task{}, ErrInvalidTaskTransition
-	}
-
-	return s.transitionTaskWithNote(ctx, id, "open", "unblocked", note, actor)
+	return s.transitionTaskWithNote(ctx, id, "open", "unblocked", note, actor, "blocked")
 }
 
 func (s *Store) ListTaskEvents(ctx context.Context, taskID int64) ([]TaskEvent, error) {
@@ -125,7 +109,7 @@ func (s *Store) addTaskNoteEvent(ctx context.Context, taskID int64, eventType, b
 	return s.GetTaskEvent(ctx, id)
 }
 
-func (s *Store) transitionTaskWithNote(ctx context.Context, id int64, status, eventType, body string, actor ActorRef) (Task, error) {
+func (s *Store) transitionTaskWithNote(ctx context.Context, id int64, status, eventType, body string, actor ActorRef, allowedFrom ...string) (Task, error) {
 	body = strings.TrimSpace(body)
 	if id <= 0 {
 		return Task{}, errors.New("task id is required")
@@ -134,26 +118,34 @@ func (s *Store) transitionTaskWithNote(ctx context.Context, id int64, status, ev
 		return Task{}, ErrTaskNoteEmpty
 	}
 
-	current, err := s.GetTask(ctx, id)
-	if err != nil {
-		return Task{}, err
-	}
-	if current.Status == "done" {
-		return Task{}, ErrInvalidTaskTransition
-	}
-
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Task{}, fmt.Errorf("begin task %s transaction: %w", eventType, err)
 	}
 	defer rollback(tx)
 
-	if _, err := tx.ExecContext(ctx, `
+	current, err := getTaskInTx(ctx, tx, id)
+	if err != nil {
+		return Task{}, err
+	}
+	if !taskStatusAllowed(current.Status, allowedFrom) {
+		return Task{}, ErrInvalidTaskTransition
+	}
+
+	res, err := tx.ExecContext(ctx, `
 		UPDATE tasks
 		SET status = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-		WHERE id = ?
-	`, status, id); err != nil {
+		WHERE id = ? AND status = ?
+	`, status, id, current.Status)
+	if err != nil {
 		return Task{}, fmt.Errorf("update task %s status: %w", eventType, err)
+	}
+	updated, err := res.RowsAffected()
+	if err != nil {
+		return Task{}, fmt.Errorf("read task %s status count: %w", eventType, err)
+	}
+	if updated == 0 {
+		return Task{}, ErrInvalidTaskTransition
 	}
 
 	actor = sanitizeActorRef(actor)
@@ -169,6 +161,15 @@ func (s *Store) transitionTaskWithNote(ctx context.Context, id int64, status, ev
 	}
 
 	return s.GetTask(ctx, id)
+}
+
+func taskStatusAllowed(status string, allowed []string) bool {
+	for _, candidate := range allowed {
+		if status == candidate {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Store) GetTaskEvent(ctx context.Context, id int64) (TaskEvent, error) {

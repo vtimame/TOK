@@ -1076,6 +1076,8 @@ func friendlyTaskError(err error) error {
 		return errors.New("invalid task status transition")
 	case errors.Is(err, storage.ErrActiveRunExists):
 		return errors.New("task cannot be completed while an active run exists")
+	case errors.Is(err, storage.ErrTaskRunRequiresInProgress):
+		return errors.New("run requires task status in_progress")
 	case errors.Is(err, tokservice.ErrTaskCompletionEvidenceRequired):
 		return errors.New("task completion evidence run with passed validation is required")
 	case errors.Is(err, tokservice.ErrTaskStatusDoneUnsupported):
@@ -1099,6 +1101,10 @@ func friendlyRunError(err error) error {
 		return errors.New("run result summary is required")
 	case errors.Is(err, storage.ErrInvalidRunTransition):
 		return errors.New("invalid run status transition")
+	case errors.Is(err, storage.ErrActiveRunExists):
+		return errors.New("active run already exists for task")
+	case errors.Is(err, storage.ErrTaskRunRequiresInProgress):
+		return errors.New("run requires task status in_progress")
 	default:
 		return err
 	}

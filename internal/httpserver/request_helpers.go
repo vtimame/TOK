@@ -212,6 +212,8 @@ func mapTaskError(err error) error {
 		return fuego.ConflictError{Title: "Invalid task status transition"}
 	case errors.Is(err, storage.ErrActiveRunExists):
 		return fuego.ConflictError{Title: "Task has an active run"}
+	case errors.Is(err, storage.ErrTaskRunRequiresInProgress):
+		return fuego.ConflictError{Title: "Run requires task status in_progress"}
 	case errors.Is(err, storage.ErrTaskCompletionNoteEmpty), errors.Is(err, storage.ErrTaskNoteEmpty):
 		return badRequest("task note is required")
 	case errors.Is(err, storage.ErrInvalidTaskSource), errors.Is(err, storage.ErrInvalidTaskExternalReference):

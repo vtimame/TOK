@@ -149,7 +149,7 @@ func TestCLIRunExecSuccess(t *testing.T) {
 	if err := projectCLI.Run(ctx, []string{"project", "add", projectDir, "--name", "tok"}); err != nil {
 		t.Fatalf("project add returned error: %v", err)
 	}
-	taskID := createTaskForTest(t, ctx, dataDir, "tok", "Run exec task")
+	taskID := createClaimedTaskForTest(t, ctx, dataDir, "tok", "Run exec task")
 
 	var execOut bytes.Buffer
 	execCLI := newProjectTestCLI(dataDir, &execOut)
@@ -243,7 +243,7 @@ func TestCLIRunExecSuccess(t *testing.T) {
 	if err := json.Unmarshal(taskOut.Bytes(), &task); err != nil {
 		t.Fatalf("parse task show JSON: %v\n%s", err, taskOut.String())
 	}
-	if task.Task.Status != "open" {
+	if task.Task.Status != "in_progress" {
 		t.Fatalf("run exec should not close task, got %+v", task.Task)
 	}
 }
@@ -261,7 +261,7 @@ func TestCLIRunExecRecordsValidationArtifact(t *testing.T) {
 	if err := projectCLI.Run(ctx, []string{"project", "add", projectDir, "--name", "tok"}); err != nil {
 		t.Fatalf("project add returned error: %v", err)
 	}
-	taskID := createTaskForTest(t, ctx, dataDir, "tok", "Run exec hidden bypass")
+	taskID := createClaimedTaskForTest(t, ctx, dataDir, "tok", "Run exec hidden bypass")
 
 	var execOut bytes.Buffer
 	execCLI := newProjectTestCLI(dataDir, &execOut)
@@ -307,7 +307,7 @@ func TestCLIRunExecFailureAndTimeout(t *testing.T) {
 	if err := projectCLI.Run(ctx, []string{"project", "add", projectDir, "--name", "tok"}); err != nil {
 		t.Fatalf("project add returned error: %v", err)
 	}
-	failureTaskID := createTaskForTest(t, ctx, dataDir, "tok", "Run exec failure task")
+	failureTaskID := createClaimedTaskForTest(t, ctx, dataDir, "tok", "Run exec failure task")
 	var failureOut bytes.Buffer
 	failureCLI := newProjectTestCLI(dataDir, &failureOut)
 	if err := failureCLI.Run(ctx, []string{
@@ -338,7 +338,7 @@ func TestCLIRunExecFailureAndTimeout(t *testing.T) {
 		t.Fatalf("unexpected failed run exec metadata: %+v", failedMetadata)
 	}
 
-	timeoutTaskID := createTaskForTest(t, ctx, dataDir, "tok", "Run exec timeout task")
+	timeoutTaskID := createClaimedTaskForTest(t, ctx, dataDir, "tok", "Run exec timeout task")
 	var timeoutOut bytes.Buffer
 	timeoutCLI := newProjectTestCLI(dataDir, &timeoutOut)
 	if err := timeoutCLI.Run(ctx, []string{
@@ -397,7 +397,7 @@ func TestCLIRunAgentAdapterContextModesAndResultMapping(t *testing.T) {
 				t.Fatalf("project add returned error: %v", err)
 			}
 			title := "Agent adapter " + mode + " task"
-			taskID := createTaskForTest(t, ctx, dataDir, "tok", title)
+			taskID := createClaimedTaskForTest(t, ctx, dataDir, "tok", title)
 
 			var agentOut bytes.Buffer
 			agentCLI := newProjectTestCLI(dataDir, &agentOut)
@@ -490,7 +490,7 @@ func TestCLIRunAgentAdapterContextModesAndResultMapping(t *testing.T) {
 	if err := projectCLI.Run(ctx, []string{"project", "add", projectDir, "--name", "tok"}); err != nil {
 		t.Fatalf("project add returned error: %v", err)
 	}
-	taskID := createTaskForTest(t, ctx, dataDir, "tok", "Blocked adapter task")
+	taskID := createClaimedTaskForTest(t, ctx, dataDir, "tok", "Blocked adapter task")
 	var blockedOut bytes.Buffer
 	blockedCLI := newProjectTestCLI(dataDir, &blockedOut)
 	if err := blockedCLI.Run(ctx, []string{
@@ -525,7 +525,7 @@ func TestCLIRunAgentRequiresValidationOrOverride(t *testing.T) {
 	if err := projectCLI.Run(ctx, []string{"project", "add", projectDir, "--name", "tok"}); err != nil {
 		t.Fatalf("project add returned error: %v", err)
 	}
-	taskID := createTaskForTest(t, ctx, dataDir, "tok", "Run agent hidden bypass")
+	taskID := createClaimedTaskForTest(t, ctx, dataDir, "tok", "Run agent hidden bypass")
 
 	agentCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
 	err := agentCLI.Run(ctx, []string{
@@ -634,7 +634,7 @@ func TestCLIRunRecordFileArtifacts(t *testing.T) {
 	if err := projectCLI.Run(ctx, []string{"project", "add", projectDir, "--name", "tok"}); err != nil {
 		t.Fatalf("project add returned error: %v", err)
 	}
-	taskID := createTaskForTest(t, ctx, dataDir, "tok", "File artifact task")
+	taskID := createClaimedTaskForTest(t, ctx, dataDir, "tok", "File artifact task")
 	started := startRunForTest(t, ctx, dataDir, taskID)
 
 	inputDir := t.TempDir()
@@ -751,7 +751,7 @@ func TestCLIRunStartPrintsTextOutput(t *testing.T) {
 	if err := projectCLI.Run(ctx, []string{"project", "add", projectDir, "--name", "tok"}); err != nil {
 		t.Fatalf("project add returned error: %v", err)
 	}
-	taskID := createTaskForTest(t, ctx, dataDir, "tok", "Run text task")
+	taskID := createClaimedTaskForTest(t, ctx, dataDir, "tok", "Run text task")
 
 	var out bytes.Buffer
 	cli := newProjectTestCLI(dataDir, &out)
@@ -786,9 +786,9 @@ func TestCLIRunListAndCancel(t *testing.T) {
 		t.Fatalf("project add other returned error: %v", err)
 	}
 
-	firstTaskID := createTaskForTest(t, ctx, dataDir, "tok", "First run task")
-	secondTaskID := createTaskForTest(t, ctx, dataDir, "tok", "Second run task")
-	otherTaskID := createTaskForTest(t, ctx, dataDir, "other", "Other run task")
+	firstTaskID := createClaimedTaskForTest(t, ctx, dataDir, "tok", "First run task")
+	secondTaskID := createClaimedTaskForTest(t, ctx, dataDir, "tok", "Second run task")
+	otherTaskID := createClaimedTaskForTest(t, ctx, dataDir, "other", "Other run task")
 
 	firstRun := startRunForTest(t, ctx, dataDir, firstTaskID)
 	secondRun := startRunForTest(t, ctx, dataDir, secondTaskID)
@@ -921,7 +921,7 @@ func TestCLIRunHeartbeatRecoverAndActiveGuard(t *testing.T) {
 	if err := projectCLI.Run(ctx, []string{"project", "add", projectDir, "--name", "tok"}); err != nil {
 		t.Fatalf("project add returned error: %v", err)
 	}
-	taskID := createTaskForTest(t, ctx, dataDir, "tok", "Heartbeat task")
+	taskID := createClaimedTaskForTest(t, ctx, dataDir, "tok", "Heartbeat task")
 	started := startRunForTest(t, ctx, dataDir, taskID)
 	if started.LeaseOwner == "" || started.HeartbeatAt == "" || started.ExpiresAt == "" {
 		t.Fatalf("run start should set lease fields: %+v", started)
@@ -1034,7 +1034,7 @@ func TestCLIRunRecordValidationArtifact(t *testing.T) {
 	if err := projectCLI.Run(ctx, []string{"project", "add", projectDir, "--name", "tok"}); err != nil {
 		t.Fatalf("project add returned error: %v", err)
 	}
-	taskID := createTaskForTest(t, ctx, dataDir, "tok", "Validation artifact task")
+	taskID := createClaimedTaskForTest(t, ctx, dataDir, "tok", "Validation artifact task")
 
 	var startOut bytes.Buffer
 	startCLI := newProjectTestCLI(dataDir, &startOut)
@@ -1122,7 +1122,7 @@ func TestCLIRunValidateCommandRecordsArtifacts(t *testing.T) {
 	if err := projectCLI.Run(ctx, []string{"project", "add", projectDir, "--name", "tok"}); err != nil {
 		t.Fatalf("project add returned error: %v", err)
 	}
-	taskID := createTaskForTest(t, ctx, dataDir, "tok", "Executable validation task")
+	taskID := createClaimedTaskForTest(t, ctx, dataDir, "tok", "Executable validation task")
 	started := startRunForTest(t, ctx, dataDir, taskID)
 
 	var validateOut bytes.Buffer
@@ -1231,7 +1231,7 @@ func TestCLIRunValidateFailureAndTimeoutEvidence(t *testing.T) {
 	if err := projectCLI.Run(ctx, []string{"project", "add", projectDir, "--name", "tok"}); err != nil {
 		t.Fatalf("project add returned error: %v", err)
 	}
-	failedTaskID := createTaskForTest(t, ctx, dataDir, "tok", "Failed validation task")
+	failedTaskID := createClaimedTaskForTest(t, ctx, dataDir, "tok", "Failed validation task")
 	failedRun := startRunForTest(t, ctx, dataDir, failedTaskID)
 
 	var failedOut bytes.Buffer
@@ -1272,7 +1272,7 @@ func TestCLIRunValidateFailureAndTimeoutEvidence(t *testing.T) {
 		t.Fatalf("expected failed validation to block success, got %v", err)
 	}
 
-	timeoutTaskID := createTaskForTest(t, ctx, dataDir, "tok", "Timeout validation task")
+	timeoutTaskID := createClaimedTaskForTest(t, ctx, dataDir, "tok", "Timeout validation task")
 	timeoutRun := startRunForTest(t, ctx, dataDir, timeoutTaskID)
 	var timeoutOut bytes.Buffer
 	timeoutCLI := newProjectTestCLI(dataDir, &timeoutOut)
@@ -1331,7 +1331,7 @@ func TestCLIRunValidateSafetyRedactionAndEnvFiltering(t *testing.T) {
 	if err := projectCLI.Run(ctx, []string{"project", "add", projectDir, "--name", "tok"}); err != nil {
 		t.Fatalf("project add returned error: %v", err)
 	}
-	taskID := createTaskForTest(t, ctx, dataDir, "tok", "Safe validation task")
+	taskID := createClaimedTaskForTest(t, ctx, dataDir, "tok", "Safe validation task")
 	started := startRunForTest(t, ctx, dataDir, taskID)
 
 	var validateOut bytes.Buffer
@@ -1416,7 +1416,7 @@ func TestCLIRunValidateDangerousCommandPolicy(t *testing.T) {
 	if err := projectCLI.Run(ctx, []string{"project", "add", projectDir, "--name", "tok"}); err != nil {
 		t.Fatalf("project add returned error: %v", err)
 	}
-	taskID := createTaskForTest(t, ctx, dataDir, "tok", "Dangerous validation task")
+	taskID := createClaimedTaskForTest(t, ctx, dataDir, "tok", "Dangerous validation task")
 	started := startRunForTest(t, ctx, dataDir, taskID)
 
 	rejectedCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
@@ -1518,7 +1518,7 @@ func TestCLIRunFinishValidation(t *testing.T) {
 	if err := projectCLI.Run(ctx, []string{"project", "add", projectDir, "--name", "tok"}); err != nil {
 		t.Fatalf("project add returned error: %v", err)
 	}
-	taskID := createTaskForTest(t, ctx, dataDir, "tok", "Run validation task")
+	taskID := createClaimedTaskForTest(t, ctx, dataDir, "tok", "Run validation task")
 
 	var startOut bytes.Buffer
 	startCLI := newProjectTestCLI(dataDir, &startOut)
@@ -1613,7 +1613,7 @@ func TestCLIRunFinishValidation(t *testing.T) {
 
 	// Expected-to-change in tasks 153/154: --allow-unvalidated should require
 	// a non-empty override reason and leave explicit audit evidence.
-	overrideTaskID := createTaskForTest(t, ctx, dataDir, "tok", "Override run validation")
+	overrideTaskID := createClaimedTaskForTest(t, ctx, dataDir, "tok", "Override run validation")
 	override := startRunForTest(t, ctx, dataDir, overrideTaskID)
 	overrideCLI := newProjectTestCLI(dataDir, &bytes.Buffer{})
 	if err := overrideCLI.Run(ctx, []string{

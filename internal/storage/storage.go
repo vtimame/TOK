@@ -23,6 +23,7 @@ var (
 	ErrInvalidRunTransition           = errors.New("invalid run status transition")
 	ErrRunResultSummaryEmpty          = errors.New("run result summary is required")
 	ErrActiveRunExists                = errors.New("active run already exists for task")
+	ErrTaskRunRequiresInProgress      = errors.New("run requires task status in_progress")
 	ErrTaskCompletionEvidenceRequired = errors.New("task completion evidence run with passed validation is required")
 	ErrTaskCompletionOverrideRequired = errors.New("task completion override reason is required")
 	ErrInvalidTaskCompletionMode      = errors.New("invalid task completion mode")

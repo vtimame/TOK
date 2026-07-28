@@ -195,6 +195,11 @@ func TestCLIWritesActorAttributionToTaskAndRunJSON(t *testing.T) {
 		}
 	}
 
+	claimCLI := newIdentityTestCLI(dataDir, &bytes.Buffer{})
+	if err := claimCLI.Run(ctx, []string{"task", "claim", "--project", "tok", strconv.FormatInt(taskID, 10)}); err != nil {
+		t.Fatalf("task claim returned error: %v", err)
+	}
+
 	handoffPath := filepath.Join(t.TempDir(), "handoff.md")
 	var runStartOut bytes.Buffer
 	runStartCLI := newIdentityTestCLI(dataDir, &runStartOut)

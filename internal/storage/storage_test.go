@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -677,6 +678,9 @@ func TestRunLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTask returned error: %v", err)
 	}
+	if _, err := store.ClaimTask(ctx, project.ID, task.ID); err != nil {
+		t.Fatalf("ClaimTask returned error: %v", err)
+	}
 
 	run, err := store.CreateRun(ctx, CreateRunInput{
 		TaskID:                 task.ID,
@@ -737,6 +741,221 @@ func TestRunLifecycle(t *testing.T) {
 	}
 }
 
+func TestCreateRunRequiresInProgressTask(t *testing.T) {
+	ctx := context.Background()
+	store := openInitializedTestStore(t)
+	project, task := createStorageProjectTask(t, ctx, store, "Run status guard")
+
+	_, err := store.CreateRun(ctx, CreateRunInput{
+		TaskID:                 task.ID,
+		Status:                 "in_progress",
+		HandoffContractVersion: "tok.handoff.v0",
+	})
+	if !errors.Is(err, ErrTaskRunRequiresInProgress) {
+		t.Fatalf("expected run status guard for open task, got %v", err)
+	}
+
+	if _, err := store.BlockTask(ctx, task.ID, "Waiting for input."); err != nil {
+		t.Fatalf("BlockTask returned error: %v", err)
+	}
+	_, err = store.CreateRun(ctx, CreateRunInput{
+		TaskID:                 task.ID,
+		Status:                 "in_progress",
+		HandoffContractVersion: "tok.handoff.v0",
+	})
+	if !errors.Is(err, ErrTaskRunRequiresInProgress) {
+		t.Fatalf("expected run status guard for blocked task, got %v", err)
+	}
+
+	if _, err := store.UnblockTask(ctx, task.ID, "Ready again."); err != nil {
+		t.Fatalf("UnblockTask returned error: %v", err)
+	}
+	if _, err := store.ClaimTask(ctx, project.ID, task.ID); err != nil {
+		t.Fatalf("ClaimTask returned error: %v", err)
+	}
+	run, err := store.CreateRun(ctx, CreateRunInput{
+		TaskID:                 task.ID,
+		Status:                 "in_progress",
+		HandoffContractVersion: "tok.handoff.v0",
+	})
+	if err != nil {
+		t.Fatalf("CreateRun in_progress returned error: %v", err)
+	}
+	if _, err := store.FinishRun(ctx, FinishRunInput{
+		ID:            run.ID,
+		Status:        "succeeded",
+		ResultSummary: "Validation passed.",
+	}); err != nil {
+		t.Fatalf("FinishRun returned error: %v", err)
+	}
+	if _, err := store.CompleteTaskWithOptions(ctx, CompleteTaskInput{
+		ID:             task.ID,
+		Mode:           CompletionOverride,
+		Note:           "Done.",
+		OverrideReason: "Run status guard fixture.",
+	}); err != nil {
+		t.Fatalf("CompleteTaskWithOptions returned error: %v", err)
+	}
+	_, err = store.CreateRun(ctx, CreateRunInput{
+		TaskID:                 task.ID,
+		Status:                 "in_progress",
+		HandoffContractVersion: "tok.handoff.v0",
+	})
+	if !errors.Is(err, ErrTaskRunRequiresInProgress) {
+		t.Fatalf("expected run status guard for done task, got %v", err)
+	}
+}
+
+func TestCreateRunActiveGuardAcrossStoreConnections(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), DatabaseFileName)
+	firstStore, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("Open first store returned error: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := firstStore.Close(); err != nil {
+			t.Fatalf("Close first store returned error: %v", err)
+		}
+	})
+	if err := firstStore.Init(ctx); err != nil {
+		t.Fatalf("Init first store returned error: %v", err)
+	}
+	secondStore, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("Open second store returned error: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := secondStore.Close(); err != nil {
+			t.Fatalf("Close second store returned error: %v", err)
+		}
+	})
+
+	project, task := createStorageProjectTask(t, ctx, firstStore, "Concurrent run guard")
+	if _, err := firstStore.ClaimTask(ctx, project.ID, task.ID); err != nil {
+		t.Fatalf("ClaimTask returned error: %v", err)
+	}
+
+	start := make(chan struct{})
+	errs := make(chan error, 2)
+	var wg sync.WaitGroup
+	for _, store := range []*Store{firstStore, secondStore} {
+		wg.Add(1)
+		go func(store *Store) {
+			defer wg.Done()
+			<-start
+			_, err := store.CreateRun(ctx, CreateRunInput{
+				TaskID:                 task.ID,
+				Status:                 "in_progress",
+				HandoffContractVersion: "tok.handoff.v0",
+			})
+			errs <- err
+		}(store)
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+
+	var created int
+	var guarded int
+	for err := range errs {
+		switch {
+		case err == nil:
+			created++
+		case errors.Is(err, ErrActiveRunExists):
+			guarded++
+		default:
+			t.Fatalf("unexpected concurrent CreateRun error: %v", err)
+		}
+	}
+	if created != 1 || guarded != 1 {
+		t.Fatalf("expected one created run and one active guard, got created=%d guarded=%d", created, guarded)
+	}
+	activeRuns, err := firstStore.ListRuns(ctx, ListRunsOptions{TaskID: task.ID, Status: "in_progress"})
+	if err != nil {
+		t.Fatalf("ListRuns returned error: %v", err)
+	}
+	if len(activeRuns) != 1 {
+		t.Fatalf("expected exactly one active run, got %+v", activeRuns)
+	}
+}
+
+func TestBlockUnblockTaskTransitionsAreGuarded(t *testing.T) {
+	ctx := context.Background()
+	store := openInitializedTestStore(t)
+	_, task := createStorageProjectTask(t, ctx, store, "Block guard")
+
+	blocked, err := store.BlockTask(ctx, task.ID, "Waiting for input.")
+	if err != nil {
+		t.Fatalf("BlockTask returned error: %v", err)
+	}
+	if blocked.Status != "blocked" {
+		t.Fatalf("expected blocked task, got %+v", blocked)
+	}
+	if _, err := store.BlockTask(ctx, task.ID, "Still waiting."); !errors.Is(err, ErrInvalidTaskTransition) {
+		t.Fatalf("expected repeated block to be invalid, got %v", err)
+	}
+
+	unblocked, err := store.UnblockTask(ctx, task.ID, "Ready again.")
+	if err != nil {
+		t.Fatalf("UnblockTask returned error: %v", err)
+	}
+	if unblocked.Status != "open" {
+		t.Fatalf("expected unblocked task to be open, got %+v", unblocked)
+	}
+	if _, err := store.UnblockTask(ctx, task.ID, "Not blocked."); !errors.Is(err, ErrInvalidTaskTransition) {
+		t.Fatalf("expected unblock from open to be invalid, got %v", err)
+	}
+
+	events, err := store.ListTaskEvents(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListTaskEvents returned error: %v", err)
+	}
+	if len(events) < 3 {
+		t.Fatalf("expected block and unblock events, got %+v", events)
+	}
+	blockEvent := events[len(events)-2]
+	unblockEvent := events[len(events)-1]
+	if blockEvent.Type != "blocked" || blockEvent.FromStatus != "open" || blockEvent.ToStatus != "blocked" {
+		t.Fatalf("unexpected block event: %+v", blockEvent)
+	}
+	if unblockEvent.Type != "unblocked" || unblockEvent.FromStatus != "blocked" || unblockEvent.ToStatus != "open" {
+		t.Fatalf("unexpected unblock event: %+v", unblockEvent)
+	}
+}
+
+func TestBlockUnblockRejectDoneTask(t *testing.T) {
+	ctx := context.Background()
+	store := openInitializedTestStore(t)
+	project, task := createStorageProjectTask(t, ctx, store, "Done block guard")
+
+	if _, err := store.ClaimTask(ctx, project.ID, task.ID); err != nil {
+		t.Fatalf("ClaimTask returned error: %v", err)
+	}
+	if _, err := store.CompleteTaskWithOptions(ctx, CompleteTaskInput{
+		ID:             task.ID,
+		Mode:           CompletionOverride,
+		Note:           "Done.",
+		OverrideReason: "Block guard fixture.",
+	}); err != nil {
+		t.Fatalf("CompleteTaskWithOptions returned error: %v", err)
+	}
+
+	if _, err := store.BlockTask(ctx, task.ID, "Too late."); !errors.Is(err, ErrInvalidTaskTransition) {
+		t.Fatalf("expected block from done to be invalid, got %v", err)
+	}
+	if _, err := store.UnblockTask(ctx, task.ID, "Too late."); !errors.Is(err, ErrInvalidTaskTransition) {
+		t.Fatalf("expected unblock from done to be invalid, got %v", err)
+	}
+	got, err := store.GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("GetTask returned error: %v", err)
+	}
+	if got.Status != "done" {
+		t.Fatalf("expected task to remain done, got %+v", got)
+	}
+}
+
 func TestListRunsFiltersByProjectTaskAndStatus(t *testing.T) {
 	ctx := context.Background()
 	store := openInitializedTestStore(t)
@@ -761,13 +980,22 @@ func TestListRunsFiltersByProjectTaskAndStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTask first returned error: %v", err)
 	}
+	if _, err := store.ClaimTask(ctx, project.ID, firstTask.ID); err != nil {
+		t.Fatalf("ClaimTask first returned error: %v", err)
+	}
 	secondTask, err := store.CreateTask(ctx, CreateTaskInput{ProjectID: project.ID, Title: "Second"})
 	if err != nil {
 		t.Fatalf("CreateTask second returned error: %v", err)
 	}
+	if _, err := store.ClaimTask(ctx, project.ID, secondTask.ID); err != nil {
+		t.Fatalf("ClaimTask second returned error: %v", err)
+	}
 	otherTask, err := store.CreateTask(ctx, CreateTaskInput{ProjectID: otherProject.ID, Title: "Other"})
 	if err != nil {
 		t.Fatalf("CreateTask other returned error: %v", err)
+	}
+	if _, err := store.ClaimTask(ctx, otherProject.ID, otherTask.ID); err != nil {
+		t.Fatalf("ClaimTask other returned error: %v", err)
 	}
 
 	firstRun, err := store.CreateRun(ctx, CreateRunInput{
@@ -843,6 +1071,9 @@ func TestRunLeaseHeartbeatAndRecovery(t *testing.T) {
 	task, err := store.CreateTask(ctx, CreateTaskInput{ProjectID: project.ID, Title: "Lease task"})
 	if err != nil {
 		t.Fatalf("CreateTask returned error: %v", err)
+	}
+	if _, err := store.ClaimTask(ctx, project.ID, task.ID); err != nil {
+		t.Fatalf("ClaimTask returned error: %v", err)
 	}
 
 	run, err := store.CreateRun(ctx, CreateRunInput{
@@ -961,6 +1192,9 @@ func TestRunLifecycleValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTask returned error: %v", err)
 	}
+	if _, err := store.ClaimTask(ctx, project.ID, task.ID); err != nil {
+		t.Fatalf("ClaimTask returned error: %v", err)
+	}
 
 	created, err := store.CreateRun(ctx, CreateRunInput{
 		TaskID:                 task.ID,
@@ -1031,6 +1265,9 @@ func TestFinishRunRecordsOverrideAuditArtifact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTask returned error: %v", err)
 	}
+	if _, err := store.ClaimTask(ctx, project.ID, task.ID); err != nil {
+		t.Fatalf("ClaimTask returned error: %v", err)
+	}
 	run, err := store.CreateRun(ctx, CreateRunInput{
 		TaskID:                 task.ID,
 		Status:                 "in_progress",
@@ -1058,6 +1295,9 @@ func TestFinishRunRecordsOverrideAuditArtifact(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("CreateTask override returned error: %v", err)
+	}
+	if _, err := store.ClaimTask(ctx, project.ID, overrideTask.ID); err != nil {
+		t.Fatalf("ClaimTask override returned error: %v", err)
 	}
 	overrideRun, err := store.CreateRun(ctx, CreateRunInput{
 		TaskID:                 overrideTask.ID,
@@ -1345,6 +1585,9 @@ func TestRunArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTask returned error: %v", err)
 	}
+	if _, err := store.ClaimTask(ctx, project.ID, task.ID); err != nil {
+		t.Fatalf("ClaimTask returned error: %v", err)
+	}
 	run, err := store.CreateRun(ctx, CreateRunInput{
 		TaskID:                 task.ID,
 		Status:                 "in_progress",
@@ -1429,6 +1672,9 @@ func TestRunArtifactValidation(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("CreateTask returned error: %v", err)
+	}
+	if _, err := store.ClaimTask(ctx, project.ID, task.ID); err != nil {
+		t.Fatalf("ClaimTask returned error: %v", err)
 	}
 	run, err := store.CreateRun(ctx, CreateRunInput{
 		TaskID:                 task.ID,

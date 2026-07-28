@@ -231,6 +231,9 @@ func TestServerWorkerProfileCanReadRunHandoffContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTask returned error: %v", err)
 	}
+	if _, err := store.ClaimTask(ctx, project.ID, task.ID); err != nil {
+		t.Fatalf("ClaimTask returned error: %v", err)
+	}
 	createdAgent, err := store.CreateAgent(ctx, "Codex MCP")
 	if err != nil {
 		t.Fatalf("CreateAgent returned error: %v", err)
@@ -365,6 +368,9 @@ func TestServerRunRecoverToolRecoversStaleRuns(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("CreateTask returned error: %v", err)
+	}
+	if _, err := store.ClaimTask(ctx, project.ID, task.ID); err != nil {
+		t.Fatalf("ClaimTask returned error: %v", err)
 	}
 	createdAgent, err := store.CreateAgent(ctx, "Codex MCP")
 	if err != nil {

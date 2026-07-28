@@ -35,7 +35,7 @@ archive before extracting it. For releases that include
 archive:
 
 ```bash
-TAG=v0.2.3
+TAG=v0.3.0
 cosign verify-blob SHA256SUMS \
   --bundle SHA256SUMS.sigstore.json \
   --certificate-identity "https://github.com/vtimame/TOK/.github/workflows/release.yml@refs/tags/${TAG}" \

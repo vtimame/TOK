@@ -82,6 +82,56 @@ Use this file for each release candidate. Keep it in sync with executed validati
 Do not move a release draft to a published artifact until every required check is
 captured as passed with evidence.
 
+## v0.3.0 draft
+
+### Candidate v0.3.0 (Release)
+
+- Release version: `v0.3.0`
+- Release candidate: `v0.3.0`
+- Release commit/ref: `pending commit/push`
+- GitHub CI workflow URL: `pending commit/push`
+- CI status: `pending`
+- Prepared by: `Codex`
+- Date: `2026-07-28`
+
+#### Executed local validation
+
+- Release notes:
+  - Command: `scripts/check-release-notes.sh v0.3.0`
+  - Result: `passed locally on 2026-07-28`
+- Formatting and whitespace:
+  - Command: `cd web && pnpm exec prettier --write ../docs/releases/v0.3.0.md ../docs/install.md ../docs/release-distribution.md ../docs/release-checklist.md`
+  - Result: `passed locally on 2026-07-28`
+  - Command: `git diff --check`
+  - Result: `passed locally on 2026-07-28`
+- Backend validation:
+  - Command: `go test ./...`
+  - Result: `passed locally on 2026-07-28`
+  - Command: `make staticcheck`
+  - Result: `passed locally on 2026-07-28`
+- File-budget / drift checks:
+  - Command: `make quality`
+  - Result: `passed locally on 2026-07-28`
+  - Command: `cd web && pnpm api:check`
+  - Result: `passed locally on 2026-07-28`
+- Web checks:
+  - Command: `cd web && pnpm lint`
+  - Result: `passed locally on 2026-07-28`
+  - Command: `cd web && pnpm test`
+  - Result: `passed locally on 2026-07-28`
+  - Command: `cd web && pnpm typecheck`
+  - Result: `passed locally on 2026-07-28`
+  - Command: `cd web && pnpm build`
+  - Result: `passed locally on 2026-07-28`
+
+#### Pending release evidence
+
+- Final commit/ref and GitHub CI URL must be recorded after push/tag.
+- Release workflow must publish `SHA256SUMS`, `SHA256SUMS.sigstore.json` and
+  GitHub Artifact Attestations for the final tag before release notes mention
+  the published assets as available.
+- SBOM remains not included in this alpha.
+
 ## v0.2.3 draft
 
 ### Candidate v0.2.3-rc.1 (Review)

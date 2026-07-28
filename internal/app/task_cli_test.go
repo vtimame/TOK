@@ -877,3 +877,14 @@ func createTaskForTest(t *testing.T, ctx context.Context, dataDir, projectName, 
 	}
 	return mustExtractNumericField(t, out.String(), "id")
 }
+
+func createClaimedTaskForTest(t *testing.T, ctx context.Context, dataDir, projectName, title string) int64 {
+	t.Helper()
+
+	taskID := createTaskForTest(t, ctx, dataDir, projectName, title)
+	cli := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	if err := cli.Run(ctx, []string{"task", "claim", "--project", projectName, strconv.FormatInt(taskID, 10)}); err != nil {
+		t.Fatalf("task claim %q returned error: %v", title, err)
+	}
+	return taskID
+}
