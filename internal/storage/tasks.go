@@ -274,6 +274,9 @@ func (s *Store) updateTaskStatusByActor(ctx context.Context, id int64, status st
 	if current.Status == status {
 		return current, nil
 	}
+	if current.Status == "done" {
+		return Task{}, ErrInvalidTaskTransition
+	}
 
 	res, err := tx.ExecContext(ctx, `
 		UPDATE tasks

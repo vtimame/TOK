@@ -37,6 +37,9 @@ jobs:
       - name: Vet
         run: make vet
 
+      - name: Staticcheck
+        run: make staticcheck
+
       - name: Test
         run: go test ./...
 

@@ -689,6 +689,54 @@ func TestServerTaskDoneStoresCompletionEvidenceMetadata(t *testing.T) {
 	}
 }
 
+func TestServerTaskDoneRejectsRepeatedDoneAfterCompletion(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+
+	project, err := store.CreateProject(ctx, storage.CreateProjectInput{
+		Name:        "tok",
+		DisplayName: "TOK",
+		Path:        t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("CreateProject returned error: %v", err)
+	}
+	task, err := store.CreateTask(ctx, storage.CreateTaskInput{
+		ProjectID: project.ID,
+		Title:     "HTTP task done rejection",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask returned error: %v", err)
+	}
+	if _, err := store.SetLocalHuman(ctx, "TOK Operator"); err != nil {
+		t.Fatalf("SetLocalHuman returned error: %v", err)
+	}
+	if _, err := store.ClaimTask(ctx, project.ID, task.ID); err != nil {
+		t.Fatalf("ClaimTask returned error: %v", err)
+	}
+
+	handler := newTestHandler(t, store)
+	firstDoneRes := doJSON(t, handler, http.MethodPost, "/api/tasks/"+jsonNumber(task.ID)+"/done", TaskDoneInput{
+		Note:             "Completed via override.",
+		AllowUnvalidated: true,
+		OverrideReason:   "HTTP task done rejection test.",
+	})
+	defer firstDoneRes.Body.Close()
+	if firstDoneRes.StatusCode != http.StatusOK {
+		t.Fatalf("first done status = %d body=%s", firstDoneRes.StatusCode, readBody(t, firstDoneRes))
+	}
+
+	repeatDoneRes := doJSON(t, handler, http.MethodPost, "/api/tasks/"+jsonNumber(task.ID)+"/done", TaskDoneInput{
+		Note:             "Completed again.",
+		AllowUnvalidated: true,
+		OverrideReason:   "HTTP task done repetition should fail.",
+	})
+	defer repeatDoneRes.Body.Close()
+	if repeatDoneRes.StatusCode != http.StatusConflict {
+		t.Fatalf("repeat done status = %d body=%s", repeatDoneRes.StatusCode, readBody(t, repeatDoneRes))
+	}
+}
+
 func TestServerTaskActionsWriteHumanActorHistory(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)

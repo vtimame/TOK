@@ -31,6 +31,25 @@ function completionEvent(evidenceArtifactId: number, withActor = false) {
   } as Parameters<typeof taskEventFromApi>[0]);
 }
 
+function completedEventAt(
+  id: number,
+  createdAt: string,
+  body = "Done with tests.",
+  evidence: { runId: number; artifactId: number } = { runId: 3, artifactId: 9 },
+) {
+  return taskEventFromApi({
+    id,
+    task_id: 7,
+    type: "completed",
+    body,
+    from_status: "in_progress",
+    to_status: "done",
+    evidence_run_id: evidence.runId,
+    evidence_artifact_id: evidence.artifactId,
+    created_at: createdAt,
+  } as Parameters<typeof taskEventFromApi>[0]);
+}
+
 function validationRun(metadata: string, overrides: Partial<Run> = {}) {
   return {
     id: overrides.id ?? 3,
@@ -257,6 +276,240 @@ describe("mappers", () => {
     if (evidence.status !== "missing_evidence") throw new Error("expected missing evidence");
     expect(evidence.run?.id).toBe(3);
     expect(evidence.missingArtifactId).toBe(10);
+  });
+
+  test("completionEvidenceForTask uses latest cycle validated completion after old override", () => {
+    const legacyOverride = taskEventFromApi({
+      id: 1,
+      task_id: 7,
+      type: "completion_override",
+      body: "Legacy override reason",
+      from_status: "in_progress",
+      to_status: "done",
+      created_at: "2026-03-02T09:00:00Z",
+      actor: { id: 10, kind: "agent", name: "OpenAI Reviewer" },
+    } as Parameters<typeof taskEventFromApi>[0]);
+    const reopen = taskEventFromApi({
+      id: 2,
+      task_id: 7,
+      type: "status_changed",
+      body: "Reopened after review",
+      from_status: "done",
+      to_status: "in_progress",
+      created_at: "2026-03-02T09:30:00Z",
+      actor: { id: 11, kind: "agent", name: "Ops Bot" },
+    } as Parameters<typeof taskEventFromApi>[0]);
+    const completed = taskEventFromApi({
+      id: 3,
+      task_id: 7,
+      type: "completed",
+      body: "Done with latest evidence.",
+      from_status: "in_progress",
+      to_status: "done",
+      evidence_run_id: 5,
+      evidence_artifact_id: 11,
+      created_at: "2026-03-02T10:00:00Z",
+      actor: { id: 12, kind: "agent", name: "Codex MCP" },
+    } as Parameters<typeof taskEventFromApi>[0]);
+
+    const evidence = completionEvidenceForTask(
+      { status: "done" },
+      [legacyOverride, completed, reopen],
+      [
+        {
+          ...validationRun(`{"status":"passed","command":"go test ./..."}`, { id: 5 }),
+          artifacts: [
+            {
+              id: 11,
+              runId: 5,
+              kind: "validation",
+              path: "",
+              contentHash: "",
+              sizeBytes: 0,
+              truncated: false,
+              metadata: `{"status":"passed","command":"go test ./...","summary":"ok"}`,
+              createdAt: "2026-03-02T10:01:00Z",
+            },
+          ],
+        } as Run,
+      ],
+    );
+
+    expect(evidence.status).toBe("validated");
+    if (evidence.status !== "validated") throw new Error("expected validated evidence");
+    expect(evidence.artifact.id).toBe(11);
+    expect(evidence.validation.summary).toBe("ok");
+  });
+
+  test("completionEvidenceForTask prefers current override over old validated completion", () => {
+    const completed = completedEventAt(21, "2026-03-02T09:00:00Z", "Original completion.");
+    const reopen = taskEventFromApi({
+      id: 22,
+      task_id: 7,
+      type: "status_changed",
+      body: "Reopened before manual override.",
+      from_status: "done",
+      to_status: "in_progress",
+      created_at: "2026-03-02T09:20:00Z",
+    } as Parameters<typeof taskEventFromApi>[0]);
+    const overrideCompleted = completedEventAt(
+      23,
+      "2026-03-02T09:39:00Z",
+      "Closed with manual override.",
+      { runId: 0, artifactId: 0 },
+    );
+    const override = taskEventFromApi({
+      id: 24,
+      task_id: 7,
+      type: "completion_override",
+      body: "Manual override requested.",
+      from_status: "in_progress",
+      to_status: "done",
+      created_at: "2026-03-02T09:40:00Z",
+      actor: { id: 13, kind: "agent", name: "OpenAI Reviewer" },
+    } as Parameters<typeof taskEventFromApi>[0]);
+
+    const evidence = completionEvidenceForTask(
+      { status: "done" },
+      [completed, reopen, overrideCompleted, override],
+      [
+        {
+          ...validationRun(`{"status":"passed","command":"go test ./..."}`, { id: 3 }),
+          artifacts: [
+            {
+              id: 9,
+              runId: 3,
+              kind: "validation",
+              path: "",
+              contentHash: "",
+              sizeBytes: 0,
+              truncated: false,
+              metadata: `{"status":"passed","command":"go test ./...","summary":"ok"}`,
+              createdAt: "2026-03-02T09:01:00Z",
+            },
+          ],
+        } as Run,
+      ],
+    );
+
+    expect(evidence.status).toBe("override");
+    if (evidence.status !== "override") throw new Error("expected override evidence");
+    expect(evidence.note).toBe("Closed with manual override.");
+    expect(evidence.overrideReason).toBe("Manual override requested.");
+    expect(evidence.actor?.name).toBe("OpenAI Reviewer");
+  });
+
+  test("completionEvidenceForTask keeps only the latest cycle when ending in override", () => {
+    const oldCompleted = completedEventAt(
+      29,
+      "2026-03-02T08:00:00Z",
+      "First cycle completed.",
+      { runId: 0, artifactId: 0 },
+    );
+    const oldOverride = taskEventFromApi({
+      id: 30,
+      task_id: 7,
+      type: "completion_override",
+      body: "Old override reason.",
+      from_status: "in_progress",
+      to_status: "done",
+      created_at: "2026-03-02T08:30:00Z",
+      actor: { id: 14, kind: "agent", name: "Reviewer A" },
+    } as Parameters<typeof taskEventFromApi>[0]);
+    const reopenFirst = taskEventFromApi({
+      id: 31,
+      task_id: 7,
+      type: "status_changed",
+      body: "Reopen after first cycle.",
+      from_status: "done",
+      to_status: "in_progress",
+      created_at: "2026-03-02T08:40:00Z",
+    } as Parameters<typeof taskEventFromApi>[0]);
+    const secondCompleted = completedEventAt(
+      34,
+      "2026-03-02T09:10:00Z",
+      "Second cycle completed.",
+      { runId: 3, artifactId: 11 },
+    );
+    const reopenSecond = taskEventFromApi({
+      id: 35,
+      task_id: 7,
+      type: "status_changed",
+      body: "Reopen before final override.",
+      from_status: "done",
+      to_status: "in_progress",
+      created_at: "2026-03-02T09:20:00Z",
+    } as Parameters<typeof taskEventFromApi>[0]);
+    const latestCompleted = completedEventAt(
+      36,
+      "2026-03-02T09:29:00Z",
+      "Final cycle completed with override.",
+      { runId: 0, artifactId: 0 },
+    );
+    const latestOverride = taskEventFromApi({
+      id: 37,
+      task_id: 7,
+      type: "completion_override",
+      body: "Final override for latest cycle.",
+      from_status: "in_progress",
+      to_status: "done",
+      created_at: "2026-03-02T09:30:00Z",
+      actor: { id: 15, kind: "agent", name: "Reviewer B" },
+    } as Parameters<typeof taskEventFromApi>[0]);
+
+    const evidence = completionEvidenceForTask(
+      { status: "done" },
+      [
+        latestOverride,
+        reopenFirst,
+        oldOverride,
+        latestCompleted,
+        reopenSecond,
+        oldCompleted,
+        secondCompleted,
+      ],
+      [validationRun(`{"status":"passed","command":"go test ./..."}`, { id: 3 })],
+    );
+
+    expect(evidence.status).toBe("override");
+    if (evidence.status !== "override") throw new Error("expected override evidence");
+    expect(evidence.overrideReason).toBe("Final override for latest cycle.");
+  });
+
+  test("completionEvidenceForTask returns missing_evidence for latest validated completion when old evidence exists", () => {
+    const olderCompleted = completedEventAt(39, "2026-03-02T08:00:00Z", "Older completed.");
+    const oldOverride = taskEventFromApi({
+      id: 40,
+      task_id: 7,
+      type: "completion_override",
+      body: "Outdated override.",
+      from_status: "in_progress",
+      to_status: "done",
+      created_at: "2026-03-02T08:30:00Z",
+      actor: { id: 10, kind: "agent", name: "Reviewer A" },
+    } as Parameters<typeof taskEventFromApi>[0]);
+    const latestCompleted = taskEventFromApi({
+      id: 41,
+      task_id: 7,
+      type: "completed",
+      body: "Latest completion with missing evidence.",
+      from_status: "in_progress",
+      to_status: "done",
+      evidence_run_id: 99,
+      evidence_artifact_id: 77,
+      created_at: "2026-03-02T09:00:00Z",
+    } as Parameters<typeof taskEventFromApi>[0]);
+
+    const evidence = completionEvidenceForTask(
+      { status: "done" },
+      [oldOverride, olderCompleted, latestCompleted],
+      [validationRun(`{"status":"passed","command":"go test ./..."}`, { id: 3 })],
+    );
+
+    expect(evidence.status).toBe("missing_evidence");
+    if (evidence.status !== "missing_evidence") throw new Error("expected missing evidence");
+    expect(evidence.missingRunId).toBe(99);
+    expect(evidence.missingArtifactId).toBe(77);
   });
 
   test("completionEvidenceForTask returns override and legacy states", () => {

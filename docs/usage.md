@@ -93,6 +93,10 @@ a replacement for a planning backlog. Tasks move through:
 open -> in_progress -> done
 ```
 
+In the current alpha, `done` is terminal. A completed task is not reopened to
+`open`, `in_progress`, or `blocked`. For corrections or follow-up work, create a
+new task and reference the completed one in notes, links, or source metadata.
+
 Tasks can also be blocked and unblocked. Blocked tasks are excluded from ready
 work and cannot be claimed until unblocked.
 

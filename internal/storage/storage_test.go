@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -38,6 +39,103 @@ func TestInitAppliesEmbeddedMigrations(t *testing.T) {
 	}
 	if applied != 15 {
 		t.Fatalf("expected 15 applied migrations, got %d", applied)
+	}
+}
+
+func TestInitMigratesV021DatabaseFixture(t *testing.T) {
+	ctx := context.Background()
+	legacyPath := createV021MigrationFixture(t, ctx)
+	migratedPath := filepath.Join(t.TempDir(), DatabaseFileName)
+	copyFile(t, legacyPath, migratedPath)
+
+	store, err := Open(ctx, migratedPath)
+	if err != nil {
+		t.Fatalf("Open migrated fixture returned error: %v", err)
+	}
+	if err := store.Init(ctx); err != nil {
+		t.Fatalf("Init migrated fixture returned error: %v", err)
+	}
+
+	assertCurrentMigrationVersion(t, ctx, store, 15)
+	assertColumnExists(t, ctx, store, "task_events", "evidence_run_id")
+	assertColumnExists(t, ctx, store, "task_events", "evidence_artifact_id")
+	assertColumnExists(t, ctx, store, "tasks", "source")
+	assertColumnExists(t, ctx, store, "tasks", "external_id")
+	assertColumnExists(t, ctx, store, "tasks", "external_url")
+	assertColumnExists(t, ctx, store, "tasks", "external_revision")
+
+	statusChangedTask, err := store.GetTask(ctx, 1)
+	if err != nil {
+		t.Fatalf("GetTask legacy status_changed task returned error: %v", err)
+	}
+	if statusChangedTask.Status != "done" {
+		t.Fatalf("expected legacy status_changed task to remain done, got %q", statusChangedTask.Status)
+	}
+	if statusChangedTask.Source != "local" || statusChangedTask.ExternalID != "" || statusChangedTask.ExternalURL != "" || statusChangedTask.ExternalRevision != "" {
+		t.Fatalf("unexpected migrated external reference defaults: %+v", statusChangedTask)
+	}
+
+	statusChangedEvents, err := store.ListTaskEvents(ctx, statusChangedTask.ID)
+	if err != nil {
+		t.Fatalf("ListTaskEvents legacy status_changed task returned error: %v", err)
+	}
+	assertTaskEvents(t, statusChangedEvents, []TaskEvent{
+		{Type: "created", Body: "Legacy status_changed completion", ToStatus: "open"},
+		{Type: "status_changed", FromStatus: "open", ToStatus: "in_progress"},
+		{Type: "status_changed", FromStatus: "in_progress", ToStatus: "done"},
+	})
+
+	overrideTask, err := store.GetTask(ctx, 2)
+	if err != nil {
+		t.Fatalf("GetTask legacy override task returned error: %v", err)
+	}
+	if overrideTask.Status != "done" {
+		t.Fatalf("expected legacy override task to remain done, got %q", overrideTask.Status)
+	}
+	if overrideTask.Source != "local" || overrideTask.ExternalID != "" || overrideTask.ExternalURL != "" || overrideTask.ExternalRevision != "" {
+		t.Fatalf("unexpected migrated override task external reference defaults: %+v", overrideTask)
+	}
+
+	overrideEvents, err := store.ListTaskEvents(ctx, overrideTask.ID)
+	if err != nil {
+		t.Fatalf("ListTaskEvents legacy override task returned error: %v", err)
+	}
+	assertTaskEvents(t, overrideEvents, []TaskEvent{
+		{Type: "created", Body: "Legacy override completion", ToStatus: "open"},
+		{Type: "status_changed", FromStatus: "open", ToStatus: "in_progress"},
+		{Type: "completed", Body: "legacy completion note", FromStatus: "in_progress", ToStatus: "done"},
+		{Type: "completion_override", Body: "legacy override reason", FromStatus: "in_progress", ToStatus: "done"},
+	})
+	for _, event := range append(statusChangedEvents, overrideEvents...) {
+		if event.EvidenceRunID != 0 || event.EvidenceArtifactID != 0 {
+			t.Fatalf("expected migrated event evidence defaults to be zero, got %+v", event)
+		}
+	}
+
+	if err := store.Close(); err != nil {
+		t.Fatalf("Close migrated fixture returned error: %v", err)
+	}
+
+	reopened, err := Open(ctx, migratedPath)
+	if err != nil {
+		t.Fatalf("Open migrated fixture after close returned error: %v", err)
+	}
+	defer func() {
+		if err := reopened.Close(); err != nil {
+			t.Fatalf("Close reopened fixture returned error: %v", err)
+		}
+	}()
+	if err := reopened.Init(ctx); err != nil {
+		t.Fatalf("second Init migrated fixture returned error: %v", err)
+	}
+	assertCurrentMigrationVersion(t, ctx, reopened, 15)
+
+	tasks, err := reopened.ListTasks(ctx, 1)
+	if err != nil {
+		t.Fatalf("ListTasks after second Init returned error: %v", err)
+	}
+	if len(tasks) != 2 || tasks[0].Status != "done" || tasks[1].Status != "done" {
+		t.Fatalf("unexpected migrated tasks after second Init: %+v", tasks)
 	}
 }
 
@@ -1461,6 +1559,53 @@ func TestCompleteTaskRequiresInProgressAndRecordsCompletionEvent(t *testing.T) {
 	}
 }
 
+func TestUpdateTaskStatusByActorRejectsDoneToInProgressOrOpenOrBlocked(t *testing.T) {
+	ctx := context.Background()
+	store := openInitializedTestStore(t)
+
+	project, err := store.CreateProject(ctx, CreateProjectInput{
+		Name:        "tok",
+		DisplayName: "TOK",
+		Path:        "/tmp/tok",
+	})
+	if err != nil {
+		t.Fatalf("CreateProject returned error: %v", err)
+	}
+	task, err := store.CreateTask(ctx, CreateTaskInput{
+		ProjectID: project.ID,
+		Title:     "Reopen guard",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask returned error: %v", err)
+	}
+
+	if _, err := store.ClaimTask(ctx, project.ID, task.ID); err != nil {
+		t.Fatalf("ClaimTask returned error: %v", err)
+	}
+	done, err := store.CompleteTaskWithOptions(ctx, CompleteTaskInput{
+		ID:             task.ID,
+		Mode:           CompletionOverride,
+		Note:           "Completed.",
+		OverrideReason: "Task status policy.",
+	})
+	if err != nil {
+		t.Fatalf("CompleteTaskWithOptions override returned error: %v", err)
+	}
+	if done.Status != "done" {
+		t.Fatalf("expected done task, got %+v", done)
+	}
+
+	if _, err := store.UpdateTaskStatusByActor(ctx, task.ID, "open", ActorRef{}); !errors.Is(err, ErrInvalidTaskTransition) {
+		t.Fatalf("expected done->open invalid transition error, got %v", err)
+	}
+	if _, err := store.UpdateTaskStatusByActor(ctx, task.ID, "in_progress", ActorRef{}); !errors.Is(err, ErrInvalidTaskTransition) {
+		t.Fatalf("expected done->in_progress invalid transition error, got %v", err)
+	}
+	if _, err := store.UpdateTaskStatusByActor(ctx, task.ID, "blocked", ActorRef{}); !errors.Is(err, ErrInvalidTaskTransition) {
+		t.Fatalf("expected done->blocked invalid transition error, got %v", err)
+	}
+}
+
 func TestReplaceIndexedDocumentsRebuildsProjectIndex(t *testing.T) {
 	ctx := context.Background()
 	store := openInitializedTestStore(t)
@@ -1542,6 +1687,137 @@ func openTestStore(t *testing.T) *Store {
 	})
 
 	return store
+}
+
+func createV021MigrationFixture(t *testing.T, ctx context.Context) string {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), DatabaseFileName)
+	store, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("Open legacy fixture store returned error: %v", err)
+	}
+
+	if err := ensureMigrationsTable(ctx, store.db); err != nil {
+		t.Fatalf("ensure legacy migrations table: %v", err)
+	}
+	migrations, err := loadMigrations()
+	if err != nil {
+		t.Fatalf("load embedded migrations: %v", err)
+	}
+
+	applied := 0
+	for _, migration := range migrations {
+		if migration.version > 13 {
+			continue
+		}
+		if err := applyMigration(ctx, store.db, migration); err != nil {
+			t.Fatalf("apply legacy migration %d: %v", migration.version, err)
+		}
+		applied++
+	}
+	if applied != 13 {
+		t.Fatalf("expected to apply 13 legacy migrations, applied %d", applied)
+	}
+
+	if _, err := store.db.ExecContext(ctx, `
+		INSERT INTO projects (id, name, display_name, path)
+		VALUES (1, 'legacy', 'Legacy', '/tmp/legacy')
+	`); err != nil {
+		t.Fatalf("insert legacy project: %v", err)
+	}
+	if _, err := store.db.ExecContext(ctx, `
+		INSERT INTO tasks (id, project_id, status, title, description, acceptance_criteria, notes)
+		VALUES
+			(1, 1, 'done', 'Legacy status_changed completion', '', '', ''),
+			(2, 1, 'done', 'Legacy override completion', '', '', '')
+	`); err != nil {
+		t.Fatalf("insert legacy tasks: %v", err)
+	}
+	if _, err := store.db.ExecContext(ctx, `
+		INSERT INTO task_events (task_id, type, body, from_status, to_status, actor_id, actor_kind, actor_name)
+		VALUES
+			(1, 'created', 'Legacy status_changed completion', '', 'open', 0, '', ''),
+			(1, 'status_changed', '', 'open', 'in_progress', 0, '', ''),
+			(1, 'status_changed', '', 'in_progress', 'done', 0, '', ''),
+			(2, 'created', 'Legacy override completion', '', 'open', 0, '', ''),
+			(2, 'status_changed', '', 'open', 'in_progress', 0, '', ''),
+			(2, 'completed', 'legacy completion note', 'in_progress', 'done', 0, '', ''),
+			(2, 'completion_override', 'legacy override reason', 'in_progress', 'done', 0, '', '')
+	`); err != nil {
+		t.Fatalf("insert legacy task events: %v", err)
+	}
+
+	if err := store.Close(); err != nil {
+		t.Fatalf("Close legacy fixture store returned error: %v", err)
+	}
+	return path
+}
+
+func copyFile(t *testing.T, src, dst string) {
+	t.Helper()
+
+	data, err := os.ReadFile(src)
+	if err != nil {
+		t.Fatalf("read fixture source %s: %v", src, err)
+	}
+	if err := os.WriteFile(dst, data, 0o600); err != nil {
+		t.Fatalf("write fixture copy %s: %v", dst, err)
+	}
+}
+
+func assertCurrentMigrationVersion(t *testing.T, ctx context.Context, store *Store, want int) {
+	t.Helper()
+
+	var count int
+	var maxVersion int
+	if err := store.db.QueryRowContext(ctx, "SELECT COUNT(*), MAX(version) FROM schema_migrations").Scan(&count, &maxVersion); err != nil {
+		t.Fatalf("read schema migrations: %v", err)
+	}
+	if count != want || maxVersion != want {
+		t.Fatalf("expected %d migrations through version %d, got count=%d max=%d", want, want, count, maxVersion)
+	}
+}
+
+func assertColumnExists(t *testing.T, ctx context.Context, store *Store, table, column string) {
+	t.Helper()
+
+	rows, err := store.db.QueryContext(ctx, "PRAGMA table_info("+table+")")
+	if err != nil {
+		t.Fatalf("read columns for %s: %v", table, err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name, columnType string
+		var notNull int
+		var defaultValue any
+		var primaryKey int
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			t.Fatalf("scan column for %s: %v", table, err)
+		}
+		if name == column {
+			return
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate columns for %s: %v", table, err)
+	}
+	t.Fatalf("expected column %s.%s to exist", table, column)
+}
+
+func assertTaskEvents(t *testing.T, got, want []TaskEvent) {
+	t.Helper()
+
+	if len(got) != len(want) {
+		t.Fatalf("expected %d task events, got %d: %+v", len(want), len(got), got)
+	}
+	for i := range want {
+		if got[i].Type != want[i].Type || got[i].Body != want[i].Body || got[i].FromStatus != want[i].FromStatus || got[i].ToStatus != want[i].ToStatus {
+			t.Fatalf("unexpected task event %d: got %+v, want %+v", i, got[i], want[i])
+		}
+	}
 }
 
 func openInitializedTestStore(t *testing.T) *Store {

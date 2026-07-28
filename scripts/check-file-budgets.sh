@@ -59,10 +59,12 @@ get_budgets() {
       max_bytes=45000
       reason="CLI command surface (bounded)"
       ;;
+    # MCP server handlers and DTOs are split across focused files now.
+    # Keep server.go bounded to transport wiring and high-level command flow.
     internal/mcpserver/server.go)
-      max_lines=1800
-      max_bytes=80000
-      reason="transport wiring and command handlers"
+      max_lines=1250
+      max_bytes=60000
+      reason="MCP transport wiring after handler/type split"
       ;;
     internal/retrieval/retrieval.go)
       max_lines=1300

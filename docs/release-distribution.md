@@ -1,8 +1,8 @@
 # Release Distribution Trust
 
 TOK release distribution remains conservative for alpha. The release workflow
-may prepare assets, checksums and signatures, but publishing a tag or GitHub
-Release still requires explicit human approval.
+may prepare assets, checksums, signatures and attestations, but publishing a tag
+or GitHub Release still requires explicit human approval.
 
 ## SHA256SUMS Signature
 
@@ -20,7 +20,7 @@ and publishes `SHA256SUMS.sigstore.json` next to `SHA256SUMS`.
 Consumers verify with the published bundle and GitHub Actions identity:
 
 ```bash
-TAG=v0.2.1
+TAG=v0.2.3
 cosign verify-blob SHA256SUMS \
   --bundle SHA256SUMS.sigstore.json \
   --certificate-identity "https://github.com/vtimame/TOK/.github/workflows/release.yml@refs/tags/${TAG}" \
@@ -29,20 +29,42 @@ cosign verify-blob SHA256SUMS \
 
 Then verify the downloaded archive against `SHA256SUMS`.
 
-## SBOM And Provenance Plan
+## Artifact Provenance Attestations
+
+Decision: generate GitHub Artifact Attestations for each release `.tar.gz`
+archive produced by the release workflow after this hardening change.
+
+The release workflow attests each archive after packaging it and before
+publishing the release. Attestations are stored by GitHub and linked to the
+repository rather than uploaded as separate release assets.
+
+After downloading an archive, verify its provenance with GitHub CLI:
+
+```bash
+gh attestation verify tok_linux_amd64.tar.gz \
+  --repo vtimame/TOK \
+  --signer-workflow vtimame/TOK/.github/workflows/release.yml \
+  --source-ref refs/tags/<release-tag>
+```
+
+Run the same command for each downloaded `.tar.gz` archive. GitHub CLI verifies
+build provenance by default. Keep the existing `SHA256SUMS` and
+`SHA256SUMS.sigstore.json` verification: attestations prove where the archive
+was built, while checksums and the Sigstore bundle protect the published
+checksum file and archive digest.
+
+## SBOM Plan
 
 Next release-hardening step:
 
 - generate a CycloneDX or SPDX SBOM for each release archive;
 - publish SBOM files as release assets;
-- add GitHub artifact attestations for each `.tar.gz` with `actions/attest@v4`;
-- grant the workflow `id-token: write`, `contents: read` and
-  `attestations: write` for attestation jobs;
-- document verification commands once the attestation assets are present.
+- optionally add SBOM attestations after the SBOM files are generated;
+- document SBOM verification commands once SBOM artifacts are present.
 
 This is planned but not required for the current alpha patch. Do not claim SBOM
-or provenance coverage in release notes until the workflow produces and verifies
-those artifacts.
+coverage in release notes until the workflow produces and verifies those
+artifacts.
 
 ## Windows Path
 

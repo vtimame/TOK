@@ -330,8 +330,14 @@ export function completionEvidenceForTask(
     return { status: "not_done" };
   }
 
-  const completedEvent = [...events].reverse().find((event) => event.type === "completed");
-  const overrideEvent = [...events].reverse().find((event) => event.type === "completion_override");
+  const orderedEvents = [...events].sort(eventByCreatedAtThenId);
+  const reversedEvents = [...orderedEvents].reverse();
+  const completedEvent = reversedEvents.find((event) => event.type === "completed");
+
+  const overrideEvent = reversedEvents.find(
+    (event) => event.type === "completion_override" && eventCreatedAfter(event, completedEvent),
+  );
+
   if (completedEvent && overrideEvent) {
     return {
       status: "override",
@@ -379,6 +385,27 @@ export function completionEvidenceForTask(
     note: completedEvent?.body || "",
     completedAt: completedEvent?.createdAt || "",
   };
+}
+
+function eventCreatedAtMs(event: TaskEvent): number {
+  const timestamp = Date.parse(event.createdAt);
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function eventByCreatedAtThenId(left: TaskEvent, right: TaskEvent): number {
+  const leftAt = eventCreatedAtMs(left);
+  const rightAt = eventCreatedAtMs(right);
+  if (leftAt !== rightAt) return leftAt - rightAt;
+  return left.id - right.id;
+}
+
+function eventCreatedAfter(left: TaskEvent, right?: TaskEvent): boolean {
+  if (!right) return true;
+  const leftAt = eventCreatedAtMs(left);
+  const rightAt = eventCreatedAtMs(right);
+  if (leftAt > rightAt) return true;
+  if (leftAt < rightAt) return false;
+  return left.id > right.id;
 }
 
 export function completionCandidateForTask(

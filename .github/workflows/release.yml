@@ -16,6 +16,7 @@ permissions:
   contents: write
   actions: read
   id-token: write
+  attestations: write
 
 jobs:
   verify-ci:
@@ -128,6 +129,12 @@ jobs:
           cd dist/${{ matrix.asset }}
           tar -czf ../${{ matrix.asset }}.tar.gz tok
 
+      - name: Attest release archive provenance
+        if: ${{ startsWith(github.ref, 'refs/tags/') && !(github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == 'true') }}
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/${{ matrix.asset }}.tar.gz
+
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
@@ -183,12 +190,13 @@ jobs:
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == 'true' }}
         run: |
           set -euo pipefail
+          notes_file="$(scripts/check-release-notes.sh "${GITHUB_REF_NAME}")"
           if [ "${DRY_RUN}" = "true" ]; then
-            echo "Dry run requested; release creation and asset upload skipped."
+            echo "Dry run requested; release creation and asset upload skipped after validating ${notes_file}."
             exit 0
           fi
 
-          release_flags=(--verify-tag --title "${GITHUB_REF_NAME}" --notes "TOK ${GITHUB_REF_NAME}")
+          release_flags=(--verify-tag --title "${GITHUB_REF_NAME}" --notes-file "${notes_file}")
           mapfile -t prerelease_flags < <(scripts/release-prerelease-flags.sh "${GITHUB_REF_NAME}")
           release_flags+=("${prerelease_flags[@]}")
 

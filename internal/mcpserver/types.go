@@ -48,7 +48,7 @@ type taskIDInput struct {
 
 type taskListInput struct {
 	Project string `json:"project" jsonschema:"project name"`
-	Status  string `json:"status,omitempty" jsonschema:"optional task status: open, in_progress, blocked, or done"`
+	Status  string `json:"status,omitempty" jsonschema:"optional task status filter: open, in_progress, blocked, or done"`
 }
 
 type taskClaimInput struct {
@@ -75,7 +75,7 @@ type taskCreateInput struct {
 
 type taskStatusInput struct {
 	ID     int64  `json:"id" jsonschema:"task id"`
-	Status string `json:"status" jsonschema:"open, in_progress, blocked, or done"`
+	Status string `json:"status" jsonschema:"open, in_progress, or blocked; use task_done for completion"`
 }
 
 type taskSourceInput struct {

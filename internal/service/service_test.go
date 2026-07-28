@@ -194,6 +194,34 @@ func TestTaskServiceCompleteTaskRequiresValidatedEvidenceOrOverride(t *testing.T
 	}
 }
 
+func TestTaskServiceUpdateStatusRejectsDoneToOpenOrInProgress(t *testing.T) {
+	ctx := context.Background()
+	store := openInitializedTestStore(t)
+	taskSvc := NewTaskService(store)
+
+	_, task := createProjectTask(t, ctx, store, "Service no reopen")
+	claimTask(t, ctx, store, task.ProjectID, task.ID)
+	done, err := taskSvc.CompleteTask(ctx, CompleteTaskInput{
+		ID:               task.ID,
+		Note:             "Service completion override.",
+		AllowUnvalidated: true,
+		OverrideReason:   "Test policy.",
+	})
+	if err != nil {
+		t.Fatalf("CompleteTask override returned error: %v", err)
+	}
+	if done.Status != "done" {
+		t.Fatalf("expected task done, got %+v", done)
+	}
+
+	if _, err := taskSvc.UpdateStatus(ctx, task.ID, "open", storage.ActorRef{}); !errors.Is(err, storage.ErrInvalidTaskTransition) {
+		t.Fatalf("expected done->open invalid transition, got %v", err)
+	}
+	if _, err := taskSvc.UpdateStatus(ctx, task.ID, "in_progress", storage.ActorRef{}); !errors.Is(err, storage.ErrInvalidTaskTransition) {
+		t.Fatalf("expected done->in_progress invalid transition, got %v", err)
+	}
+}
+
 func openInitializedTestStore(t *testing.T) *storage.Store {
 	t.Helper()
 

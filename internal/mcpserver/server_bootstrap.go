@@ -145,11 +145,11 @@ func (s *service) addTools(server *mcp.Server, profile Profile) {
 	}, s.taskUnblock)
 	addTool(server, profile, []Profile{ProfileWorker, ProfileSupervisor, ProfileAdmin}, &mcp.Tool{
 		Name:        "task_done",
-		Description: "Mark an in-progress task done.",
+		Description: "Complete an in-progress task with validation evidence or an audited override.",
 	}, s.taskDone)
 	addTool(server, profile, []Profile{ProfileSupervisor, ProfileAdmin}, &mcp.Tool{
 		Name:        "task_status",
-		Description: "Set an arbitrary task status with actor attribution.",
+		Description: "Set a task status to open, in_progress or blocked. Use task_done to complete work with validation evidence or an audited override.",
 	}, s.taskStatus)
 	addTool(server, profile, []Profile{ProfileAdmin}, &mcp.Tool{
 		Name:        "task_source",

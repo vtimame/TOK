@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"slices"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -164,6 +165,50 @@ func TestServerProfileToolLists(t *testing.T) {
 	defer adminServerSession.Close()
 	if got, want := listToolNames(t, ctx, defaultClient), listToolNames(t, ctx, adminClient); !slices.Equal(got, want) {
 		t.Fatalf("default profile should preserve full tool surface:\ngot  %v\nwant %v", got, want)
+	}
+}
+
+func TestServerTaskStatusToolMetadataExcludesDoneCompletion(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	createdAgent, err := store.CreateAgent(ctx, "Codex MCP")
+	if err != nil {
+		t.Fatalf("CreateAgent returned error: %v", err)
+	}
+	server, err := New(Config{
+		Store:   store,
+		Actor:   storage.ActorRefFromActor(createdAgent.Agent),
+		Version: "test",
+		Profile: ProfileSupervisor,
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	clientSession, serverSession := connectTestClient(t, ctx, server)
+	defer clientSession.Close()
+	defer serverSession.Close()
+
+	statusTool := findToolByName(t, ctx, clientSession, "task_status")
+	wantStatusDescription := "Set a task status to open, in_progress or blocked. Use task_done to complete work with validation evidence or an audited override."
+	if statusTool.Description != wantStatusDescription {
+		t.Fatalf("unexpected task_status description:\ngot  %q\nwant %q", statusTool.Description, wantStatusDescription)
+	}
+	rawStatusSchema, err := json.Marshal(statusTool.InputSchema)
+	if err != nil {
+		t.Fatalf("marshal task_status schema: %v", err)
+	}
+	statusSchema := string(rawStatusSchema)
+	if strings.Contains(statusSchema, "blocked, or done") {
+		t.Fatalf("task_status schema still advertises done as a status: %s", statusSchema)
+	}
+	if !strings.Contains(statusSchema, "open, in_progress, or blocked; use task_done for completion") {
+		t.Fatalf("task_status schema does not point completion to task_done: %s", statusSchema)
+	}
+
+	doneTool := findToolByName(t, ctx, clientSession, "task_done")
+	if !strings.Contains(doneTool.Description, "validation evidence") || !strings.Contains(doneTool.Description, "audited override") {
+		t.Fatalf("task_done description should mention validation evidence and audited override, got %q", doneTool.Description)
 	}
 }
 
@@ -1182,6 +1227,117 @@ func TestServerWorkflowToolsSupportTaskInstructionDependencyAndRunLifecycle(t *t
 	}
 }
 
+func TestServerTaskStatusRejectsDoneReopen(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+
+	_, err := store.CreateProject(ctx, storage.CreateProjectInput{
+		Name:        "tok",
+		DisplayName: "TOK",
+		Path:        t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("CreateProject returned error: %v", err)
+	}
+	createdAgent, err := store.CreateAgent(ctx, "Codex MCP")
+	if err != nil {
+		t.Fatalf("CreateAgent returned error: %v", err)
+	}
+	server, err := New(Config{
+		Store:   store,
+		Actor:   storage.ActorRefFromActor(createdAgent.Agent),
+		Version: "test",
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	clientSession, serverSession := connectTestClient(t, ctx, server)
+	defer clientSession.Close()
+	defer serverSession.Close()
+
+	createdTaskResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "task_create",
+		Arguments: map[string]any{
+			"project":             "tok",
+			"title":               "MCP reopen guard task",
+			"description":         "Used by MCP status reopen tests.",
+			"acceptance_criteria": "Task remains closed once done.",
+		},
+	})
+	if err != nil {
+		t.Fatalf("task_create returned error: %v", err)
+	}
+	if createdTaskResult.IsError {
+		t.Fatalf("task_create returned tool error: %+v", createdTaskResult)
+	}
+	var createdTask taskOutput
+	decodeStructured(t, createdTaskResult.StructuredContent, &createdTask)
+
+	statusResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "task_status",
+		Arguments: map[string]any{
+			"id":     createdTask.Task.ID,
+			"status": "in_progress",
+		},
+	})
+	if err != nil {
+		t.Fatalf("task_status returned error: %v", err)
+	}
+	if statusResult.IsError {
+		t.Fatalf("task_status returned tool error: %+v", statusResult)
+	}
+
+	doneResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "task_done",
+		Arguments: map[string]any{
+			"id":                createdTask.Task.ID,
+			"note":              "Completed and finalized.",
+			"allow_unvalidated": true,
+			"override_reason":   "MCP reopen policy test.",
+		},
+	})
+	if err != nil {
+		t.Fatalf("task_done returned error: %v", err)
+	}
+	if doneResult.IsError {
+		t.Fatalf("task_done returned tool error: %+v", doneResult)
+	}
+	var doneTask taskOutput
+	decodeStructured(t, doneResult.StructuredContent, &doneTask)
+	if doneTask.Task.Status != "done" {
+		t.Fatalf("unexpected task_done output: %+v", doneTask)
+	}
+
+	reopenOpenResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "task_status",
+		Arguments: map[string]any{
+			"id":     createdTask.Task.ID,
+			"status": "open",
+		},
+	})
+	if err != nil {
+		t.Fatalf("task_status open returned error: %v", err)
+	}
+	if !reopenOpenResult.IsError {
+		t.Fatalf("expected task_status open on done task to error, got %+v", reopenOpenResult)
+	}
+
+	reopenInProgressResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "task_status",
+		Arguments: map[string]any{
+			"id":     createdTask.Task.ID,
+			"status": "in_progress",
+		},
+	})
+	if err != nil {
+		t.Fatalf("task_status in_progress returned error: %v", err)
+	}
+	if !reopenInProgressResult.IsError {
+		t.Fatalf("expected task_status in_progress on done task to error, got %+v", reopenInProgressResult)
+	}
+}
+
 func TestServerTaskDoneCurrentBehaviorAllowsMissingEvidenceExpectedToChange(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
@@ -1296,4 +1452,20 @@ func listToolNames(t *testing.T, ctx context.Context, session *mcp.ClientSession
 	}
 	sort.Strings(names)
 	return names
+}
+
+func findToolByName(t *testing.T, ctx context.Context, session *mcp.ClientSession, name string) *mcp.Tool {
+	t.Helper()
+
+	result, err := session.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListTools returned error: %v", err)
+	}
+	for _, tool := range result.Tools {
+		if tool.Name == name {
+			return tool
+		}
+	}
+	t.Fatalf("tool %q not found", name)
+	return nil
 }

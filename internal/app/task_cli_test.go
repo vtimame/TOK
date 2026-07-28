@@ -530,6 +530,17 @@ func TestCLITaskMutationJSONOutputs(t *testing.T) {
 		t.Fatalf("unexpected task done JSON: %+v", doneTask)
 	}
 
+	reopenOpenOut := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	err = reopenOpenOut.Run(ctx, []string{"task", "status", strconv.FormatInt(created.ID, 10), "open"})
+	if err == nil || !strings.Contains(err.Error(), "invalid task status transition") {
+		t.Fatalf("expected done->open status rejection, got %v", err)
+	}
+	reopenProgressOut := newProjectTestCLI(dataDir, &bytes.Buffer{})
+	err = reopenProgressOut.Run(ctx, []string{"task", "status", strconv.FormatInt(created.ID, 10), "in_progress"})
+	if err == nil || !strings.Contains(err.Error(), "invalid task status transition") {
+		t.Fatalf("expected done->in_progress status rejection, got %v", err)
+	}
+
 	blockedID := createTaskForTest(t, ctx, dataDir, "tok", "Blockable")
 	var blockOut bytes.Buffer
 	blockCLI := newProjectTestCLI(dataDir, &blockOut)

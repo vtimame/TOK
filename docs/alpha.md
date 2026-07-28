@@ -10,7 +10,7 @@ tasks, deterministic context, runs, leases, artifacts and validation evidence.
 
 ## Versioning
 
-The current public alpha release is `v0.2.1`.
+Install the current public alpha from GitHub Releases.
 
 TOK uses Semantic Versioning while it is in public alpha: `v0.MINOR.PATCH`.
 The git release tag is the source of truth for the product version shown by
@@ -41,6 +41,8 @@ TOK is local-first and intentionally explicit.
 - A task cannot be completed while it has a non-terminal run.
 - Completing a task requires a succeeded evidence run with passed validation,
   unless an explicit override reason is recorded.
+- Completed tasks are terminal in the current alpha. Create a new task for
+  corrections or follow-up work instead of reopening a `done` task.
 - `tok run exec` records validation evidence from the command result.
 - A run can finish as `succeeded` only after passed validation evidence exists,
   unless `--allow-unvalidated --override-reason <text>` is used explicitly.

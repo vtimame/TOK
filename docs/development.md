@@ -19,7 +19,9 @@ make staticcheck
 ```
 
 `make staticcheck` installs the pinned Staticcheck version into the ignored
-`bin/` directory before running it.
+`bin/` directory before running it. Staticcheck is also part of the main CI
+backend job, so tag-based releases are gated on it through the release
+workflow's CI verification step.
 
 Check whitespace issues before committing:
 

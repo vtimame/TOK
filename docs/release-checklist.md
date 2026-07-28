@@ -27,6 +27,7 @@ Use this file for each release candidate. Keep it in sync with executed validati
 2. **Backend validation**
    - `make test`
    - `go test ./...` (if run outside Makefile)
+   - `make staticcheck`
 
 3. **File-budget / drift checks**
    - `make quality`
@@ -50,16 +51,92 @@ Use this file for each release candidate. Keep it in sync with executed validati
      checksums:
      - `cosign verify-blob SHA256SUMS --bundle SHA256SUMS.sigstore.json --certificate-identity "https://github.com/vtimame/TOK/.github/workflows/release.yml@refs/tags/<release-tag>" --certificate-oidc-issuer https://token.actions.githubusercontent.com`
 
-7. **SBOM/provenance status**
-   - Record whether SBOM and GitHub artifact attestations are present.
-   - If they are not present, release notes must say `not included in this alpha`.
+7. **Artifact provenance attestations**
+   - Confirm GitHub Artifact Attestations were generated for each release
+     archive.
+   - Verify each archive before publishing notes that mention provenance:
+     - `gh attestation verify <artifact>.tar.gz --repo vtimame/TOK --signer-workflow vtimame/TOK/.github/workflows/release.yml --source-ref refs/tags/<release-tag>`
 
-8. **Prerelease tag handling**
+8. **SBOM status**
+   - Record whether SBOM artifacts are present.
+   - If SBOM artifacts are not present, release notes must say
+     `not included in this alpha`.
+
+9. **Prerelease tag handling**
    - `scripts/release-prerelease-flags.sh v0.2.2-rc.2` must print `--prerelease`.
    - `scripts/release-prerelease-flags.sh v0.2.2` must print no flags.
 
+10. **Documentation version drift**
+    - Search public docs for stale release references before publishing:
+      `rg -n "v0\\.[0-9]+\\.[0-9]+" README.md docs`.
+    - Confirm any older release tags that remain are historical examples,
+      migration source versions, or release-checklist history, not statements
+      about the current public release.
+
+11. **Release notes**
+    - Create `docs/releases/<release-tag>.md` from `docs/releases/TEMPLATE.md`.
+    - Include `Added`, `Changed`, `Fixed`, `Migration`, and `Contract Notes`
+      sections. Use `None.` for sections that truly do not apply.
+    - Run `scripts/check-release-notes.sh <release-tag>` and record the result.
+
 Do not move a release draft to a published artifact until every required check is
 captured as passed with evidence.
+
+## v0.2.3 draft
+
+### Candidate v0.2.3-rc.1 (Review)
+
+- Release version: `v0.2.3`
+- Release candidate: `v0.2.3-rc.1`
+- Release commit/ref: review diff based on `485e5533c4020624c1af431e7e025abd75882540`; final commit/ref to be recorded after review.
+- GitHub CI workflow URL: `pending commit/push`
+- CI status: `pending`
+- Prepared by: `Codex`
+- Date: `2026-07-28`
+
+#### Executed local validation
+
+- Release notes:
+  - Command: `scripts/check-release-notes.sh v0.2.3`
+  - Result: `passed locally on 2026-07-28`
+- Workflow/docs checks:
+  - Command: `python3 YAML parse for .github/workflows/release.yml, .github/workflows/ci.yml and .github/workflows/staticcheck.yml`
+  - Result: `passed locally on 2026-07-28`
+  - Command: `cd web && pnpm exec prettier --write ../docs/releases/v0.2.3.md ../docs/install.md ../docs/release-distribution.md`
+  - Result: `passed locally on 2026-07-28`
+- Backend validation:
+  - Command: `go test ./...`
+  - Result: `passed locally on 2026-07-28`
+  - Command: `make staticcheck`
+  - Result: `passed locally on 2026-07-28`
+- Scale/read-path benchmark:
+  - Command: `make scale-bench`
+  - Result: `passed locally on 2026-07-28`
+- File-budget / drift checks:
+  - Command: `make quality`
+  - Result: `passed locally on 2026-07-28`
+  - Command: `cd web && pnpm api:check`
+  - Result: `passed locally on 2026-07-28`
+- Web checks:
+  - Command: `cd web && pnpm lint`
+  - Result: `passed locally on 2026-07-28`
+  - Command: `cd web && pnpm test`
+  - Result: `passed locally on 2026-07-28`
+  - Command: `cd web && pnpm typecheck`
+  - Result: `passed locally on 2026-07-28`
+  - Command: `cd web && pnpm build`
+  - Result: `passed locally on 2026-07-28`
+- Whitespace:
+  - Command: `git diff --check`
+  - Result: `passed locally on 2026-07-28`
+
+#### Pending release evidence
+
+- Final commit/ref and GitHub CI URL must be recorded after review branch push.
+- Release workflow must publish `SHA256SUMS`, `SHA256SUMS.sigstore.json` and
+  GitHub Artifact Attestations for the final tag before release notes mention
+  the published assets as available.
+- SBOM remains not included in this alpha.
 
 ## v0.2.1 draft (not published)
 

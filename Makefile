@@ -4,6 +4,8 @@ INSTALL_BIN ?= $(HOME)/go/bin/tok
 TOK_SYSTEMD_UNITS ?= tok-ui.service tok-index-watch.service
 STATICCHECK_VERSION ?= v0.7.0
 STATICCHECK_BIN ?= $(CURDIR)/bin/staticcheck-$(STATICCHECK_VERSION)
+BENCHTIME ?= 1s
+BENCHCOUNT ?= 3
 COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 DATE := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS := -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
@@ -11,12 +13,15 @@ EMBED_WEB_DIR := internal/httpserver/webdist
 
 DEVCTL := ./scripts/devctl.sh
 
-.PHONY: test vet staticcheck quality build web-build web-embed install run fmt dev-start dev-stop dev-restart dev-status dev-logs dev-api-start dev-api-stop dev-app-start dev-app-stop
+.PHONY: test vet staticcheck quality scale-bench build web-build web-embed install run fmt dev-start dev-stop dev-restart dev-status dev-logs dev-api-start dev-api-stop dev-app-start dev-app-stop
 
 quality:
 	./scripts/check-file-budgets.sh
 	cd web && pnpm exec jscpd --config ../.jscpd.json
 	./scripts/check-jscpd-baseline.mjs .quality/jscpd-report.json .jscpd-baseline.json
+
+scale-bench:
+	go test ./internal/storage -run '^$$' -bench BenchmarkScaleReadPaths -benchmem -benchtime=$(BENCHTIME) -count=$(BENCHCOUNT)
 
 test:
 	go test ./...

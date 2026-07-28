@@ -5,8 +5,12 @@ SQLite upgrade paths.
 
 ## v0.2.1 To Current
 
-Checked on 2026-07-28. `gh release list --limit 10` reported `v0.2.1` as the
-latest public release, and local tags matched `v0.2.1`, `v0.2.0`, and `v0.1.0`.
+Initially checked on 2026-07-28 against the `v0.2.2` schema line. The source
+fixture was created from `v0.2.1`; that version is intentionally retained in
+this page as the migration source, not as the current public release.
+
+The `v0.2.3` candidate keeps this migration path and adds automated regression
+coverage for the same legacy fixture shape.
 
 The snapshot was created from a detached `v0.2.1` worktree with an isolated
 `TOK_DATA_DIR`. Before running current code, the database had 13 applied
