@@ -109,6 +109,8 @@ override.
 - [Task Sources and External Trackers](docs/task-sources.md)
 - [Alpha Notes and Safety](docs/alpha.md)
 - [Development](docs/development.md)
+- [Migration Checks](docs/migration-checks.md)
+- [Scaling Checks](docs/scaling-checks.md)
 - [Release Distribution Trust](docs/release-distribution.md)
 - [Release checklist and draft notes](docs/release-checklist.md)
 - [Security Policy](SECURITY.md)
